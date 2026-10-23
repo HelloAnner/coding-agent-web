@@ -1,0 +1,21 @@
+make start
+==========
+
+默认监听 0.0.0.0:20169。本机打开 http://127.0.0.1:20169。
+裸 make 就是 start。make stop 和 make restart 一样走这套。
+
+登录密码在仓库根的 .env.local，键名 PI_WEB_PASSWORD。
+这个文件不进 git。环境变量里已经有这个键时，用环境变量。
+密码是空的，就拒绝监听回环以外的地址。
+
+浏览器登录页只填密码。Basic Auth 的用户名是 pi。
+
+```
+make start
+    |
+    +-- 读环境变量，没有再读 .env.local
+    +-- next dev -H 0.0.0.0 -p 20169
+    +-- 就绪检查打 127.0.0.1:20169
+```
+
+已经在跑的进程，make start 不会改监听地址。要换地址用 make restart。

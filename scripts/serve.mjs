@@ -7,13 +7,54 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = path.join(root, ".run");
 const pidFile = path.join(runDir, "server.pid");
 const logFile = path.join(runDir, "server.log");
+const envFile = path.join(root, ".env.local");
 const distDir = ".next-common";
-const host = process.env.PI_WEB_HOST || "127.0.0.1";
+const host = process.env.PI_WEB_HOST || "0.0.0.0";
 const port = process.env.PI_WEB_PORT || "20169";
-const url = `http://${host}:${port}`;
+const openHost = probeHost(host);
+const probeUrl = `http://${openHost}:${port}`;
 const readyTimeoutMs = 180_000;
 
 const nextBin = path.join(root, "node_modules", "next", "dist", "bin", "next");
+
+export function isLoopbackBind(value) {
+  return value === "127.0.0.1" || value === "localhost" || value === "::1" || value === "[::1]";
+}
+
+// Connecting to 0.0.0.0 or :: is not a reliable readiness check.
+export function probeHost(value) {
+  if (value === "0.0.0.0" || value === "::" || value === "[::]") return "127.0.0.1";
+  return value;
+}
+
+export function parseEnvAssignmentFile(text) {
+  const out = {};
+  for (const line of String(text).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      value.length >= 2
+      && ((value.startsWith("\"") && value.endsWith("\""))
+        || (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+// A password already in the environment wins. An empty one falls through to the file.
+export function resolveWebPassword(envValue, fileText) {
+  if (typeof envValue === "string" && envValue.length > 0) return envValue;
+  const fromFile = parseEnvAssignmentFile(fileText ?? "").PI_WEB_PASSWORD;
+  return typeof fromFile === "string" ? fromFile : "";
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,9 +91,19 @@ function signalGroup(pid, signal) {
   }
 }
 
+function loadPassword() {
+  let fileText = "";
+  try {
+    fileText = fs.readFileSync(envFile, "utf8");
+  } catch {
+    fileText = "";
+  }
+  return resolveWebPassword(process.env.PI_WEB_PASSWORD, fileText);
+}
+
 async function listening() {
   try {
-    const response = await fetch(url, {
+    const response = await fetch(probeUrl, {
       redirect: "manual",
       signal: AbortSignal.timeout(2000),
     });
@@ -72,7 +123,8 @@ function logTail() {
 }
 
 function printRunning(pid) {
-  console.log(url);
+  console.log(`http://${host}:${port}`);
+  if (openHost !== host) console.log(`http://${openHost}:${port}`);
   console.log(`pid ${pid}`);
   console.log("log .run/server.log");
 }
@@ -92,7 +144,7 @@ async function waitUntilReady(pid) {
     }
     await sleep(400);
   }
-  console.error(`server did not answer ${url} within ${readyTimeoutMs / 1000}s`);
+  console.error(`server did not answer ${probeUrl} within ${readyTimeoutMs / 1000}s`);
   const tail = logTail();
   if (tail) console.error(tail);
   process.exit(1);
@@ -108,8 +160,15 @@ async function start() {
   }
   if (existing) fs.rmSync(pidFile, { force: true });
 
+  const password = loadPassword();
+  if (!isLoopbackBind(host) && password.length === 0) {
+    console.error("refusing to listen outside loopback without PI_WEB_PASSWORD");
+    console.error("put it in the environment or in .env.local");
+    process.exit(1);
+  }
+
   if (await listening()) {
-    console.error(`${url} is already in use`);
+    console.error(`${probeUrl} is already in use`);
     process.exit(1);
   }
   if (!fs.existsSync(nextBin)) {
@@ -117,11 +176,18 @@ async function start() {
     process.exit(1);
   }
 
+  const childEnv = {
+    ...process.env,
+    PI_WEB_DIST_DIR: distDir,
+    PI_WEB_HOSTNAME: host,
+  };
+  if (password.length > 0) childEnv.PI_WEB_PASSWORD = password;
+
   const logFd = fs.openSync(logFile, "w");
   const child = spawn(process.execPath, [nextBin, "dev", "-H", host, "-p", String(port)], {
     cwd: root,
     detached: true,
-    env: { ...process.env, PI_WEB_DIST_DIR: distDir },
+    env: childEnv,
     stdio: ["ignore", logFd, logFd],
   });
   fs.closeSync(logFd);
@@ -155,15 +221,20 @@ async function stop() {
   console.log("stopped");
 }
 
-const command = process.argv[2];
-if (command === "start") {
-  await start();
-} else if (command === "stop") {
-  await stop();
-} else if (command === "restart") {
-  await stop();
-  await start();
-} else {
-  console.error("usage: node scripts/serve.mjs start|stop|restart");
-  process.exit(1);
+const entry = process.argv[1];
+const invokedDirectly = Boolean(entry) && path.resolve(entry) === fileURLToPath(import.meta.url);
+
+if (invokedDirectly) {
+  const command = process.argv[2];
+  if (command === "start") {
+    await start();
+  } else if (command === "stop") {
+    await stop();
+  } else if (command === "restart") {
+    await stop();
+    await start();
+  } else {
+    console.error("usage: node scripts/serve.mjs start|stop|restart");
+    process.exit(1);
+  }
 }
