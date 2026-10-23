@@ -15,6 +15,7 @@ import type {
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -215,6 +216,8 @@ export interface UseAgentSessionOptions {
    * Any other harness leaves the pi runtime alone.
    */
   harness?: string;
+  /** Model the composer picked for a non-pi harness (no pi session to hold it yet). */
+  harnessModel?: { provider: string; modelId: string } | null;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -371,9 +374,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // A dsh or grok row is an index entry. It must not open, lease, or prompt a pi session.
   const harness = opts.harness || opts.session?.harness || "pi";
   const usesPiRuntime = harness === "pi";
-  const session = usesPiRuntime ? opts.session ?? null : null;
+  // Grok has a runtime of its own (`grok -p` per prompt), so its session is real too.
+  const usesGrokRuntime = harness === "grok";
+  const session = usesPiRuntime || usesGrokRuntime ? opts.session ?? null : null;
   const runtimeHarnessRef = useRef(harness);
   runtimeHarnessRef.current = harness;
+  const grokModel = session?.modelProvider && session.modelId
+    ? { provider: session.modelProvider, modelId: session.modelId }
+    : opts.harnessModel ?? null;
+  const grokModelRef = useRef(grokModel);
+  grokModelRef.current = grokModel;
+  const grokCwdRef = useRef<string | null>(session?.cwd ?? newSessionCwd ?? null);
+  grokCwdRef.current = session?.cwd ?? newSessionCwd ?? null;
 
   const isNew = session === null && newSessionCwd !== null;
   const initialChoices = isNew ? opts.initialNewSessionChoices ?? null : null;
@@ -520,7 +532,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
-      createSource: (sid) => new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`),
+      createSource: (sid) => new EventSource(runtimeHarnessRef.current === "grok"
+        ? grokEventsUrl(sid, grokModelRef.current?.modelId ?? null)
+        : `/api/agent/${encodeURIComponent(sid)}/events`),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
@@ -683,6 +697,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const refreshContextUsage = useCallback(async (sid: string) => {
+    if (runtimeHarnessRef.current !== "pi") return;
     const runId = promptRunIdRef.current;
     const requestId = ++contextUsageRequestIdRef.current;
     try {
@@ -696,6 +711,44 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
+    // Grok keeps its own transcript (chat_history.jsonl). Read it into the same
+    // SessionData the chat renders, then stop: there is no pi wrapper to ask.
+    if (runtimeHarnessRef.current === "grok") {
+      const cwd = grokCwdRef.current;
+      if (!cwd) return null;
+      if (showLoading) setLoading(true);
+      try {
+        const res = await fetch(grokSessionUrl(sid, cwd), { cache: "no-store" });
+        if (res.status === 404) {
+          if (sessionIdRef.current !== sid) return null;
+          if (showLoading) {
+            setData(null);
+            setMessages([]);
+            setEntryIds([]);
+          }
+          return null;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const loaded = await res.json() as SessionData;
+        if (sessionIdRef.current !== sid || !sessionHookMountedRef.current) return null;
+        setData(loaded);
+        setMessages(loaded.context.messages);
+        setEntryIds(loaded.context.entryIds);
+        setHistoryCursor(null);
+        setHasEarlierMessages(false);
+        setEarlierTurnCount(0);
+        setActiveLeafId(null);
+        setError(null);
+        if (loaded.context.model) setLiveModel(loaded.context.model);
+        setLoading(false);
+        return null;
+      } catch (e) {
+        if (sessionIdRef.current === sid) setError(String(e));
+        return "error";
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    }
     // Single-flight: concurrent reads for the same session (mount + SSE settle +
     // reconcile) share one request unless the caller forces a fresh read.
     const flightKey = options?.force ? `force:${sid}` : sid;
@@ -898,6 +951,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const loadTools = useCallback(async (sid: string) => {
+    if (runtimeHarnessRef.current !== "pi") return null;
     try {
       const tools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
       if (!tools || !sessionHookMountedRef.current || sessionIdRef.current !== sid) return null;
@@ -911,7 +965,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [onSystemToolsChange, setToolPresetState]);
 
-  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)") => {
+  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)", sessionPath = "") => {
     const sid = sessionIdRef.current;
     if (!isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
     newSessionPromotedRef.current = true;
@@ -925,13 +979,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     onSessionCreated?.({
       id: sid,
-      path: "",
+      path: sessionPath,
       cwd: newSessionCwd,
       name: undefined,
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
       messageCount,
       firstMessage,
+      harness: runtimeHarnessRef.current,
       transient: true,
     }, provisionalDraftKey);
   }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef]);
@@ -1006,6 +1061,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // session. This is deliberately a non-prompt command: it creates no message
   // or model run, but lets users inspect the exact prompt before sending one.
   const loadSystemInfo = useCallback(async () => {
+    if (runtimeHarnessRef.current !== "pi") return;
     const sid = sessionIdRef.current ?? await ensureNewSession();
     if (!sid) return;
 
@@ -1036,6 +1092,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const generation = ++slashCommandsGenerationRef.current;
     const current = () => slashCommandsGenerationRef.current === generation;
     const load = (async () => {
+      // pi's command list is not grok's: that harness reports its own commands on
+      // the event stream, and asking the pi RPC here is a 404 per keystroke.
+      if (runtimeHarnessRef.current !== "pi") {
+        if (current()) replaceSlashCommands([]);
+        return [] as SlashCommandInfo[];
+      }
       const sid = sessionIdRef.current ?? await ensureNewSession();
       if (!sid) {
         if (current()) replaceSlashCommands([]);
@@ -1581,20 +1643,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const runId = promptRunIdRef.current;
           const usageRequestId = ++contextUsageRequestIdRef.current;
           loadSession(sid);
-          fetch(`/api/agent/${encodeURIComponent(sid)}`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((d: { state?: AgentStateResponse } | null) => {
-              if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
-              syncLiveModel(d.state);
-              applyLiveUsage(d.state, sid, runId, usageRequestId);
-              if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
-              if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
-              if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
-              // Aborted turns can leave messages queued in pi (delivered with the
-              // next turn); dead wrapper (no state) means the queue is gone.
-              setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
-            })
-            .catch(() => {});
+          if (runtimeHarnessRef.current === "pi") {
+            fetch(`/api/agent/${encodeURIComponent(sid)}`)
+              .then((r) => r.ok ? r.json() : null)
+              .then((d: { state?: AgentStateResponse } | null) => {
+                if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
+                syncLiveModel(d.state);
+                applyLiveUsage(d.state, sid, runId, usageRequestId);
+                if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
+                if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
+                if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+                // Aborted turns can leave messages queued in pi (delivered with the
+                // next turn); dead wrapper (no state) means the queue is gone.
+                setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
+              })
+              .catch(() => {});
+          }
         }
         break;
       case "agent_settled": {
@@ -1828,9 +1892,62 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
+  // Grok has no queued commands and no RPC: one `grok -p` child per prompt, and
+  // the reply arrives on the session's own event stream. So a send only starts
+  // the run and shows the user's bubble; everything after it is streamed.
+  const submitGrokPrompt = useCallback(async (text: string, images?: AttachedImage[]) => {
+    const cwd = grokCwdRef.current;
+    if (!cwd || agentRunningRef.current) {
+      restoreSubmission(text, images, composerDraftKey);
+      if (!cwd) addNotice({ type: "error", message: "Pick a folder first" });
+      return;
+    }
+    if (images?.length) {
+      restoreSubmission(text, images, composerDraftKey);
+      addNotice({ type: "error", message: "The grok harness sends text only for now" });
+      return;
+    }
+    const sid = sessionIdRef.current ?? newGrokSessionId();
+    sessionIdRef.current = sid;
+    const userMessage: AgentMessage = { role: "user", content: text, timestamp: Date.now() };
+
+    dispatch({ type: "start" });
+    agentRunningRef.current = true;
+    sdkAgentActiveRef.current = true;
+    setAgentRunning(true);
+    setAgentPhase({ kind: "waiting_model" });
+    cancelEventStreamGrace();
+    optimisticUserMessageKeyRef.current = null;
+    setMessages((prev) => [...prev, userMessage]);
+    ensureEventsConnected(sid);
+
+    try {
+      const result = await sendGrokCommand<{ sessionFile?: string }>(sid, {
+        type: "prompt",
+        message: text,
+        cwd,
+        ...(grokModelRef.current?.modelId ? { model: grokModelRef.current.modelId } : {}),
+      });
+      promoteNewSession(1, text, result?.sessionFile ?? "");
+    } catch (e) {
+      agentRunningRef.current = false;
+      sdkAgentActiveRef.current = false;
+      setAgentRunning(false);
+      setAgentPhase(null);
+      dispatch({ type: "end" });
+      setMessages((prev) => prev.filter((item) => item !== userMessage));
+      restoreSubmission(text, images, composerDraftKey);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [addNotice, cancelEventStreamGrace, composerDraftKey, dispatch, ensureEventsConnected, promoteNewSession, restoreSubmission]);
+
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
+    if (runtimeHarnessRef.current === "grok") {
+      await submitGrokPrompt(trimmedMessage, images);
+      return;
+    }
     if (runtimeHarnessRef.current !== "pi") {
       restoreSubmission(message, images, composerDraftKey);
       addNotice({ type: "error", message: "This harness cannot send yet" });
@@ -1968,7 +2085,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (runtimeHarnessRef.current !== "pi") {
@@ -2005,6 +2122,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    if (runtimeHarnessRef.current === "grok") {
+      try {
+        await sendGrokCommand(sid, { type: "abort" });
+      } catch (e) {
+        console.error("Failed to abort grok:", e);
+      }
+      return;
+    }
     if (bashRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "abort_bash" });
@@ -2283,6 +2408,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return result;
     };
     if (runtimeHarnessRef.current !== "pi") {
+      // Grok has its own command set; anything that is not a pi command goes out
+      // as the prompt it looks like instead of dying here.
+      if (runtimeHarnessRef.current === "grok") return { handled: false };
       return complete({ handled: true, error: "This harness cannot send yet" });
     }
     const sid = sessionIdRef.current ?? await ensureNewSession();
@@ -2701,6 +2829,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     const sid = session?.id;
     if (!sid) return;
+    // A pi session lives on the server's lease. Grok runs one child per prompt.
+    if (runtimeHarnessRef.current !== "pi") return;
     let disposed = false;
     const renew = async () => {
       const reply = await requestLease(sid);

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { HarnessModelsError, type HarnessDescriptor } from "../types";
@@ -23,6 +23,55 @@ export function grokModelsCacheFile(): string {
 
 export function grokConfigFile(): string {
   return path.join(grokHome(), "config.toml");
+}
+
+/**
+ * Grok's per-directory session root: `~/.grok/sessions/<url-encoded cwd>`.
+ * `encodeURIComponent` is exactly the encoding grok uses (`/` -> `%2F`).
+ */
+export function grokSessionsRoot(cwd: string): string {
+  return path.join(grokHome(), "sessions", encodeURIComponent(cwd));
+}
+
+/** The transcript grok keeps for one session. Not written by this app. */
+export function grokHistoryFile(cwd: string, sessionId: string): string {
+  return path.join(grokSessionsRoot(cwd), sessionId, "chat_history.jsonl");
+}
+
+/**
+ * Grok encodes the real path, not the symlinked one (`/tmp/x` lands under
+ * `/private/tmp/x`), so a session started in a symlinked folder is only found
+ * under its resolved spelling.
+ */
+export function resolveGrokHistoryFile(cwd: string, sessionId: string): string | null {
+  const direct = grokHistoryFile(cwd, sessionId);
+  if (existsSync(direct)) return direct;
+  try {
+    const resolved = grokHistoryFile(realpathSync(cwd), sessionId);
+    if (resolved !== direct && existsSync(resolved)) return resolved;
+  } catch {
+    /* the folder is gone; the direct spelling is all we have */
+  }
+  return null;
+}
+
+/** The grok executable. `PI_WEB_GROK_BIN` wins, then the two install layouts. */
+export function grokBin(): string {
+  const configured = process.env.PI_WEB_GROK_BIN?.trim();
+  if (configured) return configured;
+  const candidates = [
+    path.join(homedir(), ".local", "bin", "grok"),
+    path.join(grokHome(), "bin", "grok"),
+  ];
+  return candidates.find((file) => existsSync(file)) ?? "grok";
+}
+
+/**
+ * Tool-permission mode for headless turns. It is passed on every run so the web
+ * does not depend on the TUI's own `[ui] permission_mode`.
+ */
+export function grokPermissionMode(): string {
+  return process.env.PI_WEB_GROK_PERMISSION_MODE?.trim() || "bypassPermissions";
 }
 
 export const grokHarness: HarnessDescriptor = {

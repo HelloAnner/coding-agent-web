@@ -62,6 +62,8 @@ interface Props {
   onNewSessionChoicesChange?: (choices: NewSessionChoices) => void;
   /** Harness of a fresh composer. An open session uses `session.harness`. */
   harness?: string;
+  /** Model picked for a non-pi harness, before that harness has a session row. */
+  harnessModel?: { provider: string; modelId: string } | null;
   onHarnessChange?: (id: string) => void;
   onCatalogModelChange?: (provider: string, modelId: string) => void;
   onAgentEnd?: (end: AgentEndInfo) => void;
@@ -252,7 +254,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, onHarnessChange, onCatalogModelChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, harnessModel, onHarnessChange, onCatalogModelChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -307,7 +309,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, harness: composerHarness, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, harness: composerHarness, harnessModel, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
     deferInitialScroll: Boolean(pendingScrollRestore),

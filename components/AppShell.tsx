@@ -246,6 +246,9 @@ export function AppShell() {
   const newSessionChoicesRef = useRef<NewSessionChoices | null>(null);
   const harnessRef = useRef("pi");
   const harnessModelRef = useRef<{ provider: string; modelId: string } | null>(null);
+  // The same pick as state: a fresh composer's send reads it, and ChatInput owns
+  // the visible model chip for a harness that has no session file yet.
+  const [composerModel, setComposerModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [composerHarness, setComposerHarness] = useState("pi");
   const [carriedNewSessionChoices, setCarriedNewSessionChoices] = useState<NewSessionChoices | null>(null);
   const handleNewSessionChoicesChange = useCallback((choices: NewSessionChoices) => {
@@ -1020,22 +1023,23 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
-  // Called by ChatWindow when a new session gets its real id from pi.
+  // Called by ChatWindow when a new session gets its real id from its harness.
   // The index row is written before the list is read back, so the sidebar
   // shows the chat that was just started.
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
     void (async () => {
-      const meta = await readPiSessionMeta(session.id);
-      // This callback is the pi runtime creating its own file. The row stays pi.
-      // The model is the one in that file. A fresh composer's other harness
-      // must not be copied onto the row.
-      const harness = "pi";
-      const picked = (harnessRef.current || "pi") === "pi" ? newSessionChoicesRef.current?.model : null;
-      const provider = meta.provider || picked?.provider || "";
-      const model = meta.model || picked?.modelId || "";
-      const sessionPath = session.path || meta.path;
-      const title = catalogTitle(session) || meta.name;
+      // A pi session's model and file come from the pi session file. A grok
+      // session brings its own path and keeps the model the composer picked.
+      const harness = session.harness || "pi";
+      const meta = harness === "pi" ? await readPiSessionMeta(session.id) : null;
+      const picked = harness === "pi"
+        ? newSessionChoicesRef.current?.model
+        : harnessModelRef.current;
+      const provider = meta?.provider || picked?.provider || "";
+      const model = meta?.model || picked?.modelId || "";
+      const sessionPath = session.path || meta?.path;
+      const title = catalogTitle(session) || meta?.name;
       try {
         await fetch("/api/catalog/sessions", {
           method: "POST",
@@ -1082,7 +1086,10 @@ export function AppShell() {
   const handleCatalogModelChange = useCallback((provider: string, modelId: string) => {
     const session = selectedSessionRef.current;
     const harness = session?.harness || harnessRef.current || "pi";
-    if (harness !== "pi") harnessModelRef.current = { provider, modelId };
+    if (harness !== "pi") {
+      harnessModelRef.current = { provider, modelId };
+      setComposerModel({ provider, modelId });
+    }
     if (!session) return;
     setSelectedSession((current) => (
       current?.id === session.id ? { ...current, modelProvider: provider, modelId } : current
@@ -2714,6 +2721,7 @@ export function AppShell() {
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
               harness={composerHarnessFor(selectedSession, composerHarness)}
+              harnessModel={composerModel}
               onHarnessChange={handleHarnessChange}
               onCatalogModelChange={handleCatalogModelChange}
               onAgentEnd={handleAgentEnd}
