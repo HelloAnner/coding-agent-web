@@ -87,6 +87,28 @@ const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
+
+function catalogTitle(session: SessionInfo): string {
+  const raw = session.name?.trim() || session.firstMessage?.trim() || "";
+  if (!raw || raw === "(no messages)") return "";
+  const line = raw.split("\n")[0]?.trim() ?? "";
+  return line.slice(0, 120);
+}
+
+async function readPiSessionMeta(id: string): Promise<{ path: string; name: string }> {
+  try {
+    const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!response.ok) return { path: "", name: "" };
+    const body = await response.json() as { filePath?: unknown; info?: { path?: unknown; name?: unknown } };
+    const path = typeof body.info?.path === "string" && body.info.path
+      ? body.info.path
+      : typeof body.filePath === "string" ? body.filePath : "";
+    const name = typeof body.info?.name === "string" ? body.info.name : "";
+    return { path, name };
+  } catch {
+    return { path: "", name: "" };
+  }
+}
 const TOOL_END_REFRESH_MS = 1000;
 
 function parkedNewSessionDraftKey(cwd: string): string {
@@ -204,6 +226,9 @@ export function AppShell() {
   }, []);
   const newSessionBarFocusRef = useRef<NewSessionContextControl | null>(null);
   const newSessionChoicesRef = useRef<NewSessionChoices | null>(null);
+  const harnessRef = useRef("pi");
+  const harnessModelRef = useRef<{ provider: string; modelId: string } | null>(null);
+  const [composerHarness, setComposerHarness] = useState("pi");
   const [carriedNewSessionChoices, setCarriedNewSessionChoices] = useState<NewSessionChoices | null>(null);
   const handleNewSessionChoicesChange = useCallback((choices: NewSessionChoices) => {
     newSessionChoicesRef.current = choices;
@@ -762,7 +787,7 @@ export function AppShell() {
       adopt({ sessions: sessionCatalog });
       return;
     }
-    void fetch("/api/sessions")
+    void fetch("/api/catalog/sessions")
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then(adopt)
       .catch(() => {
@@ -963,7 +988,7 @@ export function AppShell() {
   // handleCwdChange relies on. Hydrate it from the session list so switching
   // worktrees right after creating a session doesn't close the chat.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
-    void fetch("/api/sessions", { cache: "no-store" })
+    void fetch("/api/catalog/sessions", { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
       .then((d) => {
         const full = d?.sessions.find((s) => s.id === sessionId);
@@ -977,17 +1002,88 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
-  // Called by ChatWindow when a new session gets its real id from pi
+  // Called by ChatWindow when a new session gets its real id from pi.
+  // The index row is written before the list is read back, so the sidebar
+  // shows the chat that was just started.
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
-    if (activeNewSessionDraftKeyRef.current !== sourceDraftKey) return;
-    invalidateWorkspaceRestore();
-    activeNewSessionDraftKeyRef.current = null;
-    setNewSessionCwd(null);
-    setSelectedSession(session);
-    hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    void (async () => {
+      const meta = await readPiSessionMeta(session.id);
+      const harness = harnessRef.current || "pi";
+      const picked = harness === "pi" ? newSessionChoicesRef.current?.model : harnessModelRef.current;
+      const sessionPath = session.path || meta.path;
+      const title = catalogTitle(session) || meta.name;
+      try {
+        await fetch("/api/catalog/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: session.id,
+            cwd: session.cwd,
+            harness,
+            provider: picked?.provider ?? "",
+            model: picked?.modelId ?? "",
+            title,
+            sessionPath,
+          }),
+        });
+      } catch {
+        // The chat stays open. The next list load shows the row once the write lands.
+      }
+      if (activeNewSessionDraftKeyRef.current !== sourceDraftKey) return;
+      invalidateWorkspaceRestore();
+      activeNewSessionDraftKeyRef.current = null;
+      setNewSessionCwd(null);
+      setSelectedSession({
+        ...session,
+        path: sessionPath || session.path,
+        name: title || session.name,
+        harness,
+        modelProvider: picked?.provider || undefined,
+        modelId: picked?.modelId || undefined,
+        transient: false,
+      });
+      hydrateSelectedSession(session.id);
+      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      setRefreshKey((k) => k + 1);
+    })();
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+
+  const handleHarnessChange = useCallback((id: string) => {
+    harnessRef.current = id;
+    setComposerHarness(id);
+    const session = selectedSessionRef.current;
+    if (!session?.cwd) return;
+    setSelectedSession((current) => current?.id === session.id ? { ...current, harness: id } : current);
+    void fetch(`/api/catalog/sessions/${encodeURIComponent(session.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        harness: id,
+        cwd: session.cwd,
+        sessionPath: session.path,
+      }),
+    }).then((response) => {
+      if (response.ok) setRefreshKey((k) => k + 1);
+    }).catch(() => {});
+  }, []);
+
+  const handleCatalogModelChange = useCallback((provider: string, modelId: string) => {
+    const session = selectedSessionRef.current;
+    const harness = session?.harness || harnessRef.current || "pi";
+    if (harness !== "pi") harnessModelRef.current = { provider, modelId };
+    if (!session) return;
+    setSelectedSession((current) => (
+      current?.id === session.id ? { ...current, modelProvider: provider, modelId } : current
+    ));
+    void fetch(`/api/catalog/sessions/${encodeURIComponent(session.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, model: modelId }),
+    }).then((response) => {
+      if (response.ok) setRefreshKey((k) => k + 1);
+    }).catch(() => {});
+  }, []);
 
   const deliverSessionNotification = useCallback(({
     targetSession,
@@ -1116,6 +1212,7 @@ export function AppShell() {
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
+    const source = selectedSessionRef.current;
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setRefreshKey((k) => k + 1);
@@ -1124,8 +1221,34 @@ export function AppShell() {
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
+      harness: "pi",
       transient: false,
     }));
+    const cwd = source?.cwd ?? "";
+    if (cwd.startsWith("/")) {
+      const keepModel = !source?.harness || source.harness === "pi";
+      void (async () => {
+        const meta = await readPiSessionMeta(newSessionId);
+        try {
+          await fetch("/api/catalog/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: newSessionId,
+              cwd,
+              harness: "pi",
+              provider: keepModel ? source?.modelProvider ?? "" : "",
+              model: keepModel ? source?.modelId ?? "" : "",
+              title: meta.name,
+              sessionPath: meta.path,
+            }),
+          });
+          setRefreshKey((k) => k + 1);
+        } catch {
+          // The copy is open. A later refresh writes the row if this post failed.
+        }
+      })();
+    }
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
@@ -2579,6 +2702,9 @@ export function AppShell() {
               newSessionContextBar={newSessionContextBar}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
+              harness={selectedSession?.harness || composerHarness}
+              onHarnessChange={handleHarnessChange}
+              onCatalogModelChange={handleCatalogModelChange}
               onAgentEnd={handleAgentEnd}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}

@@ -340,6 +340,89 @@
   white-space: nowrap;
 }
 
+.harness-models,
+.harness-dsh {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.harness-tabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 2px;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow-x: auto;
+}
+
+.harness-tab {
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.harness-tab[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.harness-tab[aria-selected="true"]::after {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 24px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.harness-models-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.harness-models-body[hidden] {
+  display: none;
+}
+
+.harness-field-input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.harness-enabled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.harness-save-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
 .enabled-models-section {
   display: flex;
   flex-direction: column;

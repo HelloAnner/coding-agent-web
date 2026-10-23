@@ -1,0 +1,73 @@
+多个 harness
+==============
+
+网页只做索引和同一套界面。真正的模型配置、凭据、会话文件留在各自 harness 的目录里。
+
+```
+设置 › 模型
+  [ pi ] [ dsh ] [ 以后再加的 ]
+        |
+        +-- pi   读写 ~/.pi/agent/models.json 和 settings.json
+        +-- dsh  读写 ~/bin/ds/ds.toml（可用 DSH_DS_TOML 改）
+                 会话文件在 ~/.dsh/sessions（可用 DSH_HOME 改）
+
+左侧会话列表
+  不扫描 ~/.pi/agent/sessions
+  只显示 ~/.coding-agent-web/data.db 里的行
+  刚装好是空的。新建一条对话才写一行
+
+输入框
+  模型名右边选 harness。换 harness 后，左边的模型列表跟着换
+  模型列表换成这个 harness 的
+  pi 的发送仍走现在的 pi 会话
+  选了 dsh 也不会把 dsh 的模型 id 交给 pi
+  dsh 的模型来自 ds.toml。选中后记在索引里
+  dsh 真正发消息还没接上
+```
+
+索引
+----
+
+文件：~/.coding-agent-web/data.db（sqlite）
+
+```
+directories
+  id, path, name
+
+sessions
+  id            这条对话在网页里的 id。pi 的用 pi 自己的 session id
+  directory_id
+  harness       pi | dsh | ...
+  provider
+  model
+  title
+  session_path  harness 自己的会话文件。网页不搬这份文件
+```
+
+例子：同一个项目目录下两条对话。
+
+```
+path  /Users/anner/coding-agent-web
+  hello   harness=pi   model=deepseek/deepseek-v4-flash
+          session_path=~/.pi/agent/sessions/.../xxxx.jsonl
+  hello   harness=dsh  model=fineres/deepseek-v4.1-flash
+          session_path=~/.dsh/sessions/--Users-anner-coding-agent-web--/<id>
+```
+
+从列表里删掉一条，只删索引里的行，不删 harness 的会话文件。
+
+代码放哪
+--------
+
+```
+harness/types.ts       每个 harness 的名字和配置目录
+harness/registry.ts    现在有哪些
+harness/pi/            pi。配置仍是 ~/.pi/agent
+harness/dsh/           dsh。读 ds.toml 的 [provider.*] 和 [model.*]
+lib/catalog-db.ts            data.db
+components/HarnessModels.tsx  设置 › 模型顶部的 pi | dsh
+```
+
+再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记。不要改 pi 的会话格式去凑它。
+
+ds.toml 里的 api key 只留在那个文件里。接口不返回 key。

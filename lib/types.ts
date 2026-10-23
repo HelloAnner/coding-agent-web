@@ -392,6 +392,11 @@ export interface SessionInfo {
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;
+  /** Harness that owns the real session file. Set by the catalog index. */
+  harness?: string;
+  /** Model chosen for this row, in that harness's own ids. */
+  modelProvider?: string;
+  modelId?: string;
 }
 
 export interface SessionContext {

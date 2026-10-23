@@ -59,6 +59,10 @@ interface Props {
   /** A fresh composer's model and reasoning picks, carried from the composer it replaces. */
   initialNewSessionChoices?: NewSessionChoices | null;
   onNewSessionChoicesChange?: (choices: NewSessionChoices) => void;
+  /** Harness of a fresh composer. An open session uses `session.harness`. */
+  harness?: string;
+  onHarnessChange?: (id: string) => void;
+  onCatalogModelChange?: (provider: string, modelId: string) => void;
   onAgentEnd?: (end: AgentEndInfo) => void;
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -247,7 +251,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, onHarnessChange, onCatalogModelChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -950,6 +954,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
 
+  const composerHarness = session?.harness || harness || "pi";
+  const foreignHarness = composerHarness !== "pi";
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -959,31 +965,42 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
-      model={displayModelValue}
-      isAutoModelSelection={isAutoModelSelection}
+      harness={composerHarness}
+      onHarnessChange={(id) => {
+        onHarnessChange?.(id);
+        if (id === "pi" && displayModelValue) onCatalogModelChange?.(displayModelValue.provider, displayModelValue.modelId);
+      }}
+      onCatalogModelChange={onCatalogModelChange}
+      model={foreignHarness && session?.modelProvider && session.modelId
+        ? { provider: session.modelProvider, modelId: session.modelId }
+        : displayModelValue}
+      isAutoModelSelection={foreignHarness ? false : isAutoModelSelection}
       modelNames={modelNames}
       modelList={modelList}
       modelError={modelError}
       modelScopeWarnings={modelScopeWarnings}
-      onModelChange={handleModelChange}
+      onModelChange={(provider, modelId) => {
+        void handleModelChange(provider, modelId);
+        onCatalogModelChange?.(provider, modelId);
+      }}
       modelSwitching={modelSwitching}
       defaultModel={defaultModel}
-      onSetDefaultModel={handleSetDefaultModel}
-      onCompact={session || isNew ? handleCompact : undefined}
+      onSetDefaultModel={foreignHarness ? undefined : handleSetDefaultModel}
+      onCompact={!foreignHarness && (session || isNew) ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
       compactError={compactError}
       onDismissCompactError={dismissCompactError}
       compactResult={compactResult}
       toolPreset={toolPreset}
-      onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      onToolPresetChange={!foreignHarness && (session || isNew) ? handleToolPresetChange : undefined}
       thinkingLevel={thinkingLevel}
       isAutoThinkingSelection={isAutoThinkingSelection}
-      onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
+      onThinkingLevelChange={!foreignHarness && (session || isNew) ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       savedDefaultThinkingLevel={savedDefaultThinkingLevel}
-      onSetDefaultThinkingLevel={session || isNew ? handleSetDefaultThinkingLevel : undefined}
+      onSetDefaultThinkingLevel={!foreignHarness && (session || isNew) ? handleSetDefaultThinkingLevel : undefined}
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
       inputHistory={inputHistory}

@@ -100,6 +100,12 @@ interface Props {
   cwd?: string | null;
   /** Files picked with the attach button, handled like files dropped onto the chat. Without it the button takes images only. */
   onAttachFiles?: (files: File[]) => void;
+  /** Harness whose model list this composer shows. Defaults to pi. */
+  harness?: string;
+  /** User picked another harness. Not called on mount. */
+  onHarnessChange?: (id: string) => void;
+  /** Remember the chosen model on the catalog row. A harness other than pi does not call `onModelChange`. */
+  onCatalogModelChange?: (provider: string, modelId: string) => void;
 }
 
 export interface ChatInputHandle {
@@ -676,6 +682,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   cwd,
   onAttachFiles,
   compact = false,
+  harness,
+  onHarnessChange,
+  onCatalogModelChange,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
@@ -701,6 +710,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [imageWarningDismissed, setImageWarningDismissed] = useState(false);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
+  const [harnessId, setHarnessId] = useState(harness || "pi");
+  const [harnessChoices, setHarnessChoices] = useState<{ id: string; label: string }[]>([]);
+  const [foreignModels, setForeignModels] = useState<ModelSelectorOption[]>([]);
+  const [foreignModel, setForeignModel] = useState<{ provider: string; modelId: string } | null>(null);
+  const foreignModelRef = useRef(foreignModel);
+  foreignModelRef.current = foreignModel;
+  const onCatalogModelChangeRef = useRef(onCatalogModelChange);
+  onCatalogModelChangeRef.current = onCatalogModelChange;
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
   const builtinCommandPendingRef = useRef(false);
@@ -1658,6 +1675,70 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     });
   }, [atMenuOpen, atQuery]);
 
+  useEffect(() => {
+    if (!harness || harness === harnessId) return;
+    setHarnessId(harness);
+    setForeignModel(null);
+  }, [harness, harnessId]);
+
+  useEffect(() => {
+    if (compact) return;
+    let cancelled = false;
+    void fetch("/api/harnesses", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { harnesses?: { id?: string; label?: string }[] } | null) => {
+        if (cancelled || !body?.harnesses) return;
+        const next = body.harnesses.filter((item): item is { id: string; label: string } => (
+          typeof item.id === "string" && typeof item.label === "string"
+        ));
+        if (next.length > 0) setHarnessChoices(next);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [compact]);
+
+  const modelProvider = model?.provider ?? "";
+  const modelKey = model?.modelId ?? "";
+  useEffect(() => {
+    if (compact || harnessId === "pi") {
+      setForeignModels([]);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/harnesses/${encodeURIComponent(harnessId)}/models`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { models?: { enabled?: boolean; provider?: string; model?: string; name?: string; key?: string }[] } | null) => {
+        if (cancelled) return;
+        const options = (body?.models ?? [])
+          .filter((item) => item.enabled !== false)
+          .map((item) => ({
+            provider: String(item.provider ?? ""),
+            modelId: String(item.model || item.key || ""),
+            name: String(item.name || item.model || item.key || ""),
+          }))
+          .filter((item) => item.provider && item.modelId);
+        setForeignModels(options);
+        const propModel = modelProvider && modelKey ? { provider: modelProvider, modelId: modelKey } : null;
+        const current = foreignModelRef.current;
+        const fromCurrent = current && options.find((item) => item.provider === current.provider && item.modelId === current.modelId);
+        const fromProp = propModel && options.find((item) => item.provider === propModel.provider && item.modelId === propModel.modelId);
+        const next = fromCurrent
+          ? { provider: fromCurrent.provider, modelId: fromCurrent.modelId }
+          : fromProp
+            ? { provider: fromProp.provider, modelId: fromProp.modelId }
+            : options[0]
+              ? { provider: options[0].provider, modelId: options[0].modelId }
+              : null;
+        foreignModelRef.current = next;
+        setForeignModel(next);
+        if (next && (next.provider !== propModel?.provider || next.modelId !== propModel.modelId)) {
+          onCatalogModelChangeRef.current?.(next.provider, next.modelId);
+        }
+      })
+      .catch(() => { if (!cancelled) setForeignModels([]); });
+    return () => { cancelled = true; };
+  }, [compact, harnessId, modelKey, modelProvider]);
+
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelSelectorOption[] = (() => {
     if (modelList && modelList.length > 0) {
@@ -1669,6 +1750,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       name,
     }));
   })();
+  const usingForeignModels = !compact && harnessId !== "pi";
+  const shownModelOptions = usingForeignModels ? foreignModels : modelOptions;
+  const shownModel = usingForeignModels ? foreignModel : model;
+  const shownHarnesses = harnessChoices.length > 0 ? harnessChoices : [
+    { id: "pi", label: "pi" },
+    { id: "dsh", label: "dsh" },
+  ];
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2460,18 +2548,52 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </svg>
             </button>
             {/* Model selector - visible always, disabled while the session or switch is busy */}
-            {(modelOptions.length > 0 || model || modelError) && onModelChange && (
+            {(shownModelOptions.length > 0 || shownModel || (!usingForeignModels && modelError)) && (usingForeignModels || onModelChange) && (
               <ModelSelector
-                options={modelOptions}
-                value={model}
-                onChange={onModelChange}
-                onReselect={onModelChange}
+                options={shownModelOptions}
+                value={shownModel}
+                onChange={usingForeignModels
+                  ? (provider, modelId) => {
+                      setForeignModel({ provider, modelId });
+                      onCatalogModelChange?.(provider, modelId);
+                    }
+                  : (onModelChange ?? (() => {}))}
+                onReselect={usingForeignModels ? undefined : onModelChange}
                 disabled={isStreaming}
-                busy={modelSwitching}
-                isAutoSelection={isAutoModelSelection}
-                defaultValue={defaultModel}
-                onSetDefault={onSetDefaultModel}
+                busy={usingForeignModels ? false : modelSwitching}
+                isAutoSelection={usingForeignModels ? false : isAutoModelSelection}
+                defaultValue={usingForeignModels ? undefined : defaultModel}
+                onSetDefault={usingForeignModels ? undefined : onSetDefaultModel}
               />
+            )}
+            {!compact && (
+              <select
+                aria-label="harness"
+                value={shownHarnesses.some((item) => item.id === harnessId) ? harnessId : shownHarnesses[0].id}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setHarnessId(next);
+                  setForeignModel(null);
+                  onHarnessChange?.(next);
+                }}
+                style={{
+                  flexShrink: 0,
+                  height: 32,
+                  maxWidth: 96,
+                  padding: "0 2px",
+                  border: "none",
+                  borderRadius: 9,
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {shownHarnesses.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
             )}
           </div>
 

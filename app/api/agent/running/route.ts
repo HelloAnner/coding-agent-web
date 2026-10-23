@@ -6,16 +6,26 @@ import {
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
 import { getSessionUiStateRevision } from "@/lib/session-ui-state";
+import { catalogListVersion } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/agent/running - Lightweight snapshot for visible-tab polling.
 // sessionUiStateRevision (null when unreadable) tells the sidebar its pins and
 // archive changed elsewhere; it costs one stat while the file is unchanged.
+function readCatalogListVersion(): number {
+  try {
+    return catalogListVersion();
+  } catch {
+    return 0;
+  }
+}
+
 export async function GET() {
   return NextResponse.json(
     {
       sessionListVersion: getSessionListVersion(),
+      catalogListVersion: readCatalogListVersion(),
       runningSessionIds: getRunningRpcSessionIds(),
       awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),

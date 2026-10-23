@@ -185,10 +185,8 @@ function ToolbarIconButton({
   );
 }
 
-function sessionListUrl(summary: boolean, force: boolean): string {
-  if (summary) return "/api/sessions?summary=1";
-  if (force) return "/api/sessions?force=1";
-  return "/api/sessions";
+function sessionListUrl(): string {
+  return "/api/catalog/sessions";
 }
 
 /** How a pick in the sidebar opens a session. */
@@ -745,10 +743,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, []);
 
   const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {
+    // `force` bypassed the pi scan cache. This list is the index, so it has no cache to skip.
+    void force;
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(sessionListUrl(summary, force), {
+      const res = await fetch(sessionListUrl(), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -927,6 +927,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         if (!res.ok) return;
         const data = await res.json() as {
           sessionListVersion: number;
+          catalogListVersion?: number;
           runningSessionIds?: string[];
           awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
@@ -941,7 +942,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         setAwaitingInputSessionIds((previous) => sameIdsOr(previous, data.awaitingInputSessionIds ?? []));
         // Pins and archive changed in another window: reload them.
         noteUiRevision(data.sessionUiStateRevision);
-        if (data.sessionListVersion !== sessionListVersionRef.current) {
+        if (typeof data.catalogListVersion === "number" && data.catalogListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
         }
@@ -1132,7 +1133,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
-    if (allSessions.length === 0 || skipInitialProjectSelection) return;
+    if (loading || skipInitialProjectSelection) return;
+    if (allSessions.length === 0) {
+      if (initialSessionId && !restoredRef.current) {
+        restoredRef.current = true;
+        onInitialRestoreDone?.();
+        if (initialSessionLinked) showToast(t("sidebar.sessionNotFound"));
+      }
+      return;
+    }
 
     if (selectedCwd === null) {
       // If restoring a session, set cwd to match that session
@@ -1151,7 +1160,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       const projects = getRecentProjects(allSessions);
       if (projects.length > 0) setSelectedCwd(projects[0].root);
     }
-  }, [allSessions, selectedCwd, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone, showToast, t]);
+  }, [allSessions, loading, selectedCwd, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onSelectSession, onInitialRestoreDone, showToast, t]);
 
   // Prefer an exact UI selection while a refetch is in flight. Once the
   // response catches up, the server-resolved path handles Windows case and
@@ -1829,11 +1838,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     // skill-invoked session stays a no-op instead of persisting raw XML.)
     if (renameValue === title || name === (session.name ?? "")) return;
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
+      await Promise.all([
+        fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        }),
+        fetch(`/api/catalog/sessions/${encodeURIComponent(session.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: name }),
+        }),
+      ]);
       void loadSessions();
     } catch {
       // ignore
@@ -1863,8 +1879,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (session.transient) return;
     setConfirmDeleteRootId((current) => (current === session.id ? null : current));
     try {
-      // The server deletes the family's subagent sessions with it.
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      // Drop the index row. The harness keeps its own session file.
+      await fetch(`/api/catalog/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
       onSessionDeleted?.(session.id);
       void loadSessions();
     } catch {
