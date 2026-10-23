@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  accessNamesFrom,
   isLoopbackBind,
+  mergeHostList,
   parseEnvAssignmentFile,
   probeHost,
   resolveWebPassword,
@@ -38,4 +40,32 @@ test("keeps a password from the environment ahead of the file", () => {
   assert.equal(resolveWebPassword("from-env", "PI_WEB_PASSWORD=from-file\n"), "from-env");
   assert.equal(resolveWebPassword("", "PI_WEB_PASSWORD=from-file\n"), "from-file");
   assert.equal(resolveWebPassword(undefined, ""), "");
+});
+
+test("allows this machine's tailscale name and its short label", () => {
+  assert.deepEqual(
+    accessNamesFrom({
+      hostname: "annerdeMac-mini.local",
+      localHostName: "annerdeMac-mini",
+      tailscaleDnsName: "mac-mini-1002.example.ts.net.",
+    }),
+    [
+      "annerdemac-mini.local",
+      "annerdemac-mini",
+      "mac-mini-1002.example.ts.net",
+      "mac-mini-1002",
+    ],
+  );
+});
+
+test("drops names that are not a hostname and keeps an operator list", () => {
+  assert.deepEqual(accessNamesFrom({
+    hostname: "localhost",
+    localHostName: "anner的Mac mini",
+    tailscaleDnsName: "",
+  }), []);
+  assert.equal(
+    mergeHostList("extra.example, mac-mini-1002", ["mac-mini-1002", "mac-mini-1002.example.ts.net"]),
+    "extra.example,mac-mini-1002,mac-mini-1002.example.ts.net",
+  );
 });

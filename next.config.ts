@@ -60,8 +60,8 @@ const nextConfig: NextConfig = {
     "@earendil-works/pi-tui",
   ],
   // Next 16 blocks cross-origin access to dev resources by default. Allow the
-  // loopback and the RFC1918 LAN ranges so the dev server stays reachable
-  // from other machines on the same LAN.
+  // loopback, the RFC1918 LAN ranges, and the names make start discovered
+  // (this machine's hostname and its Tailscale name) so /_next still loads.
   allowedDevOrigins: [
     "127.0.0.1",
     "10.*.*.*",
@@ -83,6 +83,10 @@ const nextConfig: NextConfig = {
     "172.30.*.*",
     "172.31.*.*",
     "192.168.*.*",
+    ...(process.env.PI_WEB_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((name) => name.trim().replace(/\.$/, "").toLowerCase())
+      .filter((name) => name.length > 0),
   ],
   async headers() {
     return [

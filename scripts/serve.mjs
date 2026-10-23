@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +15,7 @@ const port = process.env.PI_WEB_PORT || "20169";
 const openHost = probeHost(host);
 const probeUrl = `http://${openHost}:${port}`;
 const readyTimeoutMs = 180_000;
+let announcedHosts = "";
 
 const nextBin = path.join(root, "node_modules", "next", "dist", "bin", "next");
 
@@ -54,6 +56,83 @@ export function resolveWebPassword(envValue, fileText) {
   if (typeof envValue === "string" && envValue.length > 0) return envValue;
   const fromFile = parseEnvAssignmentFile(fileText ?? "").PI_WEB_PASSWORD;
   return typeof fromFile === "string" ? fromFile : "";
+}
+
+function isDnsName(value) {
+  return value.length > 0
+    && value.length <= 253
+    && !value.startsWith(".")
+    && !value.endsWith(".")
+    && !value.includes("..")
+    && /^[a-z0-9.-]+$/.test(value);
+}
+
+// Hostnames the proxy will trust. IP literals are already allowed, so this is
+// only names: the Mac's hostname, its Bonjour name, and this node's Tailscale
+// DNS name plus the short label MagicDNS search uses.
+export function accessNamesFrom({ hostname = "", localHostName = "", tailscaleDnsName = "" } = {}) {
+  const found = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const name = String(raw ?? "").trim().replace(/\.$/, "").toLowerCase();
+    if (!isDnsName(name) || name === "localhost" || name.endsWith(".localhost")) return;
+    if (seen.has(name)) return;
+    seen.add(name);
+    found.push(name);
+    if (name.endsWith(".local")) add(name.slice(0, -".local".length));
+  };
+  add(hostname);
+  add(localHostName);
+  if (localHostName) add(`${localHostName}.local`);
+  const dns = String(tailscaleDnsName ?? "").trim();
+  add(dns);
+  const short = dns.replace(/\.$/, "").split(".")[0];
+  if (short && short !== dns) add(short);
+  return found;
+}
+
+export function mergeHostList(existing, extras) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of [...String(existing ?? "").split(","), ...extras]) {
+    const name = String(raw ?? "").trim().replace(/\.$/, "");
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out.join(",");
+}
+
+function commandOutput(command, args) {
+  try {
+    const result = spawnSync(command, args, { encoding: "utf8", timeout: 2000 });
+    if (!result || result.status !== 0) return "";
+    return String(result.stdout ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function discoverAccessNames() {
+  let tailscaleDnsName = "";
+  const raw = commandOutput("tailscale", ["status", "--json"]);
+  if (raw) {
+    try {
+      tailscaleDnsName = String(JSON.parse(raw)?.Self?.DNSName ?? "");
+    } catch {
+      tailscaleDnsName = "";
+    }
+  }
+  const localHostName = process.platform === "darwin"
+    ? commandOutput("scutil", ["--get", "LocalHostName"])
+    : "";
+  return accessNamesFrom({
+    hostname: os.hostname(),
+    localHostName,
+    tailscaleDnsName,
+  });
 }
 
 function sleep(ms) {
@@ -125,6 +204,7 @@ function logTail() {
 function printRunning(pid) {
   console.log(`http://${host}:${port}`);
   if (openHost !== host) console.log(`http://${openHost}:${port}`);
+  if (announcedHosts) console.log(`hosts ${announcedHosts}`);
   console.log(`pid ${pid}`);
   console.log("log .run/server.log");
 }
@@ -176,11 +256,22 @@ async function start() {
     process.exit(1);
   }
 
+  const fileEnv = parseEnvAssignmentFile(
+    fs.existsSync(envFile) ? fs.readFileSync(envFile, "utf8") : "",
+  );
+  const configuredHosts = process.env.PI_WEB_ALLOWED_HOSTS || fileEnv.PI_WEB_ALLOWED_HOSTS || "";
+  const allowedHosts = mergeHostList(
+    configuredHosts,
+    isLoopbackBind(host) ? [] : discoverAccessNames(),
+  );
+  announcedHosts = allowedHosts;
+
   const childEnv = {
     ...process.env,
     PI_WEB_DIST_DIR: distDir,
     PI_WEB_HOSTNAME: host,
   };
+  if (allowedHosts) childEnv.PI_WEB_ALLOWED_HOSTS = allowedHosts;
   if (password.length > 0) childEnv.PI_WEB_PASSWORD = password;
 
   const logFd = fs.openSync(logFile, "w");

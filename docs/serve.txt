@@ -10,12 +10,24 @@ make start
 
 浏览器登录页只填密码。Basic Auth 的用户名是 pi。
 
+用 IP 打开可以直接进。用主机名打开时，Host 不在名单里会返回 Untrusted request。
+make start 把这台机器自己的名字加进名单：系统主机名、Bonjour 的 .local、
+Tailscale DNS 全名，以及全名的第一段。Tailscale 上叫 mac-mini-1002，
+就用 http://mac-mini-1002:20169/ 。其他名字仍然拒绝。
+
 ```
 make start
     |
     +-- 读环境变量，没有再读 .env.local
+    +-- 收集本机名字，放进 PI_WEB_ALLOWED_HOSTS
     +-- next dev -H 0.0.0.0 -p 20169
     +-- 就绪检查打 127.0.0.1:20169
+
+浏览器 Host
+    |
+    +-- IP、localhost                 放行
+    +-- 这台机器自己的名字             放行
+    +-- 其他名字                       Untrusted request
 ```
 
 已经在跑的进程，make start 不会改监听地址。要换地址用 make restart。
