@@ -12,6 +12,8 @@ export const enLocale: LocalePlugin = {
     "harness.enabled": "Enabled",
     "harness.missingToml": "ds.toml was not found",
     "harness.writeFailed": "Could not write ds.toml",
+    "harness.missingGrok": "Grok's model list was not found",
+    "harness.default": "default",
     "common.skills": "Skills",
     "common.agents": "Sub-agents",
     "common.plugins": "Plugins",

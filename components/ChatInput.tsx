@@ -1756,6 +1756,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const shownHarnesses = harnessChoices.length > 0 ? harnessChoices : [
     { id: "pi", label: "pi" },
     { id: "dsh", label: "dsh" },
+    { id: "grok", label: "grok" },
   ];
 
   const compactSavedTokens = compactResult

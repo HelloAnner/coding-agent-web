@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { dshConfigFile, readDshModels, writeDshModel } from "@/harness/dsh";
+import { grokModelsCacheFile, readGrokModels } from "@/harness/grok";
 import { findHarness } from "@/harness/registry";
 import { shortenPath } from "@/lib/display-path";
 
@@ -12,6 +13,18 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   if (!findHarness(id)) return NextResponse.json({ error: "Unknown harness" }, { status: 404 });
+  if (id === "grok") {
+    try {
+      const file = readGrokModels();
+      return NextResponse.json({
+        harness: "grok",
+        path: shortenPath(file.path),
+        models: file.models,
+      }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return NextResponse.json({ error: "Grok's model list was not found", path: shortenPath(grokModelsCacheFile()) }, { status: 404 });
+    }
+  }
   if (id !== "dsh") return NextResponse.json({ harness: id, models: [] });
   try {
     const file = readDshModels();

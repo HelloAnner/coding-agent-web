@@ -5,25 +5,46 @@
 
 ```
 设置 › 模型
-  [ pi ] [ dsh ] [ 以后再加的 ]
+  [ pi ] [ dsh ] [ grok ]
         |
-        +-- pi   读写 ~/.pi/agent/models.json 和 settings.json
-        +-- dsh  读写 ~/bin/ds/ds.toml（可用 DSH_DS_TOML 改）
-                 会话文件在 ~/.dsh/sessions（可用 DSH_HOME 改）
+        +-- pi    读写 ~/.pi/agent/models.json 和 settings.json
+        +-- dsh   读写 ~/bin/ds/ds.toml（可用 DSH_DS_TOML 改）
+                  会话文件在 ~/.dsh/sessions（可用 DSH_HOME 改）
+        +-- grok  只读官方模型。不写自定义模型
+                  列表在 ~/.grok/models_cache.json（可用 GROK_HOME 改）
+                  会话文件在 ~/.grok/sessions/<编码后的目录>/<id>/
 
 左侧会话列表
-  不扫描 ~/.pi/agent/sessions
+  不扫描 ~/.pi/agent/sessions，也不扫描 grok 或 dsh 的会话目录
   只显示 ~/.coding-agent-web/data.db 里的行
   刚装好是空的。新建一条对话才写一行
 
 输入框
   模型名右边选 harness。换 harness 后，左边的模型列表跟着换
-  模型列表换成这个 harness 的
   pi 的发送仍走现在的 pi 会话
-  选了 dsh 也不会把 dsh 的模型 id 交给 pi
+  选了 dsh 或 grok，也不会把那个模型 id 交给 pi
   dsh 的模型来自 ds.toml。选中后记在索引里
-  dsh 真正发消息还没接上
+  grok 的模型来自官方列表。默认模型排在第一个
+  dsh 和 grok 真正发消息还没接上
 ```
+
+grok 的 RPC
+-----------
+
+官方有 ACP（JSON-RPC）。这次没有接上，列模型也不会启动它。
+
+```
+grok agent stdio
+  stdin/stdout 上的 JSON-RPC
+  以后发消息走这条
+
+grok agent serve --bind 127.0.0.1:2419
+  本机 WebSocket。--secret 不写进仓库
+
+一次就结束、不保持会话：grok -p
+```
+
+一次会话：initialize，然后 session/new，然后 session/prompt。回复是 session/update。
 
 索引
 ----
@@ -37,7 +58,7 @@ directories
 sessions
   id            这条对话在网页里的 id。pi 的用 pi 自己的 session id
   directory_id
-  harness       pi | dsh | ...
+  harness       pi | dsh | grok | ...
   provider
   model
   title
@@ -48,10 +69,10 @@ sessions
 
 ```
 path  /Users/anner/coding-agent-web
-  hello   harness=pi   model=deepseek/deepseek-v4-flash
+  hello   harness=pi    model=deepseek/deepseek-v4-flash
           session_path=~/.pi/agent/sessions/.../xxxx.jsonl
-  hello   harness=dsh  model=fineres/deepseek-v4.1-flash
-          session_path=~/.dsh/sessions/--Users-anner-coding-agent-web--/<id>
+  hello   harness=grok  model=grok/grok-4.7
+          session_path=~/.grok/sessions/%2FUsers%2Fanner%2Fcoding-agent-web/<id>
 ```
 
 从列表里删掉一条，只删索引里的行，不删 harness 的会话文件。
@@ -60,14 +81,15 @@ path  /Users/anner/coding-agent-web
 --------
 
 ```
-harness/types.ts       每个 harness 的名字和配置目录
-harness/registry.ts    现在有哪些
-harness/pi/            pi。配置仍是 ~/.pi/agent
-harness/dsh/           dsh。读 ds.toml 的 [provider.*] 和 [model.*]
-lib/catalog-db.ts            data.db
-components/HarnessModels.tsx  设置 › 模型顶部的 pi | dsh
+harness/types.ts        每个 harness 的名字和配置目录
+harness/registry.ts     现在有哪些
+harness/pi/             pi。配置仍是 ~/.pi/agent
+harness/dsh/            dsh。读 ds.toml 的 [provider.*] 和 [model.*]
+harness/grok/           grok。只读官方模型列表
+lib/catalog-db.ts             data.db
+components/HarnessModels.tsx  设置 › 模型顶部的 pi | dsh | grok
 ```
 
 再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记。不要改 pi 的会话格式去凑它。
 
-ds.toml 里的 api key 只留在那个文件里。接口不返回 key。
+ds.toml 和 grok 的 models_cache.json 里的 key 只留在那些文件里。接口不返回 key。
