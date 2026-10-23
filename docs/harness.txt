@@ -32,26 +32,58 @@
   选了 dsh 或 grok，不会创建 pi 会话，也不会把模型 id 交给 pi
   dsh 的模型来自 ds.toml。选中后记在索引里
   grok 的模型来自官方列表。默认模型排在第一个
-  dsh 和 grok 真正发消息还没接上。这时发送会停住，草稿还在
+  grok 能发消息：每问一个 grok 进程，回复走这条会话自己的事件流
+  dsh 真正发消息还没接上。这时发送会停住，草稿还在
 ```
 
-grok 的 RPC
------------
+grok 怎么跑
+------------
 
-官方有 ACP（JSON-RPC）。这次没有接上，列模型也不会启动它。
+不用 ACP，也不常驻。每一问 spawn 一个进程，会话文件归 grok 自己管。
 
 ```
-grok agent stdio
-  stdin/stdout 上的 JSON-RPC
-  以后发消息走这条
+grok -p "<prompt>" --output-format streaming-json \
+     --permission-mode bypassPermissions \
+     --model <model> \
+     -s <新 uuid>        # 新会话。-r <uuid> 是续聊
 
-grok agent serve --bind 127.0.0.1:2419
-  本机 WebSocket。--secret 不写进仓库
+stdout 是 NDJSON，一行一个事件
+  text               -> message_update text_delta
+  thought            -> message_update thinking_delta
+  tool_call          -> toolcall_start/end + tool_execution_start
+  tool_call_update   -> tool_execution_update / tool_execution_end + toolResult 消息
+  end                -> agent_end + agent_settled
 
-一次就结束、不保持会话：grok -p
+中断：给子进程 SIGINT（就是 grok 自己的 stop），3 秒不退再 SIGTERM
 ```
 
-一次会话：initialize，然后 session/new，然后 session/prompt。回复是 session/update。
+网页的 session id 就是 grok 的 session id（`-s` 自己指定，必须是 UUID）。
+会话文件：`~/.grok/sessions/<url 编码的目录>/<id>/chat_history.jsonl`。
+
+```
+浏览器                useAgentSession 里按 harness 分叉
+                       /                    \
+                 harness=pi            harness=grok
+            lib/rpc-manager.ts     harness/grok/runtime.ts
+            /api/agent/[id]        /api/grok/[id]        POST prompt | abort
+                                   /api/grok/[id]/events SSE
+                                           |
+                              chat_history.jsonl（grok 自己写）
+```
+
+事件名和 pi 的那套一样，所以聊天气泡、工具卡、停止按钮都不为新 harness 写第二套。
+
+开关（都可选）：
+
+```
+PI_WEB_GROK_BIN               默认 ~/.local/bin/grok，再退 ~/.grok/bin/grok
+PI_WEB_GROK_PERMISSION_MODE   默认 bypassPermissions（全放开）
+GROK_DEFAULT_MODEL            没选模型时用，默认 grok-4.7
+```
+
+grok 自己的 `~/.grok/config.toml` 里 `[ui] permission_mode = "always-approve"`、`yolo = true` 也改成全放开了。
+
+还没做的：图片附件、grok 的斜杠命令、思考档位（`--reasoning-effort`）、用量/成本统计。
 
 索引
 ----
@@ -92,7 +124,13 @@ harness/types.ts              名字、配置目录、自己的 readModels / wri
 harness/registry.ts           现在有哪些。路由只问 registry，不认识某个格式
 harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
 harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
-harness/grok/                 grok。只读官方模型列表
+harness/grok/index.ts         grok 的目录、可执行文件、权限模式。只读官方模型列表
+harness/grok/runtime.ts       每问一个 grok 进程，事件分发给订阅者
+harness/grok/events.ts        NDJSON -> 网页已有的事件名
+harness/grok/transcript.ts    chat_history.jsonl -> 聊天里的消息
+lib/grok-client.ts            浏览器这边调 /api/grok 的几个函数
+app/api/grok/[id]/            prompt | abort | 读transcript
+app/api/grok/[id]/events/     SSE
 components/harness/panels.tsx 设置页登记。每个面板只请求自己的接口
 lib/catalog-db.ts             data.db。一条会话不能改成另一个 harness
 ```
@@ -106,6 +144,7 @@ dsh 的代码不读 grok 的缓存
 路由和设置外壳不写某个 harness 的格式
 一条索引行的 harness 不能改成另一个
 pi 创建出来的会话文件，索引里也写成 pi
+grok 不经过 lib/rpc-manager.ts，也不碰 pi 的会话文件
 ```
 
 再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记，自己实现 readModels。设置页再在 panels.tsx 登记。不要改 pi 的会话格式去凑它，也不要在路由里加一个 if。
