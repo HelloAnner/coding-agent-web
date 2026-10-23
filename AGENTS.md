@@ -58,13 +58,13 @@ pi 的会话文件、MCP、skills、扩展只留在 pi 这条路上。Claude Cod
 
 日常改 common。main 只做上游同步。
 
-一个功能做完，马上做这三步，不要攒着：
+一个功能做完，马上做这两步，不要攒着：
 
-1. `make restart`，让 http://127.0.0.1:20169 跑上刚改的代码
-2. commit
-3. push 到 origin 的 common
+1. commit
+2. push 到 origin 的 common
 
 类型检查：`node_modules/.bin/tsc --noEmit`
 Lint：`npm run lint`
 
 不要在开发时跑 `next build`，它会弄脏 `.next/`，接着开发服务会坏。
+不允许执行 make start 或者 make restart make stop , 必须我执行

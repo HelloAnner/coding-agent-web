@@ -14,7 +14,7 @@ const host = process.env.PI_WEB_HOST || "0.0.0.0";
 const port = process.env.PI_WEB_PORT || "20169";
 const openHost = probeHost(host);
 const probeUrl = `http://${openHost}:${port}`;
-const readyTimeoutMs = 180_000;
+const readyTimeoutMs = 60_000;
 let announcedHosts = "";
 
 const nextBin = path.join(root, "node_modules", "next", "dist", "bin", "next");
@@ -201,10 +201,19 @@ function logTail() {
   }
 }
 
+export function nextBuildArgs() {
+  return ["build", "--webpack"];
+}
+
+export function nextStartArgs(bindHost, bindPort) {
+  return ["start", "-H", bindHost, "-p", String(bindPort)];
+}
+
 function printRunning(pid) {
   console.log(`http://${host}:${port}`);
   if (openHost !== host) console.log(`http://${openHost}:${port}`);
   if (announcedHosts) console.log(`hosts ${announcedHosts}`);
+  console.log("mode production");
   console.log(`pid ${pid}`);
   console.log("log .run/server.log");
 }
@@ -268,14 +277,26 @@ async function start() {
 
   const childEnv = {
     ...process.env,
+    NODE_ENV: "production",
     PI_WEB_DIST_DIR: distDir,
     PI_WEB_HOSTNAME: host,
   };
   if (allowedHosts) childEnv.PI_WEB_ALLOWED_HOSTS = allowedHosts;
   if (password.length > 0) childEnv.PI_WEB_PASSWORD = password;
 
+  console.log("building");
+  const built = spawnSync(process.execPath, [nextBin, ...nextBuildArgs()], {
+    cwd: root,
+    env: childEnv,
+    stdio: "inherit",
+  });
+  if (!built || built.status !== 0) {
+    console.error("build failed");
+    process.exit(built?.status || 1);
+  }
+
   const logFd = fs.openSync(logFile, "w");
-  const child = spawn(process.execPath, [nextBin, "dev", "-H", host, "-p", String(port)], {
+  const child = spawn(process.execPath, [nextBin, ...nextStartArgs(host, port)], {
     cwd: root,
     detached: true,
     env: childEnv,

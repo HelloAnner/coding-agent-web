@@ -4,6 +4,9 @@ make start
 默认监听 0.0.0.0:20169。本机打开 http://127.0.0.1:20169。
 裸 make 就是 start。make stop 和 make restart 一样走这套。
 
+这是正式环境。先用 webpack 构建到 .next-common，再 next start。
+页面打开时不再编译。构建不写 npm run dev 用的 .next/。
+
 登录密码在仓库根的 .env.local，键名 PI_WEB_PASSWORD。
 这个文件不进 git。环境变量里已经有这个键时，用环境变量。
 密码是空的，就拒绝监听回环以外的地址。
@@ -20,7 +23,8 @@ make start
     |
     +-- 读环境变量，没有再读 .env.local
     +-- 收集本机名字，放进 PI_WEB_ALLOWED_HOSTS
-    +-- next dev -H 0.0.0.0 -p 20169
+    +-- next build --webpack          输出 .next-common
+    +-- next start -H 0.0.0.0 -p 20169
     +-- 就绪检查打 127.0.0.1:20169
 
 浏览器 Host
@@ -30,4 +34,5 @@ make start
     +-- 其他名字                       Untrusted request
 ```
 
-已经在跑的进程，make start 不会改监听地址。要换地址用 make restart。
+已经在跑的进程，make start 不会重新构建，也不会改监听地址。
+改了代码或要换地址，用 make restart。它会停掉、重新构建、再启动。

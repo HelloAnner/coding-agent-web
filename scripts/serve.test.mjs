@@ -4,10 +4,17 @@ import {
   accessNamesFrom,
   isLoopbackBind,
   mergeHostList,
+  nextBuildArgs,
+  nextStartArgs,
   parseEnvAssignmentFile,
   probeHost,
   resolveWebPassword,
 } from "./serve.mjs";
+
+test("builds with webpack and serves that build", () => {
+  assert.deepEqual(nextBuildArgs(), ["build", "--webpack"]);
+  assert.deepEqual(nextStartArgs("0.0.0.0", "20169"), ["start", "-H", "0.0.0.0", "-p", "20169"]);
+});
 
 test("probes loopback when the bind address is every interface", () => {
   assert.equal(probeHost("0.0.0.0"), "127.0.0.1");

@@ -1,5 +1,5 @@
-# Local server for this branch. Listens on every interface.
-# Turbopack compiles incrementally and keeps the cache in .next-common.
+# Local production server for this branch. Listens on every interface.
+# Webpack builds into .next-common, then `next start` serves that build.
 # The process is detached, so closing the terminal leaves it running.
 # Login password: PI_WEB_PASSWORD in .env.local. That file stays out of git.
 

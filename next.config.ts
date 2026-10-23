@@ -16,8 +16,8 @@ try {
 // swaps it for an equivalent built at runtime; both bundlers must run it.
 const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cjs");
 
-// make start sets this so its server keeps its own incremental cache and does
-  // not take the .next/dev lock that `npm run dev` uses.
+// make start sets this so its production build stays in .next-common and does
+// not write the .next directory `npm run dev` uses.
 const distDir = process.env.PI_WEB_DIST_DIR;
 
 const nextConfig: NextConfig = {

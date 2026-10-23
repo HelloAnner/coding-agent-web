@@ -33,7 +33,7 @@
   dsh 的模型来自 ds.toml。选中后记在索引里
   grok 的模型来自官方列表。默认模型排在第一个
   grok 能发消息：每问一个 grok 进程，回复走这条会话自己的事件流
-  dsh 真正发消息还没接上。这时发送会停住，草稿还在
+  dsh 能发消息：dsh 内核常驻一个进程，每条对话一个 ACP 会话
 ```
 
 grok 怎么跑
@@ -85,6 +85,73 @@ grok 自己的 `~/.grok/config.toml` 里 `[ui] permission_mode = "always-approve
 
 还没做的：图片附件、grok 的斜杠命令、思考档位（`--reasoning-effort`）、用量/成本统计。
 
+dsh 怎么跑
+-----------
+
+走 dsh 内核自己的协议 ACP（Agent Client Protocol），不包一层 shell。
+一个常驻进程，多条对话复用它：
+
+```
+dsh --profile acp                  stdio 上的 ACP v1，没有 HTTP、没有端口
+  initialize                       协议 1，不需要鉴权
+  session/new       {cwd, mcpServers:[]} -> {sessionId, configOptions}
+  session/resume    <内核自己的 session id>，续聊；没有日志就报错
+  session/set_config_option  "model" 的值是 JSON.stringify([provider, model])
+  session/prompt    {sessionId, prompt:[{type:"text"}]}，这一轮结束才返回
+  session/cancel    通知，不是请求；grok 那边的 SIGINT 在这里没有对应物
+  session/update    内核 -> 网页：已提交的正文、思考、工具生命周期
+  session/request_permission  内核问权限，网页一律 allow-once
+```
+
+网页的 session id 是自己的（`dsh-...`）。内核自己发 id，所以映射留在
+`harness/dsh/runtime.ts` 里，索引行的 `session_path` 存内核的会话目录：
+
+```
+~/.dsh/sessions/--tmp-dsh-e2e--/<内核 id>/
+  session.v4.jsonl.zstd     每个 flush 一帧 zstd，整个文件是几帧拼接
+```
+
+事件名和 pi 那套一样，所以聊天气泡、工具卡、停止按钮都不为新 harness 写第二套：
+
+```
+agent_message_chunk   -> message_update text_start / text_delta / text_end
+agent_thought_chunk   -> message_update thinking_*
+tool_call             -> toolcall_start/end + tool_execution_start
+tool_call_update      -> tool_execution_end + toolResult 消息
+这一轮落定            -> message_end + agent_end + agent_settled
+```
+
+内核提交的是整条 assistant 消息，不是 token。所以 dsh 的回复按「一步一块」出现，
+不是逐字出现；新的 `messageId` 就把上一个气泡关掉。
+
+模型：ds.toml 的 `provider`/`model` 两项直接就是 ACP 的选项值。内核没挂这个路由
+（比如 ds.toml 里自定义网关，只有 `ds` 启动时才注入）就明确报错，不静默换模型。
+
+```
+浏览器               useAgentSession 里按 harness 分叉
+                      /                    \
+                harness=pi            harness=dsh
+           lib/rpc-manager.ts    harness/dsh/acp.ts     一条 stdio 连接，常驻
+           /api/agent/[id]       harness/dsh/runtime.ts 每条对话一个 ACP 会话
+                                 /api/dsh/[id]        POST prompt | abort | get_state
+                                 /api/dsh/[id]/events SSE
+                                          |
+                                 ~/.dsh/sessions/.../session.v4.jsonl.zstd（内核写）
+```
+
+中断 = `session/cancel`。内核死了，这条对话的 `sessionPath` 还在，下一问
+`session/resume` 接上。
+
+开关（都可选）：
+
+```
+PI_WEB_DSH_BIN     dsh 可执行文件，默认走 PATH
+DSH_HOME           默认 ~/.dsh，会话目录和凭据都在这下面
+```
+
+还没做的：图片附件、思考档位（`reasoning_effort` 选项已经在内核里，网页没接）、
+每条对话单独的沙箱/审批档位、用量统计。
+
 索引
 ----
 
@@ -124,6 +191,13 @@ harness/types.ts              名字、配置目录、自己的 readModels / wri
 harness/registry.ts           现在有哪些。路由只问 registry，不认识某个格式
 harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
 harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
+harness/dsh/acp.ts            dsh --profile acp 的 stdio 客户端，一个进程给全站
+harness/dsh/runtime.ts        每条对话一个 ACP 会话：开、续、发、中断
+harness/dsh/events.ts         ACP session/update -> 网页已有的事件名
+harness/dsh/transcript.ts     session.v4.jsonl.zstd -> 聊天里的消息
+lib/dsh-client.ts             浏览器这边调 /api/dsh 的几个函数
+app/api/dsh/[id]/             prompt | abort | get_state | 读transcript
+app/api/dsh/[id]/events/      SSE
 harness/grok/index.ts         grok 的目录、可执行文件、权限模式。只读官方模型列表
 harness/grok/runtime.ts       每问一个 grok 进程，事件分发给订阅者
 harness/grok/events.ts        NDJSON -> 网页已有的事件名
@@ -145,6 +219,8 @@ dsh 的代码不读 grok 的缓存
 一条索引行的 harness 不能改成另一个
 pi 创建出来的会话文件，索引里也写成 pi
 grok 不经过 lib/rpc-manager.ts，也不碰 pi 的会话文件
+dsh 不经过 lib/rpc-manager.ts，也不碰 grok 的目录
+dsh 的会话文件只由内核写；网页只读，且只读 DSH_HOME/sessions 下面
 ```
 
 再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记，自己实现 readModels。设置页再在 panels.tsx 登记。不要改 pi 的会话格式去凑它，也不要在路由里加一个 if。

@@ -16,6 +16,7 @@ import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
+import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/lib/dsh-client";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -376,7 +377,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const usesPiRuntime = harness === "pi";
   // Grok has a runtime of its own (`grok -p` per prompt), so its session is real too.
   const usesGrokRuntime = harness === "grok";
-  const session = usesPiRuntime || usesGrokRuntime ? opts.session ?? null : null;
+  // dsh drives its own kernel (`dsh --profile acp`), so its session is real too.
+  const usesDshRuntime = harness === "dsh";
+  const session = usesPiRuntime || usesGrokRuntime || usesDshRuntime ? opts.session ?? null : null;
   const runtimeHarnessRef = useRef(harness);
   runtimeHarnessRef.current = harness;
   const grokModel = session?.modelProvider && session.modelId
@@ -386,6 +389,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   grokModelRef.current = grokModel;
   const grokCwdRef = useRef<string | null>(session?.cwd ?? newSessionCwd ?? null);
   grokCwdRef.current = session?.cwd ?? newSessionCwd ?? null;
+  // dsh's kernel session directory; a chat only has one after its first turn.
+  const dshSessionPathRef = useRef<string | null>(session?.path ?? null);
+  dshSessionPathRef.current = session?.path ?? null;
 
   const isNew = session === null && newSessionCwd !== null;
   const initialChoices = isNew ? opts.initialNewSessionChoices ?? null : null;
@@ -534,7 +540,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current = new AgentEventConnection({
       createSource: (sid) => new EventSource(runtimeHarnessRef.current === "grok"
         ? grokEventsUrl(sid, grokModelRef.current?.modelId ?? null)
-        : `/api/agent/${encodeURIComponent(sid)}/events`),
+        : runtimeHarnessRef.current === "dsh"
+          ? dshEventsUrl(sid)
+          : `/api/agent/${encodeURIComponent(sid)}/events`),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
@@ -711,14 +719,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
-    // Grok keeps its own transcript (chat_history.jsonl). Read it into the same
+    // Grok and dsh keep their own transcripts. Read them into the same
     // SessionData the chat renders, then stop: there is no pi wrapper to ask.
-    if (runtimeHarnessRef.current === "grok") {
+    if (runtimeHarnessRef.current === "grok" || runtimeHarnessRef.current === "dsh") {
+      const isDsh = runtimeHarnessRef.current === "dsh";
       const cwd = grokCwdRef.current;
-      if (!cwd) return null;
+      const sessionPath = dshSessionPathRef.current;
+      if (isDsh ? !sessionPath : !cwd) return null;
       if (showLoading) setLoading(true);
       try {
-        const res = await fetch(grokSessionUrl(sid, cwd), { cache: "no-store" });
+        const res = await fetch(isDsh ? dshSessionUrl(sid, sessionPath!) : grokSessionUrl(sid, cwd!), { cache: "no-store" });
         if (res.status === 404) {
           if (sessionIdRef.current !== sid) return null;
           if (showLoading) {
@@ -1941,11 +1951,67 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, cancelEventStreamGrace, composerDraftKey, dispatch, ensureEventsConnected, promoteNewSession, restoreSubmission]);
 
+  // dsh runs on its own kernel (`dsh --profile acp`). The kernel owns the
+  // session, so a send only starts the turn and shows the user's bubble; the
+  // reply arrives on this chat's event stream.
+  const submitDshPrompt = useCallback(async (text: string, images?: AttachedImage[]) => {
+    const cwd = grokCwdRef.current;
+    if (!cwd || agentRunningRef.current) {
+      restoreSubmission(text, images, composerDraftKey);
+      if (!cwd) addNotice({ type: "error", message: "Pick a folder first" });
+      return;
+    }
+    if (images?.length) {
+      restoreSubmission(text, images, composerDraftKey);
+      addNotice({ type: "error", message: "The dsh harness sends text only for now" });
+      return;
+    }
+    const sid = sessionIdRef.current ?? newDshSessionId();
+    sessionIdRef.current = sid;
+    const userMessage: AgentMessage = { role: "user", content: text, timestamp: Date.now() };
+
+    dispatch({ type: "start" });
+    agentRunningRef.current = true;
+    sdkAgentActiveRef.current = true;
+    setAgentRunning(true);
+    setAgentPhase({ kind: "waiting_model" });
+    cancelEventStreamGrace();
+    optimisticUserMessageKeyRef.current = null;
+    setMessages((prev) => [...prev, userMessage]);
+    ensureEventsConnected(sid);
+
+    try {
+      const result = await sendDshCommand<{ sessionPath?: string }>(sid, {
+        type: "prompt",
+        message: text,
+        cwd,
+        sessionPath: dshSessionPathRef.current ?? undefined,
+        ...(grokModelRef.current?.provider ? { provider: grokModelRef.current.provider } : {}),
+        ...(grokModelRef.current?.modelId ? { model: grokModelRef.current.modelId } : {}),
+      });
+      if (result?.sessionPath) dshSessionPathRef.current = result.sessionPath;
+      promoteNewSession(1, text, result?.sessionPath ?? "");
+    } catch (e) {
+      agentRunningRef.current = false;
+      sdkAgentActiveRef.current = false;
+      setAgentRunning(false);
+      setAgentPhase(null);
+      dispatch({ type: "end" });
+      setMessages((prev) => prev.filter((item) => item !== userMessage));
+      restoreSubmission(text, images, composerDraftKey);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [addNotice, cancelEventStreamGrace, composerDraftKey, dispatch, ensureEventsConnected, promoteNewSession, restoreSubmission]);
+
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (runtimeHarnessRef.current === "grok") {
       await submitGrokPrompt(trimmedMessage, images);
+      return;
+    }
+    if (runtimeHarnessRef.current === "dsh") {
+      await submitDshPrompt(trimmedMessage, images);
       return;
     }
     if (runtimeHarnessRef.current !== "pi") {
@@ -2127,6 +2193,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendGrokCommand(sid, { type: "abort" });
       } catch (e) {
         console.error("Failed to abort grok:", e);
+      }
+      return;
+    }
+    if (runtimeHarnessRef.current === "dsh") {
+      try {
+        await sendDshCommand(sid, { type: "abort" });
+      } catch (e) {
+        console.error("Failed to abort dsh:", e);
       }
       return;
     }
@@ -2408,10 +2482,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return result;
     };
     if (runtimeHarnessRef.current !== "pi") {
-      // Grok has its own command set; anything that is not a pi command goes out
-      // as the prompt it looks like instead of dying here.
-      if (runtimeHarnessRef.current === "grok") return { handled: false };
-      return complete({ handled: true, error: "This harness cannot send yet" });
+      // Grok and dsh have their own command sets; anything that is not a pi
+      // command goes out as the prompt it looks like instead of dying here.
+      return { handled: false };
     }
     const sid = sessionIdRef.current ?? await ensureNewSession();
 
