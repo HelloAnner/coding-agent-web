@@ -58,8 +58,13 @@ pi 的会话文件、MCP、skills、扩展只留在 pi 这条路上。Claude Cod
 
 日常改 common。main 只做上游同步。
 
+一个功能做完，马上做这三步，不要攒着：
+
+1. `make restart`，让 http://127.0.0.1:20169 跑上刚改的代码
+2. commit
+3. push 到 origin 的 common
+
 类型检查：`node_modules/.bin/tsc --noEmit`
 Lint：`npm run lint`
-开发服务器：`npm run dev`（端口 30141）
 
-不要在开发时跑 `next build`，它会弄脏 `.next/`，接着 `npm run dev` 会坏。
+不要在开发时跑 `next build`，它会弄脏 `.next/`，接着开发服务会坏。
