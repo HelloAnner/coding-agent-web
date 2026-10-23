@@ -334,8 +334,10 @@ a.session-tree-main {
   white-space: pre;
 }
 
-/* Meta, in the rows' own type: a worktree's branch after its icon. */
-.session-tree-branch {
+/* Meta, in the rows' own type: a worktree's branch after its icon, and any
+   harness other than pi as the same chip with no icon. */
+.session-tree-branch,
+.session-tree-harness {
   flex: none;
   max-width: 78px;
   overflow: hidden;

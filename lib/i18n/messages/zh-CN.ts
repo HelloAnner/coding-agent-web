@@ -14,6 +14,7 @@ export const zhCNLocale: LocalePlugin = {
     "harness.writeFailed": "没能写入 ds.toml",
     "harness.missingGrok": "没有找到 grok 的模型列表",
     "harness.default": "默认",
+    "harness.off": "关",
     "common.skills": "技能",
     "common.agents": "子代理",
     "common.plugins": "插件",

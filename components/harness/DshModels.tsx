@@ -129,7 +129,7 @@ export function DshModels() {
                   {rows.map((row) => (
                     <ConfigSidebarItem key={row.key} active={row.key === selected} onClick={() => setSelected(row.key)}>
                       <ConfigSidebarText>{row.name || row.key}</ConfigSidebarText>
-                      {!row.enabled && <span className="models-sidebar-badge">off</span>}
+                      {!row.enabled && <span className="models-sidebar-badge">{t("harness.off")}</span>}
                     </ConfigSidebarItem>
                   ))}
                 </Fragment>

@@ -188,6 +188,22 @@ test("a branch chip needs a linked worktree", () => {
   assert.doesNotMatch(html, /⑂/);
 });
 
+test("a harness other than pi sits after the title, in the branch chip's type", () => {
+  const dsh = rowMarkup(render({ rows: [sessionRow(session("dsh-row", { harness: "dsh", name: "hello" }))] }), "session:group:dsh-row");
+  assert.match(dsh, /<span class="session-tree-title">hello<\/span><span class="session-tree-harness">dsh<\/span><span class="session-tree-meta">/);
+  assert.match(dsh, /title="hello\n3 msgs · 5 minutes ago · dsh"/);
+  assert.doesNotMatch(dsh, /session-tree-branch/);
+
+  const pi = render({ rows: [sessionRow(session("pi-row", { harness: "pi", name: "hello" }))] });
+  assert.doesNotMatch(pi, /session-tree-harness/);
+
+  const both = rowMarkup(render({
+    rows: [sessionRow(session("both", { harness: "grok", name: "there", isWorktree: true, branch: "feat/rows" }))],
+  }), "session:group:both");
+  assert.match(both, /<span class="session-tree-title">there<\/span><span class="session-tree-harness">grok<\/span><span class="session-tree-branch">/);
+  assert.match(both, /title="there\n3 msgs · 5 minutes ago · grok · ⑂ feat\/rows"/);
+});
+
 test("a fork's row keeps its name's suffix in view; other titles stay one span", () => {
   const fork = { kind: "fork", originSessionId: "src" };
   const named = rowMarkup(render({ rows: [sessionRow(session("copy", { name: "PR#1030 状态栏命令按钮 · 3f9a", relation: fork }))] }), "session:group:copy");

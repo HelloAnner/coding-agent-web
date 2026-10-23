@@ -697,6 +697,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
+  const [harnessMenuOpen, setHarnessMenuOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
@@ -738,6 +739,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolDropdownRef = useRef<HTMLDivElement>(null);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
+  const harnessMenuRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1682,7 +1684,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (!harness || harness === harnessId) return;
     setHarnessId(harness);
     setForeignModel(null);
+    setHarnessMenuOpen(false);
   }, [harness, harnessId]);
+
+  useEffect(() => {
+    if (harnessLocked) setHarnessMenuOpen(false);
+  }, [harnessLocked]);
 
   useEffect(() => {
     if (compact) return;
@@ -1759,6 +1766,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const shownHarnesses = harnessChoices.length > 0
     ? harnessChoices
     : [{ id: harnessId || "pi", label: harnessId || "pi" }];
+  const shownHarnessId = shownHarnesses.some((item) => item.id === harnessId) ? harnessId : shownHarnesses[0].id;
+  const shownHarnessLabel = shownHarnesses.find((item) => item.id === shownHarnessId)?.label ?? shownHarnessId;
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -1783,6 +1792,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       }
       if (thinkingDropdownRef.current && !thinkingDropdownRef.current.contains(e.target as Node)) {
         setThinkingDropdownOpen(false);
+      }
+      if (harnessMenuRef.current && !harnessMenuRef.current.contains(e.target as Node)) {
+        setHarnessMenuOpen(false);
       }
       if (controlsMenuRef.current && !controlsMenuRef.current.contains(e.target as Node)) {
         setControlsMenuOpen(false);
@@ -2569,35 +2581,95 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               />
             )}
             {!compact && (
-              <select
-                aria-label="harness"
-                disabled={harnessLocked}
-                value={shownHarnesses.some((item) => item.id === harnessId) ? harnessId : shownHarnesses[0].id}
-                onChange={(event) => {
-                  if (harnessLocked) return;
-                  const next = event.target.value;
-                  setHarnessId(next);
-                  setForeignModel(null);
-                  onHarnessChange?.(next);
-                }}
-                style={{
-                  flexShrink: 0,
-                  height: 32,
-                  maxWidth: 96,
-                  padding: "0 2px",
-                  border: "none",
-                  borderRadius: 9,
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: harnessLocked ? "default" : "pointer",
-                }}
-              >
-                {shownHarnesses.map((item) => (
-                  <option key={item.id} value={item.id}>{item.label}</option>
-                ))}
-              </select>
+                <div
+                  ref={harnessMenuRef}
+                  style={{ position: "relative", flexShrink: 0 }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape" || !harnessMenuOpen) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setHarnessMenuOpen(false);
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={harnessMenuOpen}
+                    aria-label={shownHarnessLabel}
+                    disabled={harnessLocked}
+                    title={shownHarnessLabel}
+                    onClick={() => {
+                      if (harnessLocked) return;
+                      setHarnessMenuOpen((open) => !open);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      maxWidth: 96,
+                      height: 32,
+                      padding: isMobile ? "8px 10px" : "8px 12px",
+                      overflow: "hidden",
+                      border: "none",
+                      borderRadius: 9,
+                      background: harnessMenuOpen ? "var(--bg-hover)" : "none",
+                      color: "var(--text-muted)",
+                      cursor: harnessLocked ? "not-allowed" : "pointer",
+                      fontSize: 12,
+                      opacity: harnessLocked ? 0.5 : 1,
+                      transition: "background 0.12s, color 0.12s",
+                    }}
+                    onMouseEnter={(event) => {
+                      if (harnessLocked) return;
+                      event.currentTarget.style.background = "var(--bg-hover)";
+                      event.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(event) => {
+                      if (harnessLocked) {
+                        event.currentTarget.style.background = "none";
+                        event.currentTarget.style.color = "var(--text-muted)";
+                        return;
+                      }
+                      event.currentTarget.style.background = harnessMenuOpen ? "var(--bg-hover)" : "none";
+                      event.currentTarget.style.color = "var(--text-muted)";
+                    }}
+                  >
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shownHarnessLabel}</span>
+                  </button>
+                  {harnessMenuOpen && !harnessLocked && (
+                    <div
+                      role="listbox"
+                      aria-label={shownHarnessLabel}
+                      style={{
+                        position: "absolute",
+                        bottom: "calc(100% + 6px)",
+                        left: 0,
+                        zIndex: 100,
+                        background: "var(--bg)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        boxShadow: "0 -4px 16px rgba(0,0,0,0.10)",
+                        overflow: "hidden",
+                        minWidth: 120,
+                      }}
+                    >
+                      {shownHarnesses.map((item) => (
+                        <SelectorRow
+                          key={item.id}
+                          active={item.id === shownHarnessId}
+                          onSelect={() => {
+                            setHarnessMenuOpen(false);
+                            if (harnessLocked || item.id === harnessId) return;
+                            setHarnessId(item.id);
+                            setForeignModel(null);
+                            onHarnessChange?.(item.id);
+                          }}
+                        >
+                          {item.label}
+                        </SelectorRow>
+                      ))}
+                    </div>
+                  )}
+                </div>
             )}
           </div>
 
