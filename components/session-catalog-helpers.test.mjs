@@ -3,7 +3,7 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
-const { mergeCatalogRow } = await jiti.import("./session-catalog-helpers.ts");
+const { composerHarnessFor, isPiSessionFile, mergeCatalogRow } = await jiti.import("./session-catalog-helpers.ts");
 
 function row(overrides = {}) {
   return {
@@ -50,6 +50,17 @@ test("values the catalogue does carry always win", () => {
   assert.equal(merged.modified, "2026-06-01");
   assert.equal(merged.messageCount, 99);
   assert.deepEqual(merged.relation, { kind: "subagent", parentSessionId: "p1" });
+});
+
+test("an open pi file keeps the pi composer even when the row says grok", () => {
+  const path = "/Users/anner/.pi/agent/sessions/--proj--/2026-10-23T03-56-03-390Z_01a166e6-c9bc-76f0-a173-16538635d7a6.jsonl";
+  assert.equal(isPiSessionFile(path), true);
+  assert.equal(isPiSessionFile("C:\\Users\\anner\\.pi\\agent\\sessions\\proj\\2026-10-23T03-56-03-390Z_01a166e6-c9bc-76f0-a173-16538635d7a6.jsonl"), true);
+  assert.equal(isPiSessionFile("/Users/anner/.grok/sessions/%2Fproj/01a166e6-c9bc-76f0-a173-16538635d7a6"), false);
+  assert.equal(composerHarnessFor({ id: "01a166e6-c9bc-76f0-a173-16538635d7a6", harness: "grok", path }, "grok"), "pi");
+  assert.equal(composerHarnessFor({ id: "g1", harness: "grok", path: "/Users/anner/.grok/sessions/proj/g1" }, "pi"), "grok");
+  assert.equal(composerHarnessFor(null, "grok"), "grok");
+  assert.equal(composerHarnessFor(null, null), "pi");
 });
 
 test("a persisted row clears the transient flag of a fresh session", () => {

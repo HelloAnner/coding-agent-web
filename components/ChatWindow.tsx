@@ -35,6 +35,7 @@ import type { SettingsSection } from "@/lib/settings-navigation";
 import { getTranscriptNotices, summarizeCacheMisses, type CacheMissSummary } from "@/lib/transcript-notices";
 import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNoticeLines } from "@/components/TranscriptNotices";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { composerHarnessFor } from "./session-catalog-helpers";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -279,7 +280,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     return position && !position.atBottom ? position : null;
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
-  const composerHarness = session?.harness || harness || "pi";
+  const composerHarness = composerHarnessFor(session, harness);
 
   const {
     loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
@@ -956,6 +957,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     : null;
 
   const foreignHarness = composerHarness !== "pi";
+  // The pi file's model is the one this chat will send. A catalog pair left
+  // over from another harness must not stay on the row.
+  useEffect(() => {
+    if (!session?.id || foreignHarness || modelSwitching || !displayModelValue?.provider || !displayModelValue.modelId) return;
+    if (session.modelProvider === displayModelValue.provider && session.modelId === displayModelValue.modelId) return;
+    onCatalogModelChange?.(displayModelValue.provider, displayModelValue.modelId);
+  }, [session, foreignHarness, modelSwitching, displayModelValue, onCatalogModelChange]);
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}

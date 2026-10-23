@@ -38,7 +38,7 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
-import { mergeCatalogRow } from "./session-catalog-helpers";
+import { composerHarnessFor, isPiSessionFile, mergeCatalogRow } from "./session-catalog-helpers";
 import { getDraft, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
@@ -95,18 +95,26 @@ function catalogTitle(session: SessionInfo): string {
   return line.slice(0, 120);
 }
 
-async function readPiSessionMeta(id: string): Promise<{ path: string; name: string }> {
+async function readPiSessionMeta(id: string): Promise<{ path: string; name: string; provider: string; model: string }> {
+  const empty = { path: "", name: "", provider: "", model: "" };
   try {
     const response = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { cache: "no-store" });
-    if (!response.ok) return { path: "", name: "" };
-    const body = await response.json() as { filePath?: unknown; info?: { path?: unknown; name?: unknown } };
+    if (!response.ok) return empty;
+    const body = await response.json() as {
+      filePath?: unknown;
+      info?: { path?: unknown; name?: unknown };
+      context?: { model?: { provider?: unknown; modelId?: unknown } | null };
+    };
     const path = typeof body.info?.path === "string" && body.info.path
       ? body.info.path
       : typeof body.filePath === "string" ? body.filePath : "";
     const name = typeof body.info?.name === "string" ? body.info.name : "";
-    return { path, name };
+    const model = body.context?.model;
+    const provider = model && typeof model.provider === "string" ? model.provider : "";
+    const modelId = model && typeof model.modelId === "string" ? model.modelId : "";
+    return { path, name, provider, model: modelId };
   } catch {
-    return { path: "", name: "" };
+    return empty;
   }
 }
 const TOOL_END_REFRESH_MS = 1000;
@@ -171,6 +179,16 @@ export function AppShell() {
   // stale (e.g. a delete that completes after the user navigated away).
   const selectedSessionRef = useRef(selectedSession);
   selectedSessionRef.current = selectedSession;
+  // A pi file stays on pi. A stale index label must not drive the composer.
+  useEffect(() => {
+    if (!selectedSession || selectedSession.harness === "pi" || !isPiSessionFile(selectedSession.path)) return;
+    const sessionId = selectedSession.id;
+    setSelectedSession((current) => (
+      current?.id === sessionId && current.harness !== "pi" && isPiSessionFile(current.path)
+        ? { ...current, harness: "pi" }
+        : current
+    ));
+  }, [selectedSession]);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
@@ -1010,8 +1028,12 @@ export function AppShell() {
     void (async () => {
       const meta = await readPiSessionMeta(session.id);
       // This callback is the pi runtime creating its own file. The row stays pi.
+      // The model is the one in that file. A fresh composer's other harness
+      // must not be copied onto the row.
       const harness = "pi";
-      const picked = newSessionChoicesRef.current?.model;
+      const picked = (harnessRef.current || "pi") === "pi" ? newSessionChoicesRef.current?.model : null;
+      const provider = meta.provider || picked?.provider || "";
+      const model = meta.model || picked?.modelId || "";
       const sessionPath = session.path || meta.path;
       const title = catalogTitle(session) || meta.name;
       try {
@@ -1022,8 +1044,8 @@ export function AppShell() {
             id: session.id,
             cwd: session.cwd,
             harness,
-            provider: picked?.provider ?? "",
-            model: picked?.modelId ?? "",
+            provider,
+            model,
             title,
             sessionPath,
           }),
@@ -1040,8 +1062,8 @@ export function AppShell() {
         path: sessionPath || session.path,
         name: title || session.name,
         harness,
-        modelProvider: picked?.provider || undefined,
-        modelId: picked?.modelId || undefined,
+        modelProvider: provider || undefined,
+        modelId: model || undefined,
         transient: false,
       });
       hydrateSelectedSession(session.id);
@@ -1226,8 +1248,8 @@ export function AppShell() {
               id: newSessionId,
               cwd,
               harness: "pi",
-              provider: keepModel ? source?.modelProvider ?? "" : "",
-              model: keepModel ? source?.modelId ?? "" : "",
+              provider: meta.provider || (keepModel ? source?.modelProvider ?? "" : ""),
+              model: meta.model || (keepModel ? source?.modelId ?? "" : ""),
               title: meta.name,
               sessionPath: meta.path,
             }),
@@ -2691,7 +2713,7 @@ export function AppShell() {
               newSessionContextBar={newSessionContextBar}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
-              harness={selectedSession?.harness || composerHarness}
+              harness={composerHarnessFor(selectedSession, composerHarness)}
               onHarnessChange={handleHarnessChange}
               onCatalogModelChange={handleCatalogModelChange}
               onAgentEnd={handleAgentEnd}
