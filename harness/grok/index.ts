@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { HarnessDescriptor } from "../types";
+import { HarnessModelsError, type HarnessDescriptor } from "../types";
 import { grokDefaultModelId, parseGrokModelsCache, type GrokModelRecord } from "./models";
 
 function expandHome(configured: string): string {
@@ -29,6 +29,14 @@ export const grokHarness: HarnessDescriptor = {
   id: "grok",
   label: "grok",
   configDir: grokHome,
+  readModels() {
+    try {
+      const file = readGrokModels();
+      return { path: file.path, models: file.models };
+    } catch {
+      throw new HarnessModelsError("Grok's model list was not found", grokModelsCacheFile());
+    }
+  },
 };
 
 export interface GrokModelsFile {

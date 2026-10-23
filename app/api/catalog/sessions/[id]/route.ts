@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
-import { deleteCatalogSession, updateCatalogSession, upsertCatalogSession } from "@/lib/catalog-db";
+import { CatalogHarnessLockedError, deleteCatalogSession, updateCatalogSession, upsertCatalogSession } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     sessionPath: typeof body?.sessionPath === "string" ? body.sessionPath : undefined,
     cwd: typeof body?.cwd === "string" ? body.cwd : undefined,
   };
-  if (updateCatalogSession(id, patch)) return NextResponse.json({ ok: true });
+  try {
+    if (updateCatalogSession(id, patch)) return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof CatalogHarnessLockedError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    throw error;
+  }
   if (!patch.cwd || !patch.harness) return NextResponse.json({ error: "Session is not in the index" }, { status: 404 });
   try {
     upsertCatalogSession({

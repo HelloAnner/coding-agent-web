@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { HarnessDescriptor } from "../types";
+import { HarnessModelsError, type HarnessDescriptor } from "../types";
 import { parseDshToml, updateDshModel, type DshModelRecord, type DshProviderRecord } from "./toml";
 
 /** ds.toml. `DSH_DS_TOML` overrides the default `~/bin/ds/ds.toml`. */
@@ -21,6 +21,24 @@ export const dshHarness: HarnessDescriptor = {
   label: "dsh",
   configDir() {
     return path.dirname(dshConfigFile());
+  },
+  readModels() {
+    try {
+      const file = readDshModels();
+      return { path: file.path, providers: file.providers, models: file.models };
+    } catch {
+      throw new HarnessModelsError("ds.toml was not found", dshConfigFile());
+    }
+  },
+  writeModel(key, patch) {
+    if (key.includes(".") || key.includes("/")) {
+      throw new HarnessModelsError("Missing model key", dshConfigFile(), 400);
+    }
+    try {
+      return writeDshModel(key, patch);
+    } catch {
+      throw new HarnessModelsError("Could not write ds.toml", dshConfigFile(), 500);
+    }
   },
 };
 

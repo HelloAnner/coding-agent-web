@@ -88,14 +88,25 @@ function directoryId(db: DatabaseSync, cwd: string, now: number): string {
   return id;
 }
 
+/** A row already belongs to another harness. The index does not retarget it. */
+export class CatalogHarnessLockedError extends Error {
+  constructor() {
+    super("A session keeps its harness");
+    this.name = "CatalogHarnessLockedError";
+  }
+}
+
 /** Insert or replace the index row for one conversation. */
 export function upsertCatalogSession(input: CatalogSessionInput, file = catalogDbPath()): string {
   const cwd = input.cwd.trim();
   if (!path.isAbsolute(cwd)) throw new Error("cwd must be an absolute path");
-  if (!input.harness.trim()) throw new Error("harness is required");
+  const harness = input.harness.trim();
+  if (!harness) throw new Error("harness is required");
   const db = database(file);
   const now = Date.now();
   const id = input.id?.trim() || randomUUID();
+  const existing = db.prepare("SELECT harness FROM sessions WHERE id = ?").get(id) as { harness: string } | undefined;
+  if (existing && existing.harness !== harness) throw new CatalogHarnessLockedError();
   const directory = directoryId(db, cwd, now);
   db.prepare(`
     INSERT INTO sessions (id, directory_id, harness, provider, model, title, session_path, created_at, updated_at)
@@ -111,7 +122,7 @@ export function upsertCatalogSession(input: CatalogSessionInput, file = catalogD
   `).run(
     id,
     directory,
-    input.harness.trim(),
+    harness,
     input.provider ?? "",
     input.model ?? "",
     input.title ?? "",
@@ -128,8 +139,9 @@ export function updateCatalogSession(
   file = catalogDbPath(),
 ): boolean {
   const db = database(file);
-  const existing = db.prepare("SELECT id, directory_id FROM sessions WHERE id = ?").get(id) as { id: string; directory_id: string } | undefined;
+  const existing = db.prepare("SELECT id, directory_id, harness FROM sessions WHERE id = ?").get(id) as { id: string; directory_id: string; harness: string } | undefined;
   if (!existing) return false;
+  if (patch.harness && patch.harness !== existing.harness) throw new CatalogHarnessLockedError();
   const now = Date.now();
   const directory = patch.cwd ? directoryId(db, patch.cwd, now) : existing.directory_id;
   db.prepare(`

@@ -21,11 +21,12 @@
 
 输入框
   模型名右边选 harness。换 harness 后，左边的模型列表跟着换
-  pi 的发送仍走现在的 pi 会话
-  选了 dsh 或 grok，也不会把那个模型 id 交给 pi
+  只有还没生成会话时能换。一条会话的 harness 定了就不再改
+  pi 的发送仍走 pi 自己的会话
+  选了 dsh 或 grok，不会创建 pi 会话，也不会把模型 id 交给 pi
   dsh 的模型来自 ds.toml。选中后记在索引里
   grok 的模型来自官方列表。默认模型排在第一个
-  dsh 和 grok 真正发消息还没接上
+  dsh 和 grok 真正发消息还没接上。这时发送会停住，草稿还在
 ```
 
 grok 的 RPC
@@ -81,15 +82,26 @@ path  /Users/anner/coding-agent-web
 --------
 
 ```
-harness/types.ts        每个 harness 的名字和配置目录
-harness/registry.ts     现在有哪些
-harness/pi/             pi。配置仍是 ~/.pi/agent
-harness/dsh/            dsh。读 ds.toml 的 [provider.*] 和 [model.*]
-harness/grok/           grok。只读官方模型列表
-lib/catalog-db.ts             data.db
-components/HarnessModels.tsx  设置 › 模型顶部的 pi | dsh | grok
+harness/types.ts              名字、配置目录、自己的 readModels / writeModel
+harness/registry.ts           现在有哪些。路由只问 registry，不认识某个格式
+harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
+harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
+harness/grok/                 grok。只读官方模型列表
+components/harness/panels.tsx 设置页登记。每个面板只请求自己的接口
+lib/catalog-db.ts             data.db。一条会话不能改成另一个 harness
 ```
 
-再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记。不要改 pi 的会话格式去凑它。
+隔离
+----
+
+```
+pi 的代码不读 dsh 或 grok 的文件
+dsh 的代码不读 grok 的缓存
+路由和设置外壳不写某个 harness 的格式
+一条索引行的 harness 不能改成另一个
+pi 创建出来的会话文件，索引里也写成 pi
+```
+
+再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记，自己实现 readModels。设置页再在 panels.tsx 登记。不要改 pi 的会话格式去凑它，也不要在路由里加一个 if。
 
 ds.toml 和 grok 的 models_cache.json 里的 key 只留在那些文件里。接口不返回 key。

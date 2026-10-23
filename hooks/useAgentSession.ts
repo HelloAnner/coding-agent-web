@@ -210,6 +210,11 @@ export interface UseAgentSessionOptions {
   initialNewSessionChoices?: NewSessionChoices | null;
   /** A fresh composer reports its own model and reasoning picks, on mount and as they change. */
   onNewSessionChoicesChange?: (choices: NewSessionChoices) => void;
+  /**
+   * Harness this composer is driving. Only `pi` may open a pi AgentSession.
+   * Any other harness leaves the pi runtime alone.
+   */
+  harness?: string;
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -359,16 +364,22 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
   } = opts;
+  // A dsh or grok row is an index entry. It must not open, lease, or prompt a pi session.
+  const harness = opts.harness || opts.session?.harness || "pi";
+  const usesPiRuntime = harness === "pi";
+  const session = usesPiRuntime ? opts.session ?? null : null;
+  const runtimeHarnessRef = useRef(harness);
+  runtimeHarnessRef.current = harness;
 
   const isNew = session === null && newSessionCwd !== null;
   const initialChoices = isNew ? opts.initialNewSessionChoices ?? null : null;
 
   const [data, setData] = useState<SessionData | null>(null);
-  const [loading, setLoading] = useState(!isNew);
+  const [loading, setLoading] = useState(Boolean(session));
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -539,8 +550,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const onNewSessionChoicesChange = opts.onNewSessionChoicesChange;
   useEffect(() => {
-    if (isNew) onNewSessionChoicesChange?.({ model: newSessionModel, thinkingLevel: newSessionThinkingLevel });
-  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange]);
+    if (isNew && usesPiRuntime) onNewSessionChoicesChange?.({ model: newSessionModel, thinkingLevel: newSessionThinkingLevel });
+  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange, usesPiRuntime]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
@@ -926,6 +937,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, newSessionCwd, newSessionDraftKey, onSessionCreated, opts.chatInputRef]);
 
   const ensureNewSession = useCallback(async () => {
+    if (runtimeHarnessRef.current !== "pi") return null;
     if (sessionIdRef.current) return sessionIdRef.current;
     if (!isNew || !newSessionCwd) return sessionIdRef.current;
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
@@ -1819,6 +1831,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
+    if (runtimeHarnessRef.current !== "pi") {
+      restoreSubmission(message, images, composerDraftKey);
+      addNotice({ type: "error", message: "This harness cannot send yet" });
+      return;
+    }
     if (agentRunningRef.current || bashRunningRef.current) {
       restoreSubmission(message, images, composerDraftKey);
       return;
@@ -1954,6 +1971,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
+    if (runtimeHarnessRef.current !== "pi") {
+      addNotice({ type: "error", message: "This harness cannot send yet" });
+      return;
+    }
     if (agentRunningRef.current || bashRunningRef.current) return;
     const inputText = `${excludeFromContext ? "!!" : "!"}${command}`;
     bashRunningRef.current = true;
@@ -2245,7 +2266,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
-    const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
       if (result.error) {
@@ -2256,6 +2276,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       return result;
     };
+    if (runtimeHarnessRef.current !== "pi") {
+      return complete({ handled: true, error: "This harness cannot send yet" });
+    }
+    const sid = sessionIdRef.current ?? await ensureNewSession();
 
     try {
       switch (commandName) {
@@ -2832,7 +2856,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
 
   // Load the model list with bounded retries; loadModels exposes each failure.
+  // Another harness has its own list and must not ask pi for one.
   useEffect(() => {
+    if (!usesPiRuntime) return;
     const controller = new AbortController();
     (async () => {
       for (let attempt = 0; ; attempt++) {
@@ -2849,7 +2875,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     })();
     return () => controller.abort();
-  }, [loadModels, modelsRefreshKey]);
+  }, [loadModels, modelsRefreshKey, usesPiRuntime]);
 
   useEffect(() => {
     if (!compactResult) return;

@@ -102,6 +102,8 @@ interface Props {
   onAttachFiles?: (files: File[]) => void;
   /** Harness whose model list this composer shows. Defaults to pi. */
   harness?: string;
+  /** An open session already belongs to one harness. The control stays visible and does not change it. */
+  harnessLocked?: boolean;
   /** User picked another harness. Not called on mount. */
   onHarnessChange?: (id: string) => void;
   /** Remember the chosen model on the catalog row. A harness other than pi does not call `onModelChange`. */
@@ -683,6 +685,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onAttachFiles,
   compact = false,
   harness,
+  harnessLocked = false,
   onHarnessChange,
   onCatalogModelChange,
 }: Props, ref) {
@@ -1753,11 +1756,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const usingForeignModels = !compact && harnessId !== "pi";
   const shownModelOptions = usingForeignModels ? foreignModels : modelOptions;
   const shownModel = usingForeignModels ? foreignModel : model;
-  const shownHarnesses = harnessChoices.length > 0 ? harnessChoices : [
-    { id: "pi", label: "pi" },
-    { id: "dsh", label: "dsh" },
-    { id: "grok", label: "grok" },
-  ];
+  const shownHarnesses = harnessChoices.length > 0
+    ? harnessChoices
+    : [{ id: harnessId || "pi", label: harnessId || "pi" }];
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2570,8 +2571,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {!compact && (
               <select
                 aria-label="harness"
+                disabled={harnessLocked}
                 value={shownHarnesses.some((item) => item.id === harnessId) ? harnessId : shownHarnesses[0].id}
                 onChange={(event) => {
+                  if (harnessLocked) return;
                   const next = event.target.value;
                   setHarnessId(next);
                   setForeignModel(null);
@@ -2588,7 +2591,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   color: "var(--text-muted)",
                   fontSize: 12,
                   fontWeight: 500,
-                  cursor: "pointer",
+                  cursor: harnessLocked ? "default" : "pointer",
                 }}
               >
                 {shownHarnesses.map((item) => (

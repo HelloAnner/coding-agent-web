@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
-import { listCatalogSessionInfos, upsertCatalogSession } from "@/lib/catalog-db";
+import { CatalogHarnessLockedError, listCatalogSessionInfos, upsertCatalogSession } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +41,9 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ id });
   } catch (error) {
+    if (error instanceof CatalogHarnessLockedError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     const message = error instanceof Error ? error.message : "Could not store the session";
     return NextResponse.json({ error: message }, { status: 400 });
   }

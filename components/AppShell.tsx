@@ -1009,8 +1009,9 @@ export function AppShell() {
     setRefreshKey((k) => k + 1);
     void (async () => {
       const meta = await readPiSessionMeta(session.id);
-      const harness = harnessRef.current || "pi";
-      const picked = harness === "pi" ? newSessionChoicesRef.current?.model : harnessModelRef.current;
+      // This callback is the pi runtime creating its own file. The row stays pi.
+      const harness = "pi";
+      const picked = newSessionChoicesRef.current?.model;
       const sessionPath = session.path || meta.path;
       const title = catalogTitle(session) || meta.name;
       try {
@@ -1050,22 +1051,10 @@ export function AppShell() {
   }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
   const handleHarnessChange = useCallback((id: string) => {
+    // An open session already has a harness. A fresh composer only remembers the next one.
+    if (selectedSessionRef.current?.id) return;
     harnessRef.current = id;
     setComposerHarness(id);
-    const session = selectedSessionRef.current;
-    if (!session?.cwd) return;
-    setSelectedSession((current) => current?.id === session.id ? { ...current, harness: id } : current);
-    void fetch(`/api/catalog/sessions/${encodeURIComponent(session.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        harness: id,
-        cwd: session.cwd,
-        sessionPath: session.path,
-      }),
-    }).then((response) => {
-      if (response.ok) setRefreshKey((k) => k + 1);
-    }).catch(() => {});
   }, []);
 
   const handleCatalogModelChange = useCallback((provider: string, modelId: string) => {
