@@ -966,7 +966,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
       harness={composerHarness}
-      harnessLocked={Boolean(session)}
+      harnessLocked={Boolean(session) || sessionBusy}
       onHarnessChange={(id) => {
         onHarnessChange?.(id);
         if (id === "pi" && displayModelValue) onCatalogModelChange?.(displayModelValue.provider, displayModelValue.modelId);

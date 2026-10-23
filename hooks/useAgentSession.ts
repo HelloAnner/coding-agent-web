@@ -2106,9 +2106,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const selected = await sendAgentCommand<{ provider: string; id: string }>(sid, { type: "set_model", provider, modelId });
       setLiveModel({ provider: selected.provider, modelId: selected.id });
-      // Pi persists model_change synchronously. Reload the canonical session so
-      // the model, thinking level, and active leaf all advance together.
       modelSwitchPendingRef.current = false;
+      // The request already streaming keeps its model. prepareRequest reads
+      // agent.state.model for the next one. Reloading the file now would
+      // replace the live transcript.
+      if (agentRunningRef.current || bashRunningRef.current || isCompacting) return;
+      // Pi persists model_change synchronously. Reload so the model, thinking
+      // level, and active leaf advance together.
       await loadSession(sid);
     } catch (e) {
       console.error("Failed to set model:", e);
@@ -2120,12 +2124,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
       // A failed response can still follow a server-side write (for example, a
       // dropped connection), so let the session file settle the displayed model.
+      // Not while a run is appending: that read would replace the live transcript.
+      if (agentRunningRef.current || bashRunningRef.current || isCompacting) return;
       await loadSession(sid, false, true);
     } finally {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isCompacting, isNew, loadSession, setNewSessionModel]);
 
   const handleCompact = useCallback(async () => {
     const sid = sessionIdRef.current;

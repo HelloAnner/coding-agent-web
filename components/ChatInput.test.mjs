@@ -460,6 +460,34 @@ test("picked files go to the chat's attach handler, or attach as images without 
   assert.deepEqual(pick(() => ({ onAttachFiles: undefined })), { attached: [], images: [[photo, report]], value: "" });
 });
 
+test("a running composer can still change model, and a locked harness cannot", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onModelChange() {},
+        isStreaming: true,
+        harness: "pi",
+        harnessLocked: true,
+        model: { provider: "deepseek", modelId: "deepseek-v4-flash" },
+        modelList: [
+          { provider: "deepseek", id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+          { provider: "deepseek", id: "deepseek-v4", name: "DeepSeek V4" },
+        ],
+      }),
+    ),
+  );
+  const model = html.match(/<div class="model-selector[\s\S]*?<\/button>/)?.[0] ?? "";
+  assert.match(model, /title="Change model"/);
+  assert.doesNotMatch(model, /disabled/);
+  const harness = html.match(/<button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="pi"[^>]*>/)?.[0] ?? "";
+  assert.match(harness, /disabled=""/);
+  assert.match(harness, /opacity:0\.5/);
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(
@@ -511,7 +539,7 @@ test("the live model selector can reapply its current model without changing dra
     choose(option);
     assert.deepEqual(calls, [["open", false], ["filter", ""], ...(expected ? [[expected, option.provider, option.modelId]] : [])]);
   }
-  assert.match(readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), /onReselect=\{onModelChange\}/);
+  assert.match(readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), /onReselect=\{usingForeignModels \? undefined : onModelChange\}/);
 });
 
 test("filters model options by name, id, provider and provider/id", () => {
