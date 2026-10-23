@@ -16,7 +16,11 @@
 
 # next.js
 /.next/
+/.next-common/
 /out/
+
+# make start
+/.run/
 
 # production
 /build
