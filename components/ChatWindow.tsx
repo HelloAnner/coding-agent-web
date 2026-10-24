@@ -36,6 +36,7 @@ import { getTranscriptNotices, summarizeCacheMisses, type CacheMissSummary } fro
 import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNoticeLines } from "@/components/TranscriptNotices";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { composerHarnessFor } from "./session-catalog-helpers";
+import { ClaudeQuestions } from "./harness/ClaudeQuestions";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -285,6 +286,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
   const composerHarness = composerHarnessFor(session, harness);
+  const confirmClaudeProject = useCallback((cwd: string) => window.confirm(t("harness.claudeTrust", { cwd })), [t]);
 
   const {
     loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
@@ -313,6 +315,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     session, harness: composerHarness, harnessModel, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     onOpenSettings,
+    confirmClaudeProject,
     deferInitialScroll: Boolean(pendingScrollRestore),
   });
   // Only whether a reply is streaming and has content yet: the chunks themselves
@@ -972,9 +975,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       ref={chatInputRef}
       onSend={handleSend}
       onAbort={handleAbort}
-      onSteer={agentRunning ? handleSteer : undefined}
-      onFollowUp={agentRunning ? handleFollowUp : undefined}
-      onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
+      onSteer={!foreignHarness && agentRunning ? handleSteer : undefined}
+      onFollowUp={!foreignHarness && agentRunning ? handleFollowUp : undefined}
+      onPromptWithStreamingBehavior={!foreignHarness && agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
       harness={composerHarness}
       harnessLocked={Boolean(session) || sessionBusy}
@@ -991,6 +994,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       isAutoModelSelection={foreignHarness ? false : isAutoModelSelection}
       modelNames={modelNames}
       modelList={modelList}
+      modelsRefreshKey={modelsRefreshKey}
       modelError={modelError}
       modelScopeWarnings={modelScopeWarnings}
       onModelChange={(provider, modelId) => {
@@ -1189,9 +1193,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onOpenSubagent={onOpenSubagent}
                     entryId={entryIds[idx]}
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
-                    onFork={bashRunning || isNew ? undefined : handleFork}
+                    onFork={foreignHarness || bashRunning || isNew ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
-                    onEditContent={sessionBusy ? undefined : handleEditContent}
+                    onEditContent={foreignHarness || sessionBusy ? undefined : handleEditContent}
                     onCancelEdit={cancelEdit}
                     isEditing={editEntryId === entryIds[idx]}
                     showTimestamp={showTimestamp}
@@ -1467,7 +1471,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             <span aria-hidden="true" style={{ fontSize: 15 }}>@</span>
             <span>{t("chat.askInCurrent")}</span>
           </button>
-          {onAskInNewChat && quotedSelection.sourceEntryId && !bashRunning && (
+          {!foreignHarness && onAskInNewChat && quotedSelection.sourceEntryId && !bashRunning && (
             <button
               type="button"
               className="file-viewer-icon-button"
@@ -1801,7 +1805,13 @@ function ExtensionDialog({
     </span>
   );
 
+  const questions = request.method === "editor" ? request.questions : undefined;
+  let answers: Record<string, string> = {};
+  if (questions) { try { answers = JSON.parse(value); } catch { /* no answers yet */ } }
+  const answersComplete = !questions || questions.every((question) => typeof answers[question.question] === "string" && answers[question.question].trim());
+
   const submitValue = () => {
+    if (!answersComplete) return;
     if (request.method === "confirm") {
       onRespond(request, { confirmed: true });
     } else {
@@ -2028,7 +2038,9 @@ function ExtensionDialog({
               }}
             />
           )}
-          {request.method === "editor" && (
+          {request.method === "editor" && (request.questions ? (
+            <ClaudeQuestions questions={request.questions} onChange={(answers) => setValue(JSON.stringify(answers))} />
+          ) : (
             <textarea
               autoFocus
               value={value}
@@ -2051,7 +2063,7 @@ function ExtensionDialog({
                 fontFamily: "var(--font-mono)",
               }}
             />
-          )}
+          ))}
         </div>
 
         <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 8, padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--bg-panel)" }}>
@@ -2085,6 +2097,7 @@ function ExtensionDialog({
             </button>
           ) : request.method !== "select" ? (
             <button
+              disabled={!answersComplete}
               onClick={submitValue}
               style={{
                 padding: "6px 10px",

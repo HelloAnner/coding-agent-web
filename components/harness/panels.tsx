@@ -2,6 +2,7 @@
 
 import type { ComponentType } from "react";
 import { ModelsConfig } from "../ModelsConfig";
+import { ClaudeModels } from "./ClaudeModels";
 import { DshModels } from "./DshModels";
 import { GrokModels } from "./GrokModels";
 
@@ -20,4 +21,5 @@ export const HARNESS_MODEL_PANELS: Record<string, HarnessModelPanel> = {
   pi: PiModelsPanel,
   dsh: DshModels,
   grok: GrokModels,
+  "claude-code": ClaudeModels,
 };

@@ -45,6 +45,11 @@ function database(file = catalogDbPath()): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_by_directory ON sessions(directory_id, updated_at);
+    CREATE TABLE IF NOT EXISTS claude_trusted_projects (
+      config_dir TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      PRIMARY KEY (config_dir, cwd)
+    );
     CREATE TABLE IF NOT EXISTS project_preferences (
       directory_id TEXT PRIMARY KEY REFERENCES directories(id) ON DELETE CASCADE,
       harness TEXT NOT NULL,
@@ -111,10 +116,21 @@ function directoryId(db: DatabaseSync, cwd: string, now: number): string {
 
 /** A row already belongs to another harness. The index does not retarget it. */
 export class CatalogHarnessLockedError extends Error {
-  constructor() {
-    super("A session keeps its harness");
+  constructor(message = "A session keeps its harness") {
+    super(message);
     this.name = "CatalogHarnessLockedError";
   }
+}
+
+/** Web consent is separate from the native CLI metadata, which another process may be writing. */
+export function readClaudeProjectTrust(configDir: string, cwd: string, file = catalogDbPath()): boolean {
+  if (!existsSync(file)) return false;
+  try { return Boolean(readDatabase(file).prepare("SELECT 1 FROM claude_trusted_projects WHERE config_dir = ? AND cwd = ?").get(configDir, cwd)); }
+  catch { return false; }
+}
+
+export function writeClaudeProjectTrust(configDir: string, cwd: string, file = catalogDbPath()): void {
+  database(file).prepare("INSERT OR IGNORE INTO claude_trusted_projects (config_dir, cwd) VALUES (?, ?)").run(configDir, cwd);
 }
 
 /** The harness, provider and model a project started its last chat with. */
@@ -181,8 +197,12 @@ export function upsertCatalogSession(input: CatalogSessionInput, file = catalogD
   const db = database(file);
   const now = Date.now();
   const id = input.id?.trim() || randomUUID();
-  const existing = db.prepare("SELECT harness FROM sessions WHERE id = ?").get(id) as { harness: string } | undefined;
+  const existing = db.prepare(`SELECT sessions.harness, sessions.provider, sessions.model, sessions.session_path, directories.path AS cwd
+    FROM sessions JOIN directories ON directories.id = sessions.directory_id WHERE sessions.id = ?`).get(id) as { harness: string; provider: string; model: string; session_path: string; cwd: string } | undefined;
   if (existing && existing.harness !== harness) throw new CatalogHarnessLockedError();
+  if (existing?.harness === "claude-code" && (
+    existing.cwd !== cwd || existing.provider !== (input.provider ?? "") || existing.model !== (input.model ?? "") || existing.session_path !== (input.sessionPath ?? "")
+  )) throw new CatalogHarnessLockedError("A Claude Code session keeps its profile and directory");
   const directory = directoryId(db, cwd, now);
   db.prepare(`
     INSERT INTO sessions (id, directory_id, harness, provider, model, title, session_path, created_at, updated_at)
@@ -215,9 +235,14 @@ export function updateCatalogSession(
   file = catalogDbPath(),
 ): boolean {
   const db = database(file);
-  const existing = db.prepare("SELECT id, directory_id, harness FROM sessions WHERE id = ?").get(id) as { id: string; directory_id: string; harness: string } | undefined;
+  const existing = db.prepare(`SELECT sessions.id, sessions.directory_id, sessions.harness, sessions.provider, sessions.model, sessions.session_path, directories.path AS cwd
+    FROM sessions JOIN directories ON directories.id = sessions.directory_id WHERE sessions.id = ?`).get(id) as { id: string; directory_id: string; harness: string; provider: string; model: string; session_path: string; cwd: string } | undefined;
   if (!existing) return false;
   if (patch.harness && patch.harness !== existing.harness) throw new CatalogHarnessLockedError();
+  if (existing.harness === "claude-code" && (
+    (patch.cwd !== undefined && patch.cwd !== existing.cwd) || (patch.provider !== undefined && patch.provider !== existing.provider)
+    || (patch.model !== undefined && patch.model !== existing.model) || (patch.sessionPath !== undefined && patch.sessionPath !== existing.session_path)
+  )) throw new CatalogHarnessLockedError("A Claude Code session keeps its profile and directory");
   const now = Date.now();
   const directory = patch.cwd ? directoryId(db, patch.cwd, now) : existing.directory_id;
   db.prepare(`

@@ -57,6 +57,7 @@ interface Props {
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
   modelList?: { id: string; name: string; provider: string; input?: string[] }[];
+  modelsRefreshKey?: number;
   modelError?: string | null;
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   modelScopeWarnings?: string[];
@@ -672,7 +673,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelsRefreshKey, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1756,7 +1757,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       })
       .catch(() => { if (!cancelled) setForeignModels([]); });
     return () => { cancelled = true; };
-  }, [compact, harnessId, modelKey, modelProvider]);
+  }, [compact, harnessId, modelKey, modelProvider, modelsRefreshKey]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelSelectorOption[] = (() => {
@@ -2583,6 +2584,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     }
                   : (onModelChange ?? (() => {}))}
                 onReselect={usingForeignModels ? undefined : onModelChange}
+                disabled={harnessId === "claude-code" && isStreaming}
                 busy={usingForeignModels ? false : modelSwitching}
                 isAutoSelection={usingForeignModels ? false : isAutoModelSelection}
                 defaultValue={usingForeignModels ? undefined : defaultModel}

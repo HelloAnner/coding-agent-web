@@ -1,262 +1,146 @@
-Claude Code 接入方案
-====================
+Claude Code
+===========
 
-状态：调研方案，尚未实现。只启动本机原版 Claude Code CLI，不用 SDK 替代，
-不直接调用模型 API，不修改 pi 的运行时。本机核查版本：Claude Code 2.1.310。
+网页直接运行本机原版 claude CLI。不使用 Claude SDK，不直接调用模型 API。
+运行时不读取 cc 脚本、cc.toml、cc 的偏好文件或公共设置源。
 
-一、接入边界
-------------
+配置
+----
 
-复用 cc 的配置和 profile 规则，不执行 cc，不要求安装 Python 或 CC Switch。
-只有选择依赖某个代理的模型时，那个代理才是该模型的运行条件。
+默认：~/.coding-agent-web/claude-code.json
+与 data.db 同目录。CODING_AGENT_WEB_DATA 改变数据库位置时，配置跟随数据库目录。
+首次读取模型列表时自动生成，不覆盖已有文件。设置 > 模型 > Claude Code 显示路径，
+提示编辑文件；保存后点刷新，关闭设置后输入框也会刷新列表。
 
-网页选模型
-    |
-    v
-读取模型配置，定位 profile，准备与 cc 一样的模型环境
-    |
-    v
-本机 claude CLI，cwd = 用户选择的项目目录
-    |                         |
-    | 原生编码工具、MCP、       +-- CLI 自己的会话文件
-    | skills、hooks、子代理          原目录，不搬进 pi
-    v
-stream-json -> 网页已有的消息、思考、工具卡、SSE
+默认文件提供一个“Local Claude Code”入口，沿用本机原生配置和登录：
 
---print 是 CLI 的非终端交互入口，不是让网页替代 Claude Code 的 agent loop。
-不使用 --bare、--safe-mode，不替换系统提示词，不用 --tools "" 禁用编码工具。
-保留原来的用户、项目、local 配置源。登录、凭据和模型路由交给 CLI。
+  {
+    "profiles": [
+      {
+        "id": "default",
+        "name": "Local Claude Code",
+        "provider": "local",
+        "configDir": "~/.claude",
+        "permissionMode": "manual"
+      }
+    ]
+  }
 
-二、当前 cc 的实际规则
-----------------------
+增加独立模型，例如：
 
-脚本：~/bin/scripts/cc/cc.py
-配置：~/bin/scripts/cc/cc.toml
-profile 实现：~/bin/scripts/cc/profiles.py
+  {
+    "profiles": [
+      {
+        "id": "example-my-model",
+        "name": "Example My Model",
+        "provider": "example",
+        "model": "my-model",
+        "configDir": "~/.claude-profiles/example-my-model",
+        "env": {
+          "ANTHROPIC_BASE_URL": "https://gateway.example/anthropic",
+          "ANTHROPIC_AUTH_TOKEN": "env:MY_MODEL_TOKEN"
+        },
+        "effort": "high",
+        "permissionMode": "manual"
+      }
+    ]
+  }
 
-cc 不切换系统 HOME，而是切换 CLAUDE_CONFIG_DIR。两层目录不要混淆：
+id 是网页中稳定的 profile 标识，不是传给模型服务的 model。
+model 才是 CLI 的 --model；不写时用原生默认模型。
+provider 用于菜单分组。id 必须唯一，每个 profile 必须使用独立的 configDir。
+不写 configDir 时默认 ~/.claude-profiles/<规范化后的 id>。
+enabled:false 隐藏该模型并停止发送，已有历史仍可查看，不会静默改用别的模型。
 
-  cwd                 要开发的项目
-  CLAUDE_CONFIG_DIR   这个模型的配置、历史和项目记忆目录
+有 env 时，由这份配置管理模型环境，清除父进程继承的 ANTHROPIC_*。
+model 对应的 Opus/Sonnet/Haiku 和 small-fast 映射自动补齐，env 中的显式值优先。
+值支持字面字符串、env:NAME、$NAME；缺少环境变量会明确报错。
+额外 headers、上下文窗口、compact 参数也放在 env 中。
+不写 env 时沿用该 profile 的原生设置；env:{} 清除旧 endpoint/token，
+model 指定的模型映射仍会补齐。因此 ~/.claude 不等于“官方 OAuth”：原生设置也可能有第三方路由。
 
-当前 --list 共 10 项，顺序和显示名来自配置，不是远端可用性探测结果：
+permissionMode 支持 manual、acceptEdits、plan、bypassPermissions。
+默认 manual。只有明确配置 bypassPermissions 才启用跳过权限检查。
+effort 支持 low、medium、high、xhigh、max。
 
-  选择项                         profile
-  OAuth 官方账号                 ~/.claude
-  Fine / Claude Sonnet 5         ~/.claude-profiles/fine-claude-sonnet-5
-  Fine / Claude Opus 5           ~/.claude-profiles/fine-claude-opus-5
-  Fine / Claude Opus 5.5         ~/.claude-profiles/fine-claude-opus-5-5
-  Fine / Claude Fable 5          ~/.claude-profiles/fine-claude-fable-5
-  DeepSeek / DeepSeek V4.1 Flash ~/.claude-profiles/deepseek-deepseek-flash
-  OpenCode / DeepSeek V4.1 Flash ~/.claude-profiles/opencode-deepseek-flash
-  Kimi / Kimi K3                 ~/.claude-profiles/kimi-k3
-  Codex / GPT-6.1 Sol            ~/.claude-profiles/codex-gpt-6.1-sol
-  Codex / GPT-6 Astra            ~/.claude-profiles/codex-gpt-6-astra
+新建配置文件权限为 0600，不应提交到 Git。模型接口不会返回 env 或 token。
+本机现有 10 项模型已一次性迁移到独立配置，并保留原 profile 目录；
+之后修改 cc 的配置不会自动影响网页，反之亦然。代码中没有迁移脚本或回退读取逻辑。
 
-真正的模型 id：Fine 的 claude-sonnet-5、claude-opus-5、claude-opus-5-5、
-claude-fable-5；DeepSeek 和 OpenCode 都是 deepseek-flash；Kimi 是 k3；
-Codex 是 gpt-6.1-sol 和 gpt-6-astra。不能只按 model id 区分 profile。
+目录与会话
+----------
 
-Fine 的四个 profile 目前尚未创建。模型列表必须读取配置，不能只扫描目录。
+  网页选择项目和 profile
+          |
+          v
+  claude CLI
+    cwd                 开发目录
+    CLAUDE_CONFIG_DIR   选中模型的原生配置目录
+          |
+          +-- 原生工具、MCP、skills、hooks、插件、子代理
+          +-- 原生 projects/<项目>/<UUID>.jsonl
+          |
+          v
+  stream-json -> 现有消息气泡、思考、工具卡、审批和问题表单
 
-路径算法必须照搬 profiles.py：
-  key = env 名 + ":" + model id
-  转小写；非 ASCII 字母、数字、点、下划线、连字符的连续字符替换为 -
-  去掉首尾 -._；空值用 profile
-  超过 64 字符：前 55 字符 + - + 原 key 的 SHA1 前 8 位
-  oauth/default 使用 ~/.claude；默认元数据在 ~/.claude.json
-  隔离 profile 元数据在 <profile>/.claude.json
-  不同 key 如果落到同一目录，明确报冲突，不静默共用上下文
+不改变系统 HOME。默认 ~/.claude 沿用 CLI 的特殊规则，元数据仍是 ~/.claude.json。
+新 profile 按需创建，共享能力通过软链指向 ~/.claude，已有目录和文件不覆盖。
+凭据、历史、项目记忆不会跨 profile 复制。它不是操作系统沙箱，项目文件仍是同一份。
 
-共享能力用软链指向 ~/.claude，已有文件或目录不覆盖：
-  skills、commands、agents、output-styles、rules、workflows、hooks、themes、
-  keybindings.json、CLAUDE.md、plugins。
+索引 harness=claude-code；model 存 profile id；session_path 固定该 profile 根目录。
+读取历史时在该 profile 的 projects 下按 UUID 定位，兼容原生目录命名和长路径。
+索引不保存第二份聊天正文，也不会自动导入全部终端历史。
+已索引的项目在网页重启后仍可续聊和浏览文件，不要求先创建 pi 会话。
 
-不跨 profile 复制账号凭据、历史、projects、sessions、stats。
-这种隔离不是操作系统沙箱：进程仍使用同一系统账号、HOME 和项目文件。
+切到另一个 profile 会打开新对话，保留旧对话和草稿，不把原上下文带过去。
+运行中先完成或停止，再切模型。服务端也拒绝把旧会话重新指向另一个 profile。
+终端和网页可以接力恢复同一个原生 UUID，但不要同时写同一条会话。
 
-三、配置怎么复用，又不依赖 cc
-----------------------------
+运行与交互
+----------
 
-建议只支持一种模型配置格式，沿用 cc.toml 的字段。路径优先级：
+每条活跃会话一个本机 CLI 进程，同一会话多轮复用；空闲回收后用 --resume <UUID>。
+不用 --continue，不使用 --bare，不替换原生 system prompt，不关闭编码工具或会话持久化。
+CLI 未安装或启动失败时，只报 Claude Code 的错误，不影响其他 harness。
+PI_WEB_CLAUDE_BIN 可指定本机 claude 可执行文件，默认从 PATH 查找。
 
-  显式指定 PI_WEB_CLAUDE_CONFIG
-      > ~/.coding-agent-web/claude-code.toml
-      > 已存在的 ~/bin/scripts/cc/cc.toml
-      > 没有配置文件时，提供“本机默认”入口
+使用 --print、--input-format stream-json、--output-format stream-json、
+--include-partial-messages、--forward-subagent-text，以及 CLI 原生 stdio host 控制消息。
+没有安装或导入 SDK。控制协议集中在 harness/claude-code/runtime.ts。
+开发验证版本为 Claude Code 2.1.310；旧版不识别参数时应先升级本机 CLI。
 
-文件存在但无效时报告错误，不静默退回别的模型。
-“本机默认”沿用用户启动环境和原生 CLI 设置，不冒充 OAuth 官方账号。
-本机 claude 不存在时，只报告该 harness 不可用，不影响 pi、dsh、grok。
+支持文本、图片、思考和工具参数流式显示、工具结果与 Edit diff、子代理进度、
+权限批准/拒绝、AskUserQuestion 单选/多选/其他答案，以及 MCP 的 JSON 输入请求。
+未知控制请求拒绝，不自动替用户作答。被原生策略拒绝的工具不会在网页端绕过。
+MCP JSON 输入仍由原生 CLI/MCP 服务校验；特殊的原生终端对话框不伪装成已支持。
 
-在这台机器上直接读取同一份 cc.toml；不复制出一份长期分叉的模型清单。
-配置里的 enabled、显示名、models 字符串/对象列表、单 model 都保持原规则。
-网页的 provider 保留 env 名，例如 deepseek 和 opencode；不能统一写成 claude。
-OAuth 行使用网页内部默认标识，启动时不把 oauth/default 当作 --model 传给 CLI。
+首次进入未信任项目时，由网页明确确认加载项目 hooks/MCP。
+已有原生 trust 可以沿用；网页新确认保存在 data.db，不覆盖 CLI 正在维护的元数据。
 
-独立用户也可以写同格式文件，例如：
+停止优先使用 CLI interrupt，超时升级 SIGINT / SIGTERM / SIGKILL。
+网页断开不终止正在进行的任务；重新打开读取原生历史、当前回复和待回答问题。
+流式与完整消息按原生 id 对齐，不重复追加。侧栏可显示运行中和等待输入状态。
+用量和费用取原生最新累计记录，不重复累加每轮快照；费用是 CLI 估算，不是代理账单。
 
-  [env.example]
-  name = "Example"
-  url = "https://gateway.example/anthropic"
-  api = "env:MY_MODEL_TOKEN"
-  model = "my-model"
+Pi 的队列、分支编辑等专用控件不套用到 Claude Code。
+标题操作优先取原生标题，没有时取首条提问，不额外启动一次模型请求。
 
-用真正的 TOML 解析器，不扩写 dsh 的按行简化解析器，也不调用 cc.py 解析。
-不执行配置里的任意 launch_command；始终启动本机 claude。
+验证
+----
 
-读取列表不创建目录、不写 settings、不启动任何模型请求。
-首次发送时才准备 profile，并让结果与 cc 的模型环境构造一致：
-  common.env -> endpoint/token/model/三档模型映射 -> 当前 env 的额外 env 覆盖
-  支持 api 的字面值、env:NAME、$NAME；缺少环境变量时明确失败
-  保留 small_fast_model、custom headers、context/compact 参数和 effort
-  common effort 当前为 xhigh，Kimi 自己覆盖为 high
+  node_modules/.bin/tsc --noEmit
+  npm run lint
+  npm test
 
-cc 兼容模式沿用可选公共设置源 ~/bin/claude/settings.json；没有这个文件也能跑。
-新 profile 只补共享软链、必要启动状态和用户选择共享的 MCP 配置；
-已有 profile 保留原生 MCP、插件和其他用户设置，不把整个 .claude.json 克隆过去。
-不执行个人 mcp.py，也不把个人 MCP 名单和凭据写进项目源码。
+真实 CLI 的隔离协议测试：
 
-进入绑定模型的 profile 时，像 cc 一样清掉子进程继承的 ANTHROPIC_*，
-避免父 shell 的 endpoint/token 覆盖目标 settings。只改子进程 env，不改全局 env。
-需要落盘的设置原子写入，目录 0700、配置文件 0600；现有状态不整份覆盖。
+  CLAUDE_CODE_TEST_BIN="$(command -v claude)" \
+    node --experimental-strip-types --test harness/claude-code/claude-code.test.mjs
 
-特别注意：当前 ~/.claude/settings.json 仍有 OpenCode 的模型环境。
-选 cc 的 OAuth 项时，必须像 cc 一样重建该项的模型 env，不能仅取消
-CLAUDE_CONFIG_DIR 就当作已经切回官方账号。浏览列表时不要擅自清理这些设置。
-
-项目默认选择先用网页自己的 project_preferences；没有时可只读参考
-~/.config/cc/state.json 的 cwd -> item/effort。两边不互相覆盖整份偏好文件。
-
-四、驱动本机 CLI
-----------------
-
-使用 node:child_process.spawn，参数数组，shell:false。
-可执行文件默认从 PATH 找 claude，可用 PI_WEB_CLAUDE_BIN 指定绝对路径。
-
-每条活跃对话自己的进程、cwd 和 profile，不用一个全局进程切换所有模型。
-通过 stdin 的 stream-json 发送用户消息，stdout 的 stream-json 接收事件。
-建议同一对话内保持进程，保留后台工具和子代理；空闲回收后用 --resume 恢复。
-
-启动参数骨架，以下省略权限参数：
-
-  CLAUDE_CONFIG_DIR=<选中模型的 profile> claude -p \
-    --input-format stream-json \
-    --output-format stream-json \
-    --verbose --include-partial-messages --forward-subagent-text \
-    --session-id <新 UUID>
-
-  后续重启：同一 profile、同一 cwd，改成 --resume <原 UUID>
-
-默认 profile 遵守 cc 的特殊路径规则，不机械设置 CLAUDE_CONFIG_DIR=~/.claude。
-model 和 effort 已由该 profile 的配置决定，不额外强塞另一套网页默认值。
-不使用 --continue：它可能接上同目录里另一条终端或网页对话。
-不使用 --no-session-persistence，不禁用原生记忆，也不自建第二份模型上下文。
-
-这不是 pi 的 RPC 模式；采用已公开的 CLI headless/stdio 接口。
-需要实现控制消息时，必须验证具体 CLI 版本和能力，不能把未公开协议当稳定 API。
-
-停止优先 SIGINT，让 CLI 结束当前轮并落盘，再按超时升级到 SIGTERM。
-不能只依据进程退出判断一轮结束：长连接有每轮 result，后台任务也可能继续产生事件。
-同时处理 result 的错误、permission_denials、异常退出和 stderr，不能只看 exit code。
-浏览器断开不终止正在运行的编码任务；重连读取历史并恢复当前流式状态。
-
-五、上下文隔离决定切模型的行为
-------------------------------
-
-选另一个模型 = 选另一个 profile，不是给原对话换一个 --model。
-同一网页会话固定 harness、profile、原生 session id、cwd 和 transcript 路径。
-
-  项目 A + Codex Sol   -> profile Sol   -> session 1
-  项目 A + Kimi K3     -> profile Kimi  -> session 2，不带 session 1 的上下文
-
-已有对话改选不同 profile 时，进入该模型的新建对话，保留旧对话和草稿；
-正在运行时先结束或停止，不偷偷把索引的模型改掉。新对话发送时才创建新 UUID。
-不能照搬目前 foreign harness 只更新 provider/model 索引的行为。
-
-索引仍只存引用：harness=claude-code，provider=env 名，model=配置模型 id，
-session_path=CLI 实际 transcript。该路径同时固定 profile，不依赖全局当前选择。
-重启网页后仍能定位同一个 profile，不能仅在内存里保存映射。
-初次定位 transcript 要考虑 CLI 的长路径散列和用户目录命名配置，不能只替换斜杠。
-
-终端和网页可以接力恢复同一原生会话；同一 session 不要由两个进程同时写入。
-网页内部强制单轮单写者。复用 profile 不代表可以同时操控同一条终端会话。
-沿用现有规则：侧栏只显示网页索引，不自动导入所有终端历史。
-
-六、网页内容兼容
-----------------
-
-  system/init                      模型、工具、MCP 状态和能力
-  stream_event 的 text_delta       message_update text_*
-  stream_event 的 thinking_delta   message_update thinking_*
-  tool_use / input_json_delta      工具参数增量和工具开始
-  user 中的 tool_result            工具结束、结果、is_error
-  assistant 完整消息               对齐最终块，不重复追加流式文字
-  parent_tool_use_id               区分子代理和主会话，不串进主回复
-  system/api_retry                 重试状态
-  result                          本轮完成或失败、用量和费用
-
-保留原生 tool id/name，通过映射复用工具卡，不伪造 pi 工具执行。
-Edit 的 file_path/old_string/new_string 和 Write 的 file_path/content 需要展示适配；
-未知工具走现有参数和结果通用卡。图片保留原生内容块，是否接受由实际模型决定。
-CLI 的用量/费用按其字段语义展示；续聊累计值不能每轮重复相加，代理价格不自行猜测。
-
-历史只读 CLI 原文件，兼容 user、assistant、tool_result、分支和 compact 边界；
-不把所有 user 记录当真人提问，不展示 api-request-blob 等内部调试记录。
-文件内部格式官方不承诺稳定，解析集中在 transcript.ts，用本机版本样例做回归。
-同一消息的多个记录、UUID 和 parentUuid 要正确归并，不能逐行当独立气泡。
-流式中间态可内存保存，历史仍以 CLI 文件为准，不另外保存一份聊天正文。
-
-七、审批与用户提问不能假装已兼容
---------------------------------
-
-当前 cc 的启动命令显式带 --dangerously-skip-permissions。
-这台机器可明确沿用该选择，不能把“所有安装者默认无权限检查”写成项目默认。
-CLI -p 会跳过工作区 trust 对话；启动前网页必须让用户确认信任所选项目及其
-Claude hooks/MCP。现有 lib/project-trust.ts 只管 pi 的资源，不能直接当 Claude 信任。
-
-仅有 stdout 映射还不等于终端交互完整：AskUserQuestion、审批、MCP elicitation
-需要把网页答案回传给 CLI。没有 permission host 时，-p 不提供 AskUserQuestion。
-不能默认 --permission-prompts none 后宣称功能相同。
-
-先用本机 CLI 验证官方 --permission-prompt-tool 的权限桥接方式：
-  CLI -> 本地权限 host -> 网页审批/问题 -> 原请求的答案
-  不用 SDK，不改 agent loop，不直接替模型生成答案
-  普通批准/拒绝可复用现有对话框，多题/多选按原生问题结构提交
-  等待输入时允许重连、取消；响应绑定会话和请求 id，过期响应拒绝
-
-官方说明这种 MCP prompt tool 不能批准 requiresUserInteraction 的 MCP 工具；
-MCP elicitation 也要单独验证。若需 CLI 的更底层 host 协议，只将它视为待验证
-兼容层，不把不稳定行为写成已支持。完整兼容验收前，不静默关闭或自动批准这些交互。
-
-八、最小落点与验证顺序
-----------------------
-
-新增 harness/claude-code/：模型/profile、runtime、events、transcript。
-登记 harness/registry.ts 和 components/harness/panels.tsx。
-新增 /api/claude-code/[id] 及 events，复用 createAgentEventStream。
-hooks/useAgentSession.ts 接发送、停止、加载、重连和问题回答的 Claude 路径；
-复用已有选择器和消息界面，不给它创建 pi 会话或走 lib/rpc-manager.ts。
-运行中/等待输入状态接入侧栏轮询；原生标题可用时沿用，不让 pi 代跑标题请求。
-
-服务端按配置解析 profile，浏览器不能提交任意 configDir、可执行文件或凭据。
-校验 UUID、cwd 授权和已有会话身份；历史读取校验真实路径在该 profile 下。
-模型列表、事件、日志不输出 token、完整 env 或带凭据的配置内容。
-
-实现顺序：
-  1. 固定配置、路径、env、effort 的 cc 对照检查，再做原生 CLI 协议小验证。
-  2. 跑通发送、工具、停止、原生历史和跨网页重启 resume。
-  3. 补齐图片、子代理、审批/提问、重连和选模型开独立对话，完成页面验收。
-
-至少留一组可运行检查：同一模型经 cc 和网页得到同一 profile/env；不同模型不串；
-禁用项与未创建 profile 的模型列表正确；OAuth 清除旧路由；配置不会泄漏 key；
-流式+完整消息不重复；工具结果绑定正确；失败/中断只结算一次；恢复仍用原 profile。
-上线前另测真实 CLI 的 Bash/Edit、连续两轮、取消、AskUserQuestion、多页重连。
-Codex 用现有 http://127.0.0.1:15721 路由，不切 CC Switch 的全局 provider；
-代理未运行时明确报该模型不可用，不静默换模型。本次只确认端口监听，未请求模型。
-
-这次只做了本机脚本/配置与官方接口调研，没有启动编码会话、修改 profile、安装依赖，
-也没有把“终端已调通”当作“网页集成已经验收”。
+测试使用临时 HOME、临时 profile 和本地假网关，无真实模型请求。
+覆盖原生 Bash/Read/Edit、审批、提问、连续两轮、重启恢复、中断后续聊，
+以及配置生成、模型隔离、历史归并、索引保护和缺失 CLI。
+网页 hook 与接口另有发送、切页、原生端点、问题回传和重连历史检查。
 
 参考
 ----
@@ -265,4 +149,3 @@ https://code.claude.com/docs/en/headless
 https://code.claude.com/docs/en/cli-reference
 https://code.claude.com/docs/en/settings
 https://code.claude.com/docs/en/sessions
-https://code.claude.com/docs/en/hooks

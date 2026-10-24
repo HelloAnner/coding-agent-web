@@ -14,7 +14,8 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
-import { agentStatusUrl, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { claudeEventsUrl, claudeSessionUrl, ClaudeTrustRequiredError, mergeClaudeHistory, newClaudeSessionId, runtimeStatusUrl, sendClaudeCommand, upsertClaudeMessage } from "@/lib/claude-code-client";
 import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
 import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/lib/dsh-client";
 import {
@@ -206,6 +207,8 @@ export interface UseAgentSessionOptions {
   onSessionStatsPanelOpen?: () => void;
   /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
   onOpenSettings?: (section: SettingsSection) => void;
+  /** The UI must explicitly approve loading a new Claude project's hooks and MCP. */
+  confirmClaudeProject?: (cwd: string) => boolean;
   setToolPreset?: (preset: ToolPreset) => void;
   deferInitialScroll?: boolean;
   /** A fresh composer's model and reasoning picks to start with: the composer it replaces had them. */
@@ -372,7 +375,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
-    onOpenSettings,
+    onOpenSettings, confirmClaudeProject,
   } = opts;
   // A dsh or grok row is an index entry. It must not open, lease, or prompt a pi session.
   const harness = opts.harness || opts.session?.harness || "pi";
@@ -381,7 +384,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const usesGrokRuntime = harness === "grok";
   // dsh drives its own kernel (`dsh --profile acp`), so its session is real too.
   const usesDshRuntime = harness === "dsh";
-  const session = usesPiRuntime || usesGrokRuntime || usesDshRuntime ? opts.session ?? null : null;
+  const usesClaudeRuntime = harness === "claude-code";
+  const session = usesPiRuntime || usesGrokRuntime || usesDshRuntime || usesClaudeRuntime ? opts.session ?? null : null;
   const runtimeHarnessRef = useRef(harness);
   runtimeHarnessRef.current = harness;
   const grokModel = session?.modelProvider && session.modelId
@@ -547,7 +551,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ? grokEventsUrl(sid, grokModelRef.current?.modelId ?? null)
         : runtimeHarnessRef.current === "dsh"
           ? dshEventsUrl(sid)
-          : `/api/agent/${encodeURIComponent(sid)}/events`),
+          : runtimeHarnessRef.current === "claude-code"
+            ? claudeEventsUrl(sid)
+            : `/api/agent/${encodeURIComponent(sid)}/events`),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
@@ -714,7 +720,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const runId = promptRunIdRef.current;
     const requestId = ++contextUsageRequestIdRef.current;
     try {
-      const res = await fetch(agentStatusUrl(sid));
+      const res = await fetch(runtimeStatusUrl(runtimeHarnessRef.current, sid));
       if (!res.ok) return;
       const data = await res.json() as { state?: AgentStateResponse };
       applyLiveUsage(data.state, sid, runId, requestId);
@@ -724,6 +730,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
+    if (runtimeHarnessRef.current === "claude-code") {
+      if (showLoading) setLoading(true);
+      try {
+        const response = await fetch(claudeSessionUrl(sid), { cache: "no-store" });
+        if (response.status === 404) return null;
+        const loaded = await response.json() as SessionData & { running?: boolean; state?: AgentStateResponse; error?: string };
+        if (!response.ok) throw new Error(loaded.error ?? `HTTP ${response.status}`);
+        if (sessionIdRef.current !== sid || !sessionHookMountedRef.current) return null;
+        setData(loaded);
+        setMessages((current) => agentRunningRef.current ? mergeClaudeHistory(loaded.context.messages, current) : loaded.context.messages);
+        setEntryIds(loaded.context.entryIds);
+        setHistoryCursor(null);
+        setHasEarlierMessages(false);
+        setEarlierTurnCount(0);
+        setActiveLeafId(null);
+        if (loaded.context.model) setLiveModel(loaded.context.model);
+        setError(null);
+        return includeState ? { running: loaded.running, state: loaded.state } : null;
+      } catch (error) {
+        if (sessionIdRef.current === sid) setError(error instanceof Error ? error.message : String(error));
+        return null;
+      } finally {
+        if (showLoading && sessionIdRef.current === sid) setLoading(false);
+      }
+    }
     // Grok and dsh keep their own transcripts. Read them into the same
     // SessionData the chat renders, then stop: there is no pi wrapper to ask.
     if (runtimeHarnessRef.current === "grok" || runtimeHarnessRef.current === "dsh") {
@@ -980,7 +1011,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [onSystemToolsChange, setToolPresetState]);
 
-  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)", sessionPath = "") => {
+  const promoteNewSession = useCallback((messageCount = 0, firstMessage = "(no messages)", sessionPath = "", native?: { provider: string; model: string; cwd: string }) => {
     const sid = sessionIdRef.current;
     if (!isNew || !newSessionCwd || !sid || newSessionPromotedRef.current) return;
     newSessionPromotedRef.current = true;
@@ -995,7 +1026,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     onSessionCreated?.({
       id: sid,
       path: sessionPath,
-      cwd: newSessionCwd,
+      cwd: native?.cwd ?? newSessionCwd,
+      modelProvider: native?.provider,
+      modelId: native?.model,
       name: undefined,
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
@@ -1292,8 +1325,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     response: { value: string } | { confirmed: boolean } | { cancelled: true },
   ) => {
     const sid = sessionIdRef.current;
-    setExtensionDialogs((queue) => removeExtensionUiRequest(queue, request.id));
     if (!sid) return;
+    if (runtimeHarnessRef.current === "claude-code") {
+      try {
+        await sendClaudeCommand(sid, { type: "extension_ui_response", id: request.id, ...response });
+        setExtensionDialogs((queue) => removeExtensionUiRequest(queue, request.id));
+      } catch (error) {
+        dispatchNotice({ type: "add", notice: { id: createNoticeId(), type: "error", message: error instanceof Error ? error.message : String(error) } });
+      }
+      return;
+    }
+    setExtensionDialogs((queue) => removeExtensionUiRequest(queue, request.id));
     try {
       await sendAgentCommand(sid, {
         type: "extension_ui_response",
@@ -1415,7 +1457,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ) return;
 
       try {
-        const res = await fetch(agentStatusUrl(sid));
+        const res = await fetch(runtimeStatusUrl(runtimeHarnessRef.current, sid));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
         if (
@@ -1491,7 +1533,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       try {
-        const res = await fetch(agentStatusUrl(sid));
+        const res = await fetch(runtimeStatusUrl(runtimeHarnessRef.current, sid));
         if (res.ok) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
           const state = data.state;
@@ -1519,7 +1561,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) {
       await delay(BASH_STATE_RECONCILE_MS);
       try {
-        const res = await fetch(agentStatusUrl(sid));
+        const res = await fetch(runtimeStatusUrl(runtimeHarnessRef.current, sid));
         if (!res.ok) continue;
         const data = await res.json() as { state?: AgentStateResponse };
         syncLiveModel(data.state);
@@ -1547,7 +1589,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const runId = promptRunIdRef.current;
     const usageRequestId = ++contextUsageRequestIdRef.current;
     try {
-      const res = await fetch(agentStatusUrl(sid));
+      const res = await fetch(runtimeStatusUrl(runtimeHarnessRef.current, sid));
       if (!res.ok) return;
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
@@ -1574,8 +1616,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (state) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
-        // The poll leaves the prompt out: read the one the run ended with once, as agent_end does.
-        fetch(`/api/agent/${encodeURIComponent(sid)}`)
+        // Only pi owns this system-prompt endpoint.
+        if (runtimeHarnessRef.current === "pi") fetch(`/api/agent/${encodeURIComponent(sid)}`)
           .then((r) => r.ok ? r.json() : null)
           .then((d: { state?: AgentStateResponse } | null) => {
             if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
@@ -1636,7 +1678,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
         // Opening the stream is what resumes an idle-reaped session, so the
         // mount's state read may have found no runtime and no usage to show.
-        if (sessionIdRef.current) void refreshContextUsage(sessionIdRef.current);
+        if (sessionIdRef.current) {
+          void refreshContextUsage(sessionIdRef.current);
+          if (runtimeHarnessRef.current === "claude-code") void loadSession(sessionIdRef.current);
+        }
         break;
       }
       case "agent_start":
@@ -1793,7 +1838,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         } else if (completed) {
           // pi's showCacheMissNotices (#1265): the wrapper sends them beside the message.
           const notices = Array.isArray(event.transcriptNotices) ? event.transcriptNotices as TranscriptNotice[] : undefined;
-          setMessages((prev) => [...prev, withTranscriptNotices(normalizeToolCalls(completed), notices)]);
+          setMessages((prev) => {
+            const message = withTranscriptNotices(normalizeToolCalls(completed), notices);
+            return runtimeHarnessRef.current === "claude-code" ? upsertClaudeMessage(prev, message) : [...prev, message];
+          });
           if (completed.role === "assistant") {
             const sid = sessionIdRef.current;
             if (sid) void refreshContextUsage(sid);
@@ -1824,7 +1872,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const partialResult = event.partialResult as Partial<ToolResultMessage> | undefined;
         const content = partialResult?.content;
         // Live output for shells; for codemode, the calls its script has made so far.
-        if ((name === "bash" || name === "powershell" || name === CODEMODE_TOOL_NAME) && Array.isArray(content)) {
+        if ((name.toLowerCase() === "bash" || name === "powershell" || name === CODEMODE_TOOL_NAME || name === "Agent" || name === "Task") && Array.isArray(content)) {
           setActiveToolResults((prev) => {
             const next = new Map(prev);
             next.set(id, {
@@ -2020,9 +2068,55 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [addNotice, cancelEventStreamGrace, composerDraftKey, dispatch, ensureEventsConnected, promoteNewSession, restoreSubmission]);
 
+  const submitClaudePrompt = useCallback(async (text: string, images?: AttachedImage[]) => {
+    const cwd = grokCwdRef.current;
+    if (!cwd || agentRunningRef.current) {
+      restoreSubmission(text, images, composerDraftKey);
+      return;
+    }
+    const sid = sessionIdRef.current ?? newClaudeSessionId();
+    const promptId = newClaudeSessionId();
+    sessionIdRef.current = sid;
+    const imageBlocks = images?.map(({ data, mimeType }) => ({ type: "image" as const, source: { type: "base64" as const, data, media_type: mimeType } }));
+    const userMessage: AgentMessage & { nativeId: string } = { role: "user", nativeId: promptId, timestamp: Date.now(), content: imageBlocks?.length ? [...(text.trim() ? [{ type: "text" as const, text }] : []), ...imageBlocks] : text };
+    dispatch({ type: "start" });
+    agentRunningRef.current = true;
+    sdkAgentActiveRef.current = true;
+    setAgentRunning(true);
+    setAgentPhase({ kind: "waiting_model" });
+    cancelEventStreamGrace();
+    setMessages((previous) => [...previous, userMessage]);
+    const command = { type: "prompt", message: text, promptId, cwd, images: images?.map(({ data, mimeType }) => ({ data, mimeType })), provider: grokModelRef.current?.provider, model: grokModelRef.current?.modelId };
+    try {
+      await ensureEventsConnected(sid).catch((error) => {
+        if (sessionHookMountedRef.current) throw error;
+      });
+      let result: { sessionPath: string; provider: string; model: string; cwd: string };
+      try { result = await sendClaudeCommand(sid, command); }
+      catch (error) {
+        if (!(error instanceof ClaudeTrustRequiredError) || !sessionHookMountedRef.current || !confirmClaudeProject?.(error.cwd)) throw error;
+        result = await sendClaudeCommand(sid, { ...command, trusted: true });
+      }
+      promoteNewSession(1, text, result.sessionPath, result);
+    } catch (error) {
+      agentRunningRef.current = false;
+      sdkAgentActiveRef.current = false;
+      setAgentRunning(false);
+      setAgentPhase(null);
+      dispatch({ type: "end" });
+      setMessages((previous) => previous.filter((item) => (item as AgentMessage & { nativeId?: string }).nativeId !== promptId));
+      restoreSubmission(text, images, composerDraftKey);
+      addNotice({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [addNotice, cancelEventStreamGrace, composerDraftKey, dispatch, ensureEventsConnected, promoteNewSession, restoreSubmission, confirmClaudeProject]);
+
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
+    if (runtimeHarnessRef.current === "claude-code") {
+      await submitClaudePrompt(trimmedMessage, images);
+      return;
+    }
     if (runtimeHarnessRef.current === "grok") {
       await submitGrokPrompt(trimmedMessage, images);
       return;
@@ -2168,7 +2262,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, submitDshPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, submitDshPrompt, submitClaudePrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (runtimeHarnessRef.current !== "pi") {
@@ -2205,6 +2299,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    if (runtimeHarnessRef.current === "claude-code") {
+      try { await sendClaudeCommand(sid, { type: "abort" }); }
+      catch (error) { console.error("Failed to stop Claude Code:", error); }
+      return;
+    }
     if (runtimeHarnessRef.current === "grok") {
       try {
         await sendGrokCommand(sid, { type: "abort" });

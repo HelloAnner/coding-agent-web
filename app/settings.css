@@ -342,7 +342,8 @@
 
 .harness-models,
 .harness-dsh,
-.harness-grok {
+.harness-grok,
+.harness-claude-code {
   display: flex;
   flex-direction: column;
   width: 100%;

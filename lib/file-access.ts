@@ -1,6 +1,7 @@
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
+import { listCatalogSessionInfos } from "./catalog-db";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
 export { isWindowsAbsolutePath } from "./paths";
 
@@ -19,7 +20,9 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   const cached = globalThis.__piAllowedRootsCache;
   if (cached && cached.expiresAt > now) return cached.roots;
 
-  const sessions = await listAllSessions();
+  const sessions = [...(await listAllSessions().catch(() => []))];
+  // Persisted web projects must remain browsable after a restart, even without a pi session.
+  try { sessions.push(...listCatalogSessionInfos().sessions); } catch { /* an unreadable index grants no roots */ }
   const roots = new Set<string>();
   for (const s of sessions) {
     if (s.cwd) roots.add(normalizeSlashes(s.cwd));

@@ -34,6 +34,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     selectedSession: capturedSelectedSession, // the stale closure value, if the code reads it
     selectedSessionRef: { current: active },
     activeNewSessionDraftKeyRef: { current: null },
+    newSessionCarryRef: { current: false },
     invalidateWorkspaceRestore() {},
     clearTabOpenSession() {},
     setRefreshKey: () => { state.refreshBumped = true; },

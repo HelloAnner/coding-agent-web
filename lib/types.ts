@@ -170,6 +170,13 @@ export type ExtensionUiRequest =
       method: "editor";
       title: string;
       prefill?: string;
+      /** Structured questions from a native harness; answers are submitted as JSON. */
+      questions?: Array<{
+        question: string;
+        header: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect: boolean;
+      }>;
       timeout?: number;
       expiresAt?: number;
     }

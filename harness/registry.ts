@@ -1,9 +1,10 @@
+import { claudeCodeHarness } from "./claude-code";
 import { dshHarness } from "./dsh";
 import { grokHarness } from "./grok";
 import { piHarness } from "./pi";
 import type { HarnessDescriptor } from "./types";
 
-const HARNESSES: HarnessDescriptor[] = [piHarness, dshHarness, grokHarness];
+const HARNESSES: HarnessDescriptor[] = [piHarness, dshHarness, grokHarness, claudeCodeHarness];
 
 export function listHarnesses(): HarnessDescriptor[] {
   return HARNESSES;

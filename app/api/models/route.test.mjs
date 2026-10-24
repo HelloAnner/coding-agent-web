@@ -37,6 +37,9 @@ await writeFile(join(agentDir, "models.json"), JSON.stringify({
   },
 }, null, 2));
 
+// Keep this fixture's catalog independent of API keys inherited from the developer's shell.
+await writeFile(join(agentDir, "settings.json"), JSON.stringify({ enabledModels: ["acme/*"] }));
+
 // A worktree folder is `<repoRoot>-worktrees/<dir>` (what `addWorktree()` makes), and the
 // sibling holding `.git` is the repo its removal is inferred back to.
 async function initRepo(name) {

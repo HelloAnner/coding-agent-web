@@ -5,7 +5,7 @@
 
 ```
 设置 › 模型
-  [ pi ] [ dsh ] [ grok ]
+  [ pi ] [ dsh ] [ grok ] [ Claude Code ]
         |
         +-- pi    读写 ~/.pi/agent/models.json 和 settings.json
         +-- dsh   读写 ~/bin/ds/ds.toml（可用 DSH_DS_TOML 改）
@@ -13,6 +13,8 @@
         +-- grok  只读官方模型。不写自定义模型
                   列表在 ~/.grok/models_cache.json（可用 GROK_HOME 改）
                   会话文件在 ~/.grok/sessions/<编码后的目录>/<id>/
+        +-- claude-code  本机 claude CLI。模型配置独立放在 data.db 同级的 claude-code.json
+                        首次自动生成；每个模型绑定独立 profile，详见 docs/claude-code.txt
 
 左侧会话列表
   不扫描 ~/.pi/agent/sessions，也不扫描 grok 或 dsh 的会话目录
@@ -34,6 +36,8 @@
   grok 的模型来自官方列表。默认模型排在第一个
   grok 能发消息：每问一个 grok 进程，回复走这条会话自己的事件流
   dsh 能发消息：dsh 内核常驻一个进程，每条对话一个 ACP 会话
+  Claude Code 能发消息：每条活跃会话一个原生 CLI 进程，stream-json 双向交互
+  Claude Code 跨 profile 选模型时另开对话，不把旧会话改指向新模型
 ```
 
 grok 怎么跑
@@ -196,7 +200,7 @@ directories
 sessions
   id            这条对话在网页里的 id。pi 的用 pi 自己的 session id
   directory_id
-  harness       pi | dsh | grok | ...
+  harness       pi | dsh | grok | claude-code | ...
   provider
   model
   title
@@ -221,6 +225,7 @@ path  /Users/anner/coding-agent-web
 ```
 harness/types.ts              名字、配置目录、自己的 readModels / writeModel
 harness/registry.ts           现在有哪些。路由只问 registry，不认识某个格式
+harness/claude-code/          原生 Claude Code CLI，独立模型配置、profile、会话与权限交互
 harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
 harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
 harness/dsh/acp.ts            dsh --profile acp 的 stdio 客户端，一个进程给全站

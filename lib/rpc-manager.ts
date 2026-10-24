@@ -860,7 +860,8 @@ export class AgentSessionWrapper {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
           const model = this.inner.model;
-          if (this.chatOnlyExtensionModel && !(model && this.inner.modelRuntime.getModel(model.provider, model.id))) {
+          // Pi 1.2 also represents a missing model with the unknown/unknown sentinel.
+          if (this.chatOnlyExtensionModel && !(model && !(model.provider === "unknown" && model.id === "unknown") && this.inner.modelRuntime.getModel(model.provider, model.id))) {
             throw chatOnlyExtensionModelError(this.chatOnlyExtensionModel.provider, this.chatOnlyExtensionModel.id);
           }
           if (this.extensionUiAbortController.signal.aborted) {

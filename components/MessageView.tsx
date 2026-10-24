@@ -1293,7 +1293,7 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
       </div>
 
       {/* ── Expanded: input args (only when no richer view exists); a codemode script in place of its JSON ── */}
-      {expanded && (isStreamingInput || !isEditTool) && !patchFiles && (
+      {expanded && (isStreamingInput || !isEditTool || !resultDiff) && !patchFiles && (
         toolFields ? (
           <div
             style={{

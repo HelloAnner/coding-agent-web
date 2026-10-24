@@ -6,6 +6,8 @@ import { generateDshTitle } from "@/harness/dsh/title";
 import { readDshTranscript } from "@/harness/dsh/transcript";
 import { generateGrokTitle } from "@/harness/grok/title";
 import { readGrokTranscript } from "@/harness/grok/transcript";
+import { readClaudeTitle } from "@/harness/claude-code/transcript";
+import { resolveClaudeProfile } from "@/harness/claude-code";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
 
@@ -17,6 +19,11 @@ export const dynamic = "force-dynamic";
  * the harness writes, so nothing is read back into pi's session format.
  */
 async function generateHarnessTitle(row: CatalogSession): Promise<string> {
+  if (row.harness === "claude-code") {
+    const profile = resolveClaudeProfile(row.model, row.provider, true);
+    if (profile.configDir !== row.sessionPath) throw new Error("Claude Code profile directory has changed");
+    return readClaudeTitle(profile.configDir, row.id);
+  }
   const messages = row.harness === "dsh"
     ? readDshTranscript(row.sessionPath).messages
     : readGrokTranscript(row.cwd, row.id).messages;

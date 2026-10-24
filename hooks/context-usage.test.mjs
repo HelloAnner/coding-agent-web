@@ -5,7 +5,7 @@ import { Script, createContext } from "node:vm";
 import ts from "typescript";
 import { createJiti } from "jiti";
 
-const { agentStatusUrl } = await createJiti(import.meta.url, { interopDefault: true }).import("../lib/agent-client.ts");
+const { runtimeStatusUrl } = await createJiti(import.meta.url, { interopDefault: true }).import("../lib/claude-code-client.ts");
 
 const source = ts.createSourceFile("useAgentSession.ts", await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const nodes = [];
@@ -16,16 +16,16 @@ function callback(name) {
   assert.ok(node, `missing ${name}`);
   return new Script(ts.transpileModule(`(${node.initializer.arguments[0].getText(source)})`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
 }
-function setup() {
+function setup(harness = "pi") {
   const writes = [];
   const activeWrites = [];
   const requests = [];
   const context = createContext({
-    sessionHookMountedRef: { current: true }, sessionIdRef: { current: "a" },
+    sessionHookMountedRef: { current: true }, sessionIdRef: { current: "a" }, runtimeHarnessRef: { current: harness },
     promptRunIdRef: { current: 1 }, contextUsageRequestIdRef: { current: 0 }, contextUsageAppliedIdRef: { current: 0 },
     agentRunningRef: { current: true }, sdkAgentActiveRef: { current: true }, rpcPromptPendingRef: { current: true },
     setContextUsage: (value) => writes.push(value),
-    setLiveTotalActiveMs: (value) => activeWrites.push({ sessionId: value.sessionId, value: value.value }), agentStatusUrl,
+    setLiveTotalActiveMs: (value) => activeWrites.push({ sessionId: value.sessionId, value: value.value }), runtimeStatusUrl,
     fetch: (url) => { const request = Promise.withResolvers(); requests.push({ ...request, url }); return request.promise; },
     syncLiveModel() {}, setIsCompacting() {}, setAutoCompactionEnabled() {}, setQueuedMessages() {},
     normalizeQueuedMessages: (value) => value, finishPromptWithoutStream: () => { throw new Error("busy run settled"); },
@@ -47,6 +47,16 @@ test("a busy reconciliation refreshes context usage without settling the run", a
   assert.equal(state.context.agentRunningRef.current, true);
   // Status reads leave out the system prompt, nearly all of the state (#1302).
   assert.equal(state.requests[0].url, "/api/agent/a?systemPrompt=0");
+});
+
+test("Claude reconciliation uses its own status endpoint and never reads pi usage", async () => {
+  const state = setup("claude-code");
+  const pending = state.context.reconcileAgentState("a");
+  assert.equal(state.requests[0].url, "/api/claude-code/a?state=1");
+  state.reply(0, undefined);
+  await pending;
+  await state.context.refreshContextUsage("a");
+  assert.equal(state.requests.length, 1);
 });
 
 test("a usage read also carries the live active time, keyed to its session", async () => {
@@ -129,7 +139,7 @@ test("each event stream connection reads usage, since connecting resumes an idle
     const reads = [];
     script.runInNewContext({
       event: { type: "connected", sessionId: sid ?? "pending", isStreaming },
-      sessionIdRef: { current: sid }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
+      sessionIdRef: { current: sid }, runtimeHarnessRef: { current: "pi" }, sdkAgentActiveRef: { current: false }, agentRunningRef: { current: false },
       dispatch() {}, cancelEventStreamGrace() {}, setAgentRunning() {}, setAgentPhase() {},
       refreshContextUsage: (id) => reads.push(id),
     });
