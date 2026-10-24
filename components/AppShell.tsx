@@ -751,6 +751,7 @@ export function AppShell() {
         // The sidebar will notify us when it adopts this cwd. Avoid remounting
         // the just-created empty chat during that initial synchronization.
         suppressCwdBumpRef.current = true;
+        newSessionCarryRef.current = false;
         const draftId = `initial:${requestedCwd}`;
         setNewSessionDraftId(draftId);
         activeNewSessionDraftKeyRef.current = `new:${draftId}:${data.cwd}`;
@@ -829,6 +830,7 @@ export function AppShell() {
     projectKey?: string | null,
   ) => {
     invalidateWorkspaceRestore();
+    newSessionCarryRef.current = false;
     const currentFreshCwd = newSessionCwd ?? activeCwd;
     setActiveCwd(cwd);
     // Skip if cwd is null (initial mount).
@@ -1339,6 +1341,7 @@ export function AppShell() {
     const active = selectedSessionRef.current;
     if (active?.id === sessionId) {
       clearTabOpenSession(sessionId);
+      newSessionCarryRef.current = false;
       const cwd = active.cwd;
       const draftId = typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
