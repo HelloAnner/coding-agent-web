@@ -12,9 +12,11 @@ import {
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
-const TITLE_MAX_TOKENS = 256;
-const MAX_TITLE_CHARS = 10;
-const MAX_TITLE_WORDS = 10;
+// Reasoning is billed as output on models that think before answering: at 256
+// a longer thought spent the whole budget and the reply carried no text at all.
+const TITLE_MAX_TOKENS = 1024;
+const MAX_TITLE_CHARS = 15;
+const MAX_TITLE_WORDS = 15;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 // Per-message caps. A title needs what the user asked for (every user turn,
@@ -46,12 +48,45 @@ Requirements:
 - Match the primary language used by the user.
 - Describe the user's concrete goal or the outcome, not the act of chatting.
 - At most ${MAX_TITLE_CHARS} characters for CJK text, at most ${MAX_TITLE_WORDS} words for space-separated languages.
+- Count the characters before answering: a title over the limit is sent back for a rewrite.
 - Do not call any tools.
 - Return only the title as plain text, with no quotes, label, markdown, or explanation.`;
 
 /** The single user turn a title model reads: the transcript plus what to do with it. */
 export function buildTitlePrompt(transcript: string): string {
   return `${transcript}\n\n${TITLE_PROMPT}`;
+}
+
+/**
+ * The second turn a too-long title gets. The title is never cut to fit: a cut
+ * lands mid-phrase and leaves a label nobody can read, so the model is asked
+ * for the same meaning in fewer characters instead.
+ */
+export function shortenTitleInstruction(title: string): string {
+  return `This session title is too long:\n\n${title}\n\nRewrite it with the same meaning in at most ${MAX_TITLE_CHARS} characters for CJK text, or at most ${MAX_TITLE_WORDS} words for space-separated languages. Return only the title as plain text, with no quotes, label, markdown, or explanation.`;
+}
+
+/** Whether a title is inside the limit the prompt asks for. */
+export function titleFitsLimit(title: string): boolean {
+  return CJK.test(title)
+    ? Array.from(title).length <= MAX_TITLE_CHARS
+    : title.split(/\s+/).filter(Boolean).length <= MAX_TITLE_WORDS;
+}
+
+/**
+ * The title as the model first wrote it, rewritten by the model while it is
+ * over the limit. Two rewrites is where a model that keeps missing the limit
+ * would cost more than the label is worth, so the last answer stands.
+ */
+export async function fitTitleInLimit(
+  first: string,
+  rewrite: (instruction: string) => Promise<string>,
+): Promise<string> {
+  let title = parseGeneratedSessionTitle(first);
+  for (let attempt = 0; attempt < 2 && !titleFitsLimit(title); attempt += 1) {
+    title = parseGeneratedSessionTitle(await rewrite(shortenTitleInstruction(title)));
+  }
+  return title;
 }
 
 export interface GeneratedSessionTitle {
@@ -92,7 +127,7 @@ export function resolveTitleThinkingLevel(model: Model<Api>): ThinkingLevel {
  * session id, and cacheRetention "none". The request is too small and too
  * unique to reuse the live session's prefix or write a cache nobody will read.
  */
-export function buildTitleRequest(source: Agent, transcript: string): TitleRequest {
+export function buildTitleRequest(source: Agent, userText: string): TitleRequest {
   const model = source.state.model;
   const thinkingLevel = resolveTitleThinkingLevel(model);
   return {
@@ -101,7 +136,7 @@ export function buildTitleRequest(source: Agent, transcript: string): TitleReque
       systemPrompt: TITLE_SYSTEM_PROMPT,
       messages: [{
         role: "user",
-        content: [{ type: "text", text: buildTitlePrompt(transcript) }],
+        content: [{ type: "text", text: userText }],
         timestamp: Date.now(),
       }],
     },
@@ -263,11 +298,9 @@ export function parseGeneratedSessionTitle(raw: string): string {
     throw new Error("The model did not return a usable session title");
   }
 
-  // Chinese titles are counted in characters, Latin ones in words: a hard cap
-  // in either unit would mangle the other. The prompt asks for the same.
-  value = CJK.test(value)
-    ? Array.from(value).slice(0, MAX_TITLE_CHARS).join("").trim()
-    : value.split(/\s+/).slice(0, MAX_TITLE_WORDS).join(" ");
+  // Chinese titles are counted in characters, Latin ones in words. Nothing is
+  // cut here: a title over the limit is rewritten by the model (see
+  // fitTitleInLimit), never trimmed into a half phrase.
   return value;
 }
 
@@ -277,6 +310,9 @@ function titleFromAssistant(message: AssistantMessage): GeneratedSessionTitle {
   }
   if (message.stopReason === "aborted") {
     throw new Error("Session title generation timed out");
+  }
+  if (message.stopReason === "length") {
+    throw new Error("The title model ran out of tokens before answering");
   }
   const text = message.content
     .filter((block) => block.type === "text")
@@ -307,8 +343,13 @@ export async function generateSessionTitle(source: AgentSession): Promise<Genera
   if (!transcript.trim()) {
     throw new Error("The session has no usable text to name");
   }
+  return askSessionTitleModel(source, buildTitlePrompt(transcript));
+}
 
-  const { model, context, options } = buildTitleRequest(sourceAgent, transcript);
+/** One more title turn on the session's own model, for a rewrite or a retry. */
+export async function askSessionTitleModel(source: AgentSession, instruction: string): Promise<GeneratedSessionTitle> {
+  const sourceAgent = source.agent;
+  const { model, context, options } = buildTitleRequest(sourceAgent, instruction);
   const apiKey = await sourceAgent.getApiKey?.(model.provider);
   const controller = new AbortController();
   const requestOptions: SimpleStreamOptions = {
