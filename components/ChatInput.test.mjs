@@ -488,6 +488,32 @@ test("a running composer can still change model, and a locked harness cannot", (
   assert.match(harness, /opacity:0\.5/);
 });
 
+test("Claude profiles are selectable only before a chat starts", () => {
+  const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function findDisabled(node) {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(source) === "ModelSelector") {
+      return node.attributes.properties.find((prop) => prop.name?.getText(source) === "disabled").initializer.expression;
+    }
+    return ts.forEachChild(node, findDisabled);
+  }
+  const disabled = new Script(findDisabled(source).getText(source));
+  for (const harnessId of ["pi", "dsh", "grok", "claude-code"]) {
+    for (const harnessLocked of [false, true]) {
+      for (const isStreaming of [false, true]) {
+        const locked = harnessId === "claude-code" && (harnessLocked || isStreaming);
+        const html = renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(ModelSelector, {
+          options: [{ provider: "example", modelId: "profile-one", name: "Example One" }],
+          value: { provider: "example", modelId: "profile-one" },
+          onChange() {},
+          disabled: disabled.runInNewContext({ harnessId, harnessLocked, isStreaming }),
+        })));
+        assert.match(html, />Example One</, "the bound model name remains visible");
+        assert.equal(/disabled=""/.test(html), locked, `${harnessId}: session=${harnessLocked}, streaming=${isStreaming}`);
+      }
+    }
+  }
+});
+
 test("shows and locks the optimistic model while a switch is pending", () => {
   const html = renderToStaticMarkup(
     React.createElement(

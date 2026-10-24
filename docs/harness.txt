@@ -1,266 +1,314 @@
-多个 harness
-==============
+多个 harness：分类与接入参考
+==========================
 
-网页只做索引和同一套界面。真正的模型配置、凭据、会话文件留在各自 harness 的目录里。
+本文件记录本项目的 harness 定位、实际接入能力和经验。新增 harness 先补这里，
+不要只登记一个名字或接通一个模型 API。Claude Code 的配置细节见 docs/claude-code.txt。
 
-```
-设置 › 模型
-  [ pi ] [ dsh ] [ grok ] [ Claude Code ]
-        |
-        +-- pi    读写 ~/.pi/agent/models.json 和 settings.json
-        +-- dsh   读写 ~/bin/ds/ds.toml（可用 DSH_DS_TOML 改）
-                  会话文件在 ~/.dsh/sessions（可用 DSH_HOME 改）
-        +-- grok  只读官方模型。不写自定义模型
-                  列表在 ~/.grok/models_cache.json（可用 GROK_HOME 改）
-                  会话文件在 ~/.grok/sessions/<编码后的目录>/<id>/
-        +-- claude-code  本机 claude CLI。模型配置独立放在 data.db 同级的 claude-code.json
-                        首次自动生成；每个模型绑定独立 profile，详见 docs/claude-code.txt
-
-左侧会话列表
-  不扫描 ~/.pi/agent/sessions，也不扫描 grok 或 dsh 的会话目录
-  只显示 ~/.coding-agent-web/data.db 里的行
-  刚装好是空的。新建一条对话才写一行
-  不是 pi 的行，标题后面用分支名那一格的样式写上 harness。时间那一列不动
-  pi 的行不写
-
-输入框
-  模型名右边是工具栏按钮，和模型选择同一套：高 32、无边框、圆角 9、点开向上的菜单
-  菜单行只有 harness 的名字。换 harness 后，左边的模型列表跟着换
-  会话一旦跑起来就不能换 harness。按钮还在，变淡，点不开
-  模型可以换，还是这个 harness 自己的模型。正在回复时也能换，下一问才用新的
-  打开已有对话时，输入栏用这场对话自己的 harness，不用新建框上一次选的
-  pi 的会话文件决定它是 pi。模型以文件里正在用的为准，索引里不一样就改过来
-  pi 的发送仍走 pi 自己的会话
-  选了 dsh 或 grok，不会创建 pi 会话，也不会把模型 id 交给 pi
-  dsh 的模型在 ds.toml 里配，输入框的菜单只列内核挂上的那些。选中后记在索引里
-  grok 的模型来自官方列表。默认模型排在第一个
-  grok 能发消息：每问一个 grok 进程，回复走这条会话自己的事件流
-  dsh 能发消息：dsh 内核常驻一个进程，每条对话一个 ACP 会话
-  Claude Code 能发消息：每条活跃会话一个原生 CLI 进程，stream-json 双向交互
-  Claude Code 跨 profile 选模型时另开对话，不把旧会话改指向新模型
-```
-
-grok 怎么跑
-------------
-
-不用 ACP，也不常驻。每一问 spawn 一个进程，会话文件归 grok 自己管。
-
-```
-grok -p "<prompt>" --output-format streaming-json \
-     --permission-mode bypassPermissions \
-     --model <model> \
-     -s <新 uuid>        # 新会话。-r <uuid> 是续聊
-
-stdout 是 NDJSON，一行一个事件
-  text               -> message_update text_delta
-  thought            -> message_update thinking_delta
-  tool_call          -> toolcall_start/end + tool_execution_start
-  tool_call_update   -> tool_execution_update / tool_execution_end + toolResult 消息
-  end                -> agent_end + agent_settled
-
-中断：给子进程 SIGINT（就是 grok 自己的 stop），3 秒不退再 SIGTERM
-```
-
-网页的 session id 就是 grok 的 session id（`-s` 自己指定，必须是 UUID）。
-会话文件：`~/.grok/sessions/<url 编码的目录>/<id>/chat_history.jsonl`。
-
-```
-浏览器                useAgentSession 里按 harness 分叉
-                       /                    \
-                 harness=pi            harness=grok
-            lib/rpc-manager.ts     harness/grok/runtime.ts
-            /api/agent/[id]        /api/grok/[id]        POST prompt | abort
-                                   /api/grok/[id]/events SSE
-                                           |
-                              chat_history.jsonl（grok 自己写）
-```
-
-事件名和 pi 的那套一样，所以聊天气泡、工具卡、停止按钮都不为新 harness 写第二套。
-
-开关（都可选）：
-
-```
-PI_WEB_GROK_BIN               默认 ~/.local/bin/grok，再退 ~/.grok/bin/grok
-PI_WEB_GROK_PERMISSION_MODE   默认 bypassPermissions（全放开）
-GROK_DEFAULT_MODEL            没选模型时用，默认 grok-4.7
-```
-
-grok 自己的 `~/.grok/config.toml` 里 `[ui] permission_mode = "always-approve"`、`yolo = true` 也改成全放开了。
-
-还没做的：图片附件、grok 的斜杠命令、思考档位（`--reasoning-effort`）、用量/成本统计。
-
-dsh 怎么跑
------------
-
-走 dsh 内核自己的协议 ACP（Agent Client Protocol），不包一层 shell。
-一个常驻进程，多条对话复用它：
-
-```
-dsh --profile acp                  stdio 上的 ACP v1，没有 HTTP、没有端口
-  initialize                       协议 1，不需要鉴权
-  session/new       {cwd, mcpServers:[]} -> {sessionId, configOptions}
-  session/resume    <内核自己的 session id>，续聊；没有日志就报错
-  session/set_config_option  "model" 的值是 JSON.stringify([provider, model])
-  session/prompt    {sessionId, prompt:[{type:"text"}|{type:"image"}]}，这一轮结束才返回
-  session/cancel    通知，不是请求；grok 那边的 SIGINT 在这里没有对应物
-  session/update    内核 -> 网页：已提交的正文、思考、工具生命周期
-  session/request_permission  内核问权限，网页一律 allow-once
-```
-
-ACP 自带的 profile 只挂 deepseek-official。网页启动内核时再叠两层补丁，和 dst 对齐：
-
-```
---patch ~/.dsh/profiles/dsh-tui/cordis.patch.yml   ds 维护的 llm-pi-ai 路由
---patch ~/.dsh/profiles/acp/.pi-web.patch.yml      网页按 ds.toml 生成
-                                                    acp 默认模型 + dsh-auth 的 OAuth 路由
-```
-
-第二份补丁只在内容变化时重写，不含 key。ds.toml 里的网关 key 注入子进程环境，
-`llm-pi-ai` 按 `apiKeyEnv` 取。ds.toml 改了，下一问会重启内核再加载。
-
-模型列表分两处：
-
-```
-设置 › 模型 › dsh   读 ds.toml，是文件编辑器
-输入框的模型菜单    问内核：session/new 拿 configOptions，读完整关掉
-                    所以菜单里有的模型一定能 set_config_option
-                    内核目录里没有的 id（如旧 ds.toml 写的 gpt-6.1-sol）
-                    设置页会标「dsh 没有这个模型」
-```
-
-图片：
-
-```
-input  [text, image] 的模型，输入框可以直接发图
-  session/prompt 里是 ACP image block：{type:"image", data(base64), mimeType}
-  内核把字节存进 ~/.dsh/attachments/v1/objects/<aa>/<sha256>
-  会话日志只写 attachmentId；读记录时再读回字节
-权限只看这一轮选的模型：model 不声明 image input 时内核明确拒绝，不换模型
-```
-
-网页的 session id 是自己的（`dsh-...`）。内核自己发 id，所以映射留在
-`harness/dsh/runtime.ts` 里，索引行的 `session_path` 存内核的会话目录：
-
-```
-~/.dsh/sessions/--tmp-dsh-e2e--/<内核 id>/
-  session.v4.jsonl.zstd     每个 flush 一帧 zstd，整个文件是几帧拼接
-```
-
-事件名和 pi 那套一样，所以聊天气泡、工具卡、停止按钮都不为新 harness 写第二套：
-
-```
-agent_message_chunk   -> message_update text_start / text_delta / text_end
-agent_thought_chunk   -> message_update thinking_*
-tool_call             -> toolcall_start/end + tool_execution_start
-tool_call_update      -> tool_execution_end + toolResult 消息
-这一轮落定            -> message_end + agent_end + agent_settled
-```
-
-内核提交的是整条 assistant 消息，不是 token。所以 dsh 的回复按「一步一块」出现，
-不是逐字出现；新的 `messageId` 就把上一个气泡关掉。
-
-模型：ds.toml 的 `provider`/`model` 两项直接就是 ACP 的选项值。
-输入框只列内核挂上的模型；`openai-codex` 的 id 由 dsh 内置的 pi-ai 目录决定，
-ds.toml 写了目录里没有的 id 时，内核不会挂它。设了但发不出去时明确报错，不静默换模型。
-
-```
-浏览器               useAgentSession 里按 harness 分叉
-                      /                    \
-                harness=pi            harness=dsh
-           lib/rpc-manager.ts    harness/dsh/acp.ts     一条 stdio 连接，常驻
-           /api/agent/[id]       harness/dsh/runtime.ts 每条对话一个 ACP 会话
-                                 /api/dsh/[id]        POST prompt | abort | get_state
-                                 /api/dsh/[id]/events SSE
-                                          |
-                                 ~/.dsh/sessions/.../session.v4.jsonl.zstd（内核写）
-```
-
-中断 = `session/cancel`。内核死了，这条对话的 `sessionPath` 还在，下一问
-`session/resume` 接上。
-
-开关（都可选）：
-
-```
-PI_WEB_DSH_BIN     dsh 可执行文件，默认走 PATH
-DSH_HOME           默认 ~/.dsh，会话目录和凭据都在这下面
-```
-
-还没做的：思考档位（`reasoning_effort` 选项已经在内核里，网页没接）、
-每条对话单独的沙箱/审批档位、用量统计。
-
-索引
-----
-
-文件：~/.coding-agent-web/data.db（sqlite）
-
-```
-directories
-  id, path, name
-
-sessions
-  id            这条对话在网页里的 id。pi 的用 pi 自己的 session id
-  directory_id
-  harness       pi | dsh | grok | claude-code | ...
-  provider
-  model
-  title
-  session_path  harness 自己的会话文件。网页不搬这份文件
-```
-
-例子：同一个项目目录下两条对话。
-
-```
-path  /Users/anner/coding-agent-web
-  hello   harness=pi    model=deepseek/deepseek-v4-flash
-          session_path=~/.pi/agent/sessions/.../xxxx.jsonl
-  hello   harness=grok  model=grok/grok-4.7
-          session_path=~/.grok/sessions/%2FUsers%2Fanner%2Fcoding-agent-web/<id>
-```
-
-从列表里删掉一条，只删索引里的行，不删 harness 的会话文件。
-
-代码放哪
+分类速览
 --------
 
-```
-harness/types.ts              名字、配置目录、自己的 readModels / writeModel
-harness/registry.ts           现在有哪些。路由只问 registry，不认识某个格式
-harness/claude-code/          原生 Claude Code CLI，独立模型配置、profile、会话与权限交互
-harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
-harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
-harness/dsh/acp.ts            dsh --profile acp 的 stdio 客户端，一个进程给全站
-harness/dsh/acp-patch.ts      按 ds.toml 生成 ACP 补丁、注入网关 key，配置变了就重启内核
-harness/dsh/runtime.ts        每条对话一个 ACP 会话：开、续、发、中断
-harness/dsh/events.ts         ACP session/update -> 网页已有的事件名
-harness/dsh/transcript.ts     session.v4.jsonl.zstd -> 聊天里的消息
-lib/dsh-client.ts             浏览器这边调 /api/dsh 的几个函数
-app/api/dsh/[id]/             prompt | abort | get_state | 读transcript
-app/api/dsh/[id]/events/      SSE
-harness/grok/index.ts         grok 的目录、可执行文件、权限模式。只读官方模型列表
-harness/grok/runtime.ts       每问一个 grok 进程，事件分发给订阅者
-harness/grok/events.ts        NDJSON -> 网页已有的事件名
-harness/grok/transcript.ts    chat_history.jsonl -> 聊天里的消息
-lib/grok-client.ts            浏览器这边调 /api/grok 的几个函数
-app/api/grok/[id]/            prompt | abort | 读transcript
-app/api/grok/[id]/events/     SSE
-components/harness/panels.tsx 设置页登记。每个面板只请求自己的接口
-lib/catalog-db.ts             data.db。一条会话不能改成另一个 harness
-```
+按主要使用方式分三类：
 
-隔离
-----
+  开放多模型型       pi、dsh          harness 自己支持多个 provider 和模型
+  官方模型生态型     grok             只在官方模型目录内选择，不接自定义 provider
+  隔离 profile 型    Claude Code      用独立原生配置接不同模型，每个模型各管自己的上下文
 
-```
-pi 的代码不读 dsh 或 grok 的文件
-dsh 的代码不读 grok 的缓存
-路由和设置外壳不写某个 harness 的格式
-一条索引行的 harness 不能改成另一个
-pi 创建出来的会话文件，索引里也写成 pi
-grok 不经过 lib/rpc-manager.ts，也不碰 pi 的会话文件
-dsh 不经过 lib/rpc-manager.ts，也不碰 grok 的目录
-dsh 的会话文件只由内核写；网页只读，且只读 DSH_HOME/sessions 下面
-```
+这是接入方式的分类，不是能力高低排名，也不是互斥的代码继承树。
+模型开放程度、配置隔离、运行协议是不同维度，不能从其中一项推断另外两项。
+以后遇到兼有多个特征的 harness，分别记录，不必硬塞进某个现有实现。
 
-再加一个 harness：新建 harness/<名字>/，在 registry.ts 登记，自己实现 readModels。设置页再在 panels.tsx 登记。不要改 pi 的会话格式去凑它，也不要在路由里加一个 if。
+  harness    模型来源                   网页中的运行方式                  上下文归属
+  pi         原生多 provider 目录       进程内 Pi SDK AgentSession         pi 会话
+  dsh        内核实际挂载的模型         一个常驻内核，多条 ACP 会话         dsh 原生会话
+  grok       官方模型缓存               每问一个原生 CLI 进程              grok 原生会话
+  Claude     独立配置中的 profiles      每条活跃会话一个原生 CLI 进程       固定 profile 下的原生 UUID
 
-ds.toml 和 grok 的 models_cache.json 里的 key 只留在那些文件里。接口不返回 key。
+四种风格与边界
+--------------
+
+pi：开放、可组合的通用 coding harness
+
+  定位是“全能型”：原生就有多 provider、多模型、自定义网关和扩展机制，
+  不是靠给每个模型伪造一份独立安装来接入。凭据、模型目录和会话仍归 pi。
+  同一会话可以换 provider/model；下一次模型请求用新选择，已在流出的回复不变。
+  “全能”不代表任意模型都兼容全部工具、图片或思考档位，仍以实际能力为准。
+
+  当前 Web 通过 lib/rpc-manager.ts 嵌入 Pi SDK，不是每轮启动一个 pi CLI。
+  文件名里的 rpc 不是全体 harness 的共同运行时。pi 的会话格式、MCP、skills、
+  扩展、工具预设、队列和分支能力只留在 pi 路线上，不要求其他 harness 模仿。
+
+  可复用：原生模型目录、显式选模、会话级设置、已有聊天界面。
+  不照搬：把 Pi SDK 或 SessionManager 当成所有 coding harness 的通用核心。
+
+dsh：定位接近 pi，但以可组合内核和 ACP 会话工作
+
+  同样属于开放多模型路线。provider/model 是内核的配置选项；模型来自内核挂载，
+  不是把一个 DeepSeek 模型名写死。底层路由使用 pi-ai 也不等于运行在网页的 pi 会话里。
+  全站复用一个 dsh 内核，每条对话开自己的 ACP session；不是每个模型一个进程。
+  dsh --profile acp 的 profile 是启动插件组合，不是 Claude 的模型隔离目录。
+
+  设置页读 ds.toml，输入框读内核 configOptions。文件里有名字，不代表内核能运行。
+  当前已有文本、图片和工具事件；正文按内核提交的消息块出现，不是逐 token 输出。
+  当前审批一律 allow-once；思考档位、会话级审批/沙箱、用量统计尚未接入。
+
+  已知缺口：openAcpSession() 只在新建或恢复 ACP session 时应用模型。
+  活跃 session 的菜单改动目前只改选择/索引，没有再次 set_config_option。
+  所以不能把“界面能换”写成“已支持同会话热切模”；需要换模型时新建会话。
+
+  可复用：多会话复用内核、以运行时能力校验配置、配置变化后重启并恢复会话。
+  不照搬：仅改索引就宣称执行模型已变，或把 ACP profile 当成模型隔离。
+
+grok：官方模型生态，不是通用 provider 路由器
+
+  本项目只列官方模型，provider 固定为 grok。官方目录可以有多个模型，
+  “官方型”不等于“只能用一个模型”；但不能在这里新增任意网关或改写官方模型表。
+  模型列表只读 models_cache.json，不为列菜单启动 CLI，也不返回缓存中的凭据。
+
+  每问启动一次原生 grok，传 --model。已有会话可为下一轮选择另一个官方模型，
+  不复制上下文、不切 harness；恢复依靠同一 cwd 下的 grok 原生日志。
+  用 streaming-json/NDJSON，不走 ACP，也不能套用 Claude 的 stream-json 控制协议。
+  目前未接图片、原生斜杠命令、思考档位和用量/成本统计。
+
+  可复用：官方目录只读、每轮 CLI、按原生 id 恢复、NDJSON 转换。
+  不照搬：因为按钮长得一样，就给官方型 harness 加通用 provider 编辑器。
+
+Claude Code：保留原生 agent，用 profile 适配不同模型
+
+  harness 始终是本机原版 claude CLI。Claude Code 是 agent 的名字，不是模型名。
+  原生工具、MCP、skills、hooks、插件和子代理仍由 CLI 执行；不用 Claude SDK，
+  也不把它替换成网页直接调用模型 API。
+
+  可沿用官方登录或原生路由，也可经兼容网关接其他模型。跨厂商接入需要后端满足
+  Claude CLI 的协议要求，不能把任意 OpenAI 接口地址直接当成兼容后端。
+  某个 profile 需要本机代理，不代表所有 Claude 会话或整个网页都依赖那个代理。
+
+  每个模型绑定独立 configDir，通过 CLAUDE_CONFIG_DIR 隔离配置、模型凭据、
+  原生历史和项目记忆；不改变系统 HOME。同一项目文件仍可被不同 profile 访问，
+  所以这是逻辑隔离，不是操作系统沙箱。共享原生能力不等于复制另一模型的上下文。
+  默认 ~/.claude 沿用原生设置，不等于保证使用官方 OAuth 或官方 endpoint。
+
+  可复用：稳定 profile 身份、环境隔离、原生双向控制、审批与问题回传。
+  不照搬：在旧会话里直接改 profile，或依赖个人 cc 脚本来决定模型和配置目录。
+
+名称与身份不要混用
+------------------
+
+  harness    谁负责 agent 循环、工具、权限和会话格式
+  provider   模型来源或路由分组；含义由各 harness 决定
+  model      真正传给执行端的模型标识，不是显示名称
+  profile    一组原生配置和状态的身份，不是另一种 harness
+  session    一条原生对话；网页 id 与原生 id 不一定相同
+  cwd        开发目录，不是模型配置目录
+
+例子：同一个 /work/repo，可以开 pi + DeepSeek，也可以开 Claude Code + DeepSeek。
+模型相同不代表 harness 相同；工具行为、权限、历史和上下文仍由各自 agent 管。
+
+Claude 特例：profiles[].id 是菜单/索引里的 model，profiles[].model 才是 CLI --model。
+provider 只作分组，endpoint 与认证由 profile 的 env/原生设置决定。
+例如 profile id=example-fast，实际 model=fast-model，不能把前者发给模型服务。
+
+同名字段也不要直接通用化：pi 的 api 是协议名，dsh 的 ds.toml 中 api 是凭据。
+各家配置只由自己的 harness 模块解释，通用路由不解析这些文件格式。
+
+前端与会话规则
+--------------
+
+  新建输入框        可选 harness，再选其模型/profile；发送中锁 harness，Claude 同时锁 profile
+  所有已有会话      harness 固定，按钮保留、变淡、点不开
+  pi 已有会话       可换模型，包括运行中；从下一次模型请求生效
+  grok 已有会话     可选下一轮使用的官方模型，下一次 CLI 启动时传入
+  dsh 已有会话      菜单可选，但活跃 ACP session 的实际切模尚未闭环，见上面的缺口
+  Claude 已有会话   模型/profile 也固定；无论空闲还是运行中，模型名保留但不能点开
+
+Claude 要换模型，先显式新建对话，再选 profile。不会因点模型自动新建、复制草稿，
+也不会把旧索引改指向另一模型。服务端同时固定 harness、provider、profile id、cwd
+和 profile 根目录，并拒绝原生 /model 指令绕过选择限制。
+不要把已有 profile 条目的 model/configDir 改成另一模型；新增 profile 和目录再开会话。
+
+打开已有对话必须用该会话自己的 harness，不继承新建框上一次的选择。
+pi 的原生会话文件决定当前模型；文件与索引不一致时修正索引，不反向覆盖文件。
+非 pi 会话不创建 Pi AgentSession、不调用 pi set_model，也不读取 pi 的会话格式。
+
+配置、凭据与索引
+----------------
+
+  pi       ~/.pi/agent/models.json、settings.json、auth.json
+           PI_CODING_AGENT_DIR 可改原生配置目录
+  dsh      ~/bin/ds/ds.toml，DSH_DS_TOML 可改；DSH_HOME 默认 ~/.dsh
+  grok     ~/.grok/models_cache.json、config.toml，GROK_HOME 可改
+  Claude   data.db 同目录的 claude-code.json，默认 ~/.coding-agent-web/claude-code.json
+           首次自动生成默认入口，设置页提示文件位置和刷新方法
+
+Claude 运行时只读自己的 JSON，不读取 cc 脚本、cc.toml 或 cc 偏好文件。
+旧配置可一次性迁移，不能保留隐藏的 fallback。新增的网页配置放数据库同目录，
+不要要求新用户安装某个人的启动脚本。现有 dsh 的 ds.toml 默认路径是接入现状，
+不是所有新 harness 都应沿用的路径规范。
+
+模型列表接口只回显示和选择所需信息，不能回传 key、token、env 或登录缓存身份。
+原生凭据和历史不提交 Git。网页自有的 Claude 配置首次创建为 0600。
+
+左侧只列 data.db 的索引，不扫描并自动导入各 harness 的全部终端历史。
+默认数据库是 ~/.coding-agent-web/data.db，CODING_AGENT_WEB_DATA 可指定数据库文件。
+首次成功创建会话后写入索引；从列表删除只删索引，不删除原生日志。
+非 pi 行在标题后显示 harness，pi 不加标记，时间列不变。
+
+  sessions
+    id             网页会话 id
+    directory_id   项目目录索引
+    harness        固定的运行时归属
+    provider       该 harness 的 provider/分组
+    model          pi/dsh/grok 的模型 id；Claude 的稳定 profile id
+    title          网页显示标题
+    session_path   原生位置，由所属 harness 解释，不统一假设为文件名
+
+  harness    session_path
+  pi         ~/.pi/agent/sessions/.../<id>.jsonl
+  dsh        ~/.dsh/sessions/<内核编码目录>/<原生 id>/
+  grok       ~/.grok/sessions/<URL 编码 cwd>/<UUID>/chat_history.jsonl
+  Claude     固定 profile 根目录；在其 projects 下按 UUID 定位原生 JSONL
+
+网页与原生 session id：pi、grok、Claude 使用原生 id；grok/Claude 必须是 UUID。
+dsh 使用 dsh-... 网页 id，运行时维护 ACP id 映射，重启后从 session_path 恢复。
+历史始终由原生运行时写。网页只解析、展示和索引，不存第二份正文或转换成 pi 日志。
+
+运行协议与生命周期
+------------------
+
+  会话列表、对话、输入框、文件
+                 |
+                 v
+          按索引 harness 分流
+                 |
+     +-----------+-------------+----------------+
+     |           |             |                |
+     pi          dsh           grok             Claude Code
+     SDK         ACP stdio     CLI NDJSON       双向 stream-json
+     会话封装    全站常驻内核  每问新进程       每条活跃会话一个进程
+     |           |             |                |
+     +-----------+-------------+----------------+
+                 |
+         转成网页现有事件 -> SSE -> 共用消息/工具卡
+
+通信协议和进程寿命单独选择，不按“开放型/官方型/profile 型”自动推断。
+复用的是网页事件词汇和展示，不是 Pi SDK 的会话所有权或原生存储格式。
+
+grok：
+  grok -p <文本> --output-format streaming-json --model <模型>
+       --permission-mode <模式> -s <新 UUID>，已有会话用 -r <UUID>
+  子进程 cwd 必须保持原会话目录，CLI 通过它定位恢复日志。
+  stdout 一行一个事件；text/thought/tool_call/tool_call_update 转成正文、思考与工具事件。
+  SIGINT 中断，3 秒不退再 SIGTERM；进程关闭后才最终结算这一轮。
+  PI_WEB_GROK_BIN 可指定二进制；默认找 ~/.local/bin/grok，再找 ~/.grok/bin/grok。
+  GROK_DEFAULT_MODEL 未设置时回退 grok-4.7。
+  PI_WEB_GROK_PERMISSION_MODE 当前默认 bypassPermissions；这是宽松默认，不是接入模板。
+
+dsh：
+  dsh --profile acp，PI_WEB_DSH_BIN 可指定二进制，否则走 PATH。
+  initialize 使用 ACP v1；session/new 或 session/resume 打开原生会话。
+  model 选项是 JSON.stringify([provider, model])，不是显示名。
+  session/prompt 到本轮结束才返回；session/update 承载正文、思考和工具生命周期。
+  session/cancel 是通知，不是等待返回的请求；不能照搬 grok 的进程中断方式。
+  session/request_permission 当前返回 allow-once，未提供逐会话审批档位。
+
+  当前 ACP 默认组合只挂 deepseek-official。网页按需叠加 dsh-tui/cordis.patch.yml
+  和按 ds.toml 生成的 acp/.pi-web.patch.yml，补上可用网关及 dsh-auth OAuth 路由。
+  生成补丁不带 key，key 通过子进程环境注入；配置改变，下一问重启内核并恢复会话。
+  模型必须在内核挂载目录内，不能拿设置文件里任意一个 id 直接发送。
+
+  图片走 ACP image block；字节归 ~/.dsh/attachments，日志只存 attachmentId。
+  模型不声明 image input 时明确拒绝，不静默换模型。
+  原生日志是 session.v4.jsonl.zstd，多帧 zstd 拼接，网页只读 DSH_HOME/sessions 内的日志。
+  内核退出后，下次按原生 id session/resume；不能无提示新建空上下文。
+
+Claude：
+  --print --input-format stream-json --output-format stream-json，支持部分消息和控制帧。
+  同一活跃会话多轮复用 CLI，空闲 10 分钟回收，下次 --resume <UUID>，不用 --continue。
+  权限、提问和 MCP 输入通过原生 control_request/control_response 回传，不伪造执行结果。
+  默认 manual；bypassPermissions 必须显式配置。项目 trust 与工具审批分别处理。
+  停止先用原生 interrupt，必要时升级信号；浏览器断开不等于终止原生任务。
+  其他参数、共享能力和验证方式见 docs/claude-code.txt。
+
+已有经验：新接入时先检查这些
+--------------------------
+
+1. 接 agent，不是只接模型 API
+   先验证本机二进制/SDK如何启动、续聊、发消息、中断、问权限、读日志，再接 UI。
+   Claude 即使能用其他厂商模型，仍必须运行原生 claude；不能换成另一个 agent 循环。
+
+2. 配置列表不等于可运行列表
+   dsh 的设置列表和实际挂载列表不同；grok 是官方只读；Claude 菜单值是 profile id。
+   模型缺失、禁用、认证失败时明确报错，旧会话不能悄悄换成默认模型。
+
+3. “模型已切换”必须追到执行端
+   更新索引/标签不算完成。pi 要 set_model，grok 要下一次 --model，dsh 要 ACP 配置请求。
+   Claude 的策略相反：已有会话不切换，前端锁控件、回调不改索引、服务端拒绝改绑。
+
+4. 先确定会话身份，再复用进程
+   明确 id、cwd、provider/model、profile、session_path 哪些不可变；变化后是续聊还是新会话。
+   禁用 profile 也要保留历史可读；原生日志缺失要报错，不用一个空会话冒充恢复成功。
+   LAN 的 HTTP 页面不一定有 crypto.randomUUID，grok/Claude 复用已有 UUID 生成器。
+
+5. 增量、最终消息和重连快照可能重复
+   保留原生 message/tool id；Claude 的 partial 与完整消息必须归并，不能重复追加正文。
+   历史读取要沿原生有效分支、处理 compaction 和工具结果，不能只按文件顺序拼文本。
+   dsh 的“消息块”不是 token delta，不要为了逐字效果人为重放一遍。
+
+6. 运行结束、进程退出、浏览器离开是三件事
+   dsh/Claude 一轮结束后进程可继续运行。未结束的工具、后台任务、审批不能被当作空闲。
+   中断、启动失败、原生进程退出都要让 UI 最终落定，不能留一个永不结束的转圈。
+   切页、刷新、网络重连不重发提问；应用重启后要同时恢复历史和已索引项目的文件权限。
+
+7. 权限和工具能力不能靠控件外观推断
+   当前 pi、dsh、grok、Claude 的审批语义不同。记录实际默认，不把宽松模式推广给下一家。
+   不支持的原生交互明确标为未接入；不能自动替用户回答、把取消当批准，或套上 Pi 专用控件。
+   用量和成本先确认是每轮增量还是累计快照，缺失时不要编造统计。
+
+8. 保留原生资产，少写通用层
+   各家自己管配置、凭据、MCP/skills 和会话文件。通用部分只做索引、分流、事件展示。
+   只在确实相同的行为上复用现有 helper，不为尚未接入的 harness 预设配置格式或协议。
+
+新增 harness 的顺序
+-------------------
+
+  模型从哪里来？
+    +-- 原生支持多个 provider       -> 先参考 pi/dsh 的目录与运行时校验
+    +-- 只允许官方目录              -> 先参考 grok 的只读边界
+    +-- 靠隔离配置接不同模型        -> 先参考 Claude 的 profile 身份与会话锁定
+    +-- 都不准确                    -> 在本文件说明新类型，不强行包装成 pi
+                |
+                v
+  独立确认协议、进程寿命、历史格式、审批/中断方式和前端可变项
+                |
+                v
+  原生最小验证 -> 自有 runtime/events/transcript -> API/SSE -> 共用界面
+
+先补一条文档记录：定位/风格、模型来源和限制、选择值含义、会话锁定规则、配置与凭据位置、
+协议及进程寿命、恢复与中断、已接/未接能力、可以复用哪一条经验。
+然后登记 registry 和设置面板。登记名字与 readModels 只解决发现/模型菜单，不代表能聊天。
+运行时单独接，不改 pi 的 SDK 或日志去凑，也不让通用模型路由解析某家的私有格式。
+
+最小验证覆盖：首次发送、第二轮、重启恢复、中断、切页重连、模型缺失/禁用、身份不可改绑；
+有图片、工具、审批或问题表单时补上对应原生检查。协议测试可用本地假网关，但不能据此
+声称真实 provider、浏览器部署或所有原生功能都已验证。
+
+代码入口
+--------
+
+  harness/types.ts、registry.ts      名称、配置位置、模型读写；不承包各家运行时
+  harness/pi/、lib/rpc-manager.ts    pi 的原生 SDK 和会话封装
+  harness/dsh/                      ACP、补丁、模型配置、事件与原生 zstd 日志
+  harness/grok/                     官方目录、逐轮 CLI、事件与 chat_history.jsonl
+  harness/claude-code/              自有 JSON、profile、原生 CLI、事件、历史与权限
+  lib/{dsh,grok,claude-code}-client.ts  浏览器的原生端点调用和现有 helper
+  app/api/<harness>/[id]/           各家发送/停止/状态/历史及 events SSE
+  hooks/useAgentSession.ts          按 harness 选择运行时，共用事件展示
+  components/harness/panels.tsx     独立设置面板登记
+  components/ChatInput.tsx          选择器和锁定显示
+  components/AppShell.tsx           选择回调、目录偏好与会话导航
+  lib/catalog-db.ts                 索引与服务端身份保护
+
+  node_modules/.bin/tsc --noEmit
+  npm run lint
+  npm test
+
+不要为验证执行 next build 或启停服务。部署与重启由用户执行。

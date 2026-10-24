@@ -39,7 +39,7 @@ import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { composerHarnessFor, isPiSessionFile, mergeCatalogRow } from "./session-catalog-helpers";
-import { getDraft, rekeyDraft, setDraft } from "@/lib/draft-store";
+import { getDraft, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -1126,20 +1126,7 @@ export function AppShell() {
   const handleCatalogModelChange = useCallback((provider: string, modelId: string) => {
     const session = selectedSessionRef.current;
     const harness = session?.harness || harnessRef.current || "pi";
-    if (session && harness === "claude-code" && (session.modelProvider !== provider || session.modelId !== modelId)) {
-      if (runningSessionIds.has(session.id)) return;
-      const draftId = `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const draft = getDraft(session.id);
-      if (draft) setDraft(`new:${draftId}:${session.cwd}`, draft);
-      projectPreferenceInteractionRef.current += 1;
-      harnessRef.current = "claude-code";
-      harnessModelRef.current = { provider, modelId };
-      setComposerHarness("claude-code");
-      setComposerModel({ provider, modelId });
-      saveProjectPreference(session.cwd, { harness: "claude-code", provider, model: modelId });
-      handleNewSession(draftId, session.cwd, session.projectKey, { carryComposer: true });
-      return;
-    }
+    if (session && harness === "claude-code") return;
     if (harness !== "pi") {
       harnessModelRef.current = { provider, modelId };
       setComposerModel({ provider, modelId });
@@ -1155,7 +1142,7 @@ export function AppShell() {
     }).then((response) => {
       if (response.ok) setRefreshKey((k) => k + 1);
     }).catch(() => {});
-  }, [handleNewSession, runningSessionIds, saveProjectPreference]);
+  }, []);
 
   const deliverSessionNotification = useCallback(({
     targetSession,

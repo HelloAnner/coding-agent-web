@@ -285,6 +285,7 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   const run = getClaudeRun(prompt.id);
   if (!prompt.text.trim() && !prompt.images?.length) throw new Error("Message is empty");
   if (run.isStreaming) throw new Error("Claude Code is already answering in this session");
+  if (/^\/model(?:\s|$)/i.test(prompt.text.trimStart())) throw new Error("Claude Code model is fixed by its profile. Start a new chat to switch models.");
   const profile = resolveClaudeProfile(prompt.profileId, prompt.provider);
   const cwd = realpathSync(prompt.cwd);
   const existing = readCatalogSession(prompt.id);

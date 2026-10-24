@@ -17,6 +17,39 @@ function callbackBody(name, nextName) {
   return source.slice(start, end);
 }
 
+test("existing Claude chats ignore model changes instead of silently creating another chat", () => {
+  const callback = callbackBody("handleCatalogModelChange", "deliverSessionNotification");
+  const pair = { provider: "example", modelId: "profile-two" };
+  for (const harness of ["claude-code", "dsh", "grok"]) {
+    for (const existing of [false, true]) {
+      const session = existing ? { id: "old-chat", cwd: "/project", harness, modelProvider: "example", modelId: "profile-one" } : null;
+      const effects = [];
+      const context = vm.createContext({
+        useCallback: (callback) => callback,
+        selectedSessionRef: { current: session },
+        harnessRef: { current: harness },
+        harnessModelRef: { current: null },
+        runningSessionIds: new Set(),
+        getDraft() { assert.fail("model selection must not copy the old chat's draft"); },
+        handleNewSession() { assert.fail("model selection must not create a chat"); },
+        saveProjectPreference() { assert.fail("a rejected model change must not change preferences"); },
+        setComposerModel: (model) => effects.push(["composer", model]),
+        setSelectedSession: (update) => effects.push(["session", update(session)]),
+        fetch: (url, options) => { effects.push(["patch", url, JSON.parse(options.body)]); return Promise.resolve({ ok: false }); },
+      });
+      vm.runInContext(stripTypeScriptTypes(`${callback}\nhandleCatalogModelChange("${pair.provider}", "${pair.modelId}");`), context);
+      if (existing && harness === "claude-code") {
+        assert.deepEqual(effects, []);
+        assert.equal(context.harnessModelRef.current, null);
+      } else {
+        assert.equal(JSON.stringify(context.harnessModelRef.current), JSON.stringify(pair));
+        assert.deepEqual(effects.map(([type]) => type), existing ? ["composer", "session", "patch"] : ["composer"]);
+        if (existing) assert.deepEqual(effects.at(-1), ["patch", "/api/catalog/sessions/old-chat", { provider: pair.provider, model: pair.modelId }]);
+      }
+    }
+  }
+});
+
 test("a linked session that is gone gets no other session in its place (#1168)", async (t) => {
   const callbacks = [
     callbackBody("restoreWorkspaceContext", "handleCwdChange"),

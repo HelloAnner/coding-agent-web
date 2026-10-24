@@ -197,6 +197,21 @@ test("catalog updates cannot move a Claude conversation to another profile", (t)
   assert.equal(db.readCatalogSession(input.id).model, "one");
 });
 
+test("native /model cannot bypass a Claude profile's fixed model", async (t) => {
+  const root = setup(t);
+  const p = profile(root);
+  writeProfiles([p]);
+  process.env.PI_WEB_CLAUDE_BIN = join(root, "not-installed");
+  for (const text of ["/model", "/model another-model", " \n/model\tanother-model", "/MODEL another-model"]) {
+    const id = randomUUID();
+    await assert.rejects(runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text }), /model is fixed by its profile/);
+    assert.equal(db.readCatalogSession(id), null);
+    assert.equal(runtime.getClaudeRun(id).child, null);
+    assert.equal(runtime.claudeState(id).running, false);
+  }
+  await assert.rejects(runtime.sendClaudePrompt({ id: randomUUID(), cwd: root, profileId: p.id, text: "/model-notes" }), /could not start/);
+});
+
 test("missing CLI fails once without losing or inventing a native session", async (t) => {
   const root = setup(t);
   const p = profile(root);
