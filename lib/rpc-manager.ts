@@ -17,6 +17,7 @@ import {
   preferUserBashExtension,
 } from "./project-command-env";
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { syncCatalogTitle } from "./catalog-title";
 import { computeLiveSessionTotalActiveMs } from "./session-timing";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
@@ -448,7 +449,10 @@ export class AgentSessionWrapper {
       // A name from setSessionName(), an extension's included: a title generated
       // in the background lands after the run's agent_end, a command's with no
       // run at all, and the sidebar would keep the old one (#1237).
-      if (event.type === "session_info_changed") invalidateSessionListCache();
+      if (event.type === "session_info_changed") {
+        invalidateSessionListCache();
+        syncCatalogTitle(this.sessionId, this.inner.sessionManager.getSessionName());
+      }
       this.trackActiveToolEvent(event);
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event.type === "message_end" ? this.withTranscriptNotices(event) : event);
