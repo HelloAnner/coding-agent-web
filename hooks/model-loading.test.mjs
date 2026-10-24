@@ -20,7 +20,7 @@ const loader = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.
 const schedule = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === "MODELS_RETRY_DELAYS_MS");
 const effect = nodes.find((node) => ts.isCallExpression(node)
   && node.expression.getText(source) === "useEffect"
-  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey]");
+  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey, usesPiRuntime]");
 const retry = effect.arguments[0].body.statements.find(ts.isExpressionStatement).expression;
 function script(text) {
   return new Script(ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
@@ -36,8 +36,10 @@ function setup(fetchImpl) {
     controller: new AbortController(),
     newSessionCwd: "/project", session: null, isNew: true,
     sessionIdRef: { current: null }, thinkingLevelOverrideRef: { current: null }, newSessionModelOverrideRef: { current: null },
+    newSessionDefaultModelRef: { current: null },
     thinkingLevelPinsRef: { current: {} }, defaultThinkingLevelRef: { current: null },
     asConcreteThinkingLevel: (value) => (!value || value === "auto" ? null : value),
+    setPendingModel: (value) => writes.push(["PendingModel", value]),
     fetch: fetchImpl,
     MODELS_RETRY_DELAYS_MS: script(schedule.initializer.getText(source)).runInNewContext(),
     delay: async (ms) => { delays.push(ms); },
@@ -154,4 +156,20 @@ test("a picked model the folder offers keeps its pinned reasoning level; one it 
   started.context.newSessionModelOverrideRef.current = { provider: "other", modelId: "gone" };
   await started.run();
   assert.deepEqual(started.context.newSessionModelOverrideRef.current, { provider: "other", modelId: "gone" });
+});
+
+test("a fresh composer starts on the folder's remembered model", async () => {
+  const catalog = {
+    models: { "custom:test": "Test", "custom:fast": "Fast" },
+    modelList: [{ provider: "custom", id: "test", name: "Test" }, { provider: "custom", id: "fast", name: "Fast" }],
+    defaultModel: { provider: "custom", modelId: "fast" },
+    projectModelPreference: { provider: "custom", modelId: "fast" },
+  };
+  const state = setup(async () => Response.json(catalog));
+  await state.run();
+  const picked = state.context.newSessionModelOverrideRef.current;
+  assert.equal(picked.provider, "custom");
+  assert.equal(picked.modelId, "fast");
+  assert.ok(state.writes.some(([name, value]) => name === "NewSessionModel" && value?.modelId === "fast"));
+  assert.ok(state.writes.some(([name, value]) => name === "NewSessionDefaultModel" && value?.modelId === "fast"));
 });

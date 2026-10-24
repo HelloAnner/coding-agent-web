@@ -11,6 +11,7 @@ import {
 } from "@/lib/models-cache";
 import { orderSelectorModels, resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { readProjectPreference } from "@/lib/catalog-db";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
 import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { inferRemovedWorktree } from "@/lib/worktree";
@@ -57,12 +58,22 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     if (m.thinkingLevelMap) thinkingLevelMaps[key] = m.thinkingLevelMap;
   }
 
-  const defaultProvider = settings.getDefaultProvider();
-  const defaultModelId = settings.getDefaultModel();
+  // A project's last pick replaces the old global default. With no pick yet,
+  // new chats start on the first model the scope offers, never on a global one.
+  const saved = readProjectPreference(cwd);
+  const preferred = saved?.harness === "pi" && saved.provider && saved.model
+    ? { provider: saved.provider, modelId: saved.model }
+    : null;
+  const projectModelPreference = preferred
+    && visible.some((model) => model.provider === preferred.provider && model.id === preferred.modelId)
+    ? preferred
+    : null;
+  const fallback = visible[0]
+    ? { provider: visible[0].provider, modelId: visible[0].id }
+    : null;
+  const startModel = projectModelPreference ?? fallback;
   const initial = selectInitialModelScope(scope, {
-    ...(defaultProvider && defaultModelId
-      ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
-      : {}),
+    ...(startModel ? { defaultModel: startModel } : {}),
   });
   if (initial.model) {
     defaultModel = { provider: initial.model.provider, modelId: initial.model.id };
@@ -79,6 +90,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       models: Object.fromEntries(nameMap),
       modelList,
       defaultModel,
+      projectModelPreference,
       defaultThinkingLevel,
       savedDefaultThinkingLevel: settings.getDefaultThinkingLevel() ?? null,
       thinkingLevels,

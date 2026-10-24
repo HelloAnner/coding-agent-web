@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -14,10 +14,13 @@ export function catalogDbPath(): string {
 }
 
 let open: { path: string; db: DatabaseSync } | null = null;
+let readOpen: { path: string; db: DatabaseSync } | null = null;
 
 function database(file = catalogDbPath()): DatabaseSync {
   if (open?.path === file) return open.db;
   open?.db.close();
+  readOpen?.db.close();
+  readOpen = null;
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
   try { chmodSync(file, 0o600); } catch { /* :memory: has nothing to chmod */ }
@@ -42,8 +45,24 @@ function database(file = catalogDbPath()): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_by_directory ON sessions(directory_id, updated_at);
+    CREATE TABLE IF NOT EXISTS project_preferences (
+      directory_id TEXT PRIMARY KEY REFERENCES directories(id) ON DELETE CASCADE,
+      harness TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL
+    );
   `);
   open = { path: file, db };
+  return db;
+}
+
+/** Reads only: opening WAL would write, which a read-only data file cannot allow. */
+function readDatabase(file: string): DatabaseSync {
+  if (readOpen?.path === file) return readOpen.db;
+  readOpen?.db.close();
+  const db = new DatabaseSync(file, { readOnly: true });
+  readOpen = { path: file, db };
   return db;
 }
 
@@ -51,6 +70,8 @@ function database(file = catalogDbPath()): DatabaseSync {
 export function closeCatalogDb(): void {
   open?.db.close();
   open = null;
+  readOpen?.db.close();
+  readOpen = null;
 }
 
 export interface CatalogSessionInput {
@@ -94,6 +115,61 @@ export class CatalogHarnessLockedError extends Error {
     super("A session keeps its harness");
     this.name = "CatalogHarnessLockedError";
   }
+}
+
+/** The harness, provider and model a project started its last chat with. */
+export interface ProjectPreference {
+  harness: string;
+  provider: string;
+  model: string;
+}
+
+/** One preference per project folder. Unknown folders have none. */
+export function readProjectPreference(cwd: string, file = catalogDbPath()): ProjectPreference | null {
+  // A read must not create the web's data directory on a machine that has never written it.
+  if (!existsSync(file)) return null;
+  try {
+    const db = readDatabase(file);
+    const row = db.prepare(`
+      SELECT project_preferences.harness, project_preferences.provider, project_preferences.model
+      FROM project_preferences
+      JOIN directories ON directories.id = project_preferences.directory_id
+      WHERE directories.path = ?
+    `).get(cwd.trim()) as ProjectPreference | undefined;
+    return row ? { harness: row.harness, provider: row.provider, model: row.model } : null;
+  } catch {
+    // An older index without the table has no preference yet; the next write adds it.
+    return null;
+  }
+}
+
+/** Replace the project's preference. The folder row is created when needed. */
+export function writeProjectPreference(
+  cwd: string,
+  preference: ProjectPreference,
+  file = catalogDbPath(),
+): void {
+  const directory = cwd.trim();
+  if (!path.isAbsolute(directory)) throw new Error("cwd must be an absolute path");
+  const harness = preference.harness.trim();
+  if (!harness) throw new Error("harness is required");
+  const db = database(file);
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO project_preferences (directory_id, harness, provider, model, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(directory_id) DO UPDATE SET
+      harness = excluded.harness,
+      provider = excluded.provider,
+      model = excluded.model,
+      updated_at = excluded.updated_at
+  `).run(
+    directoryId(db, directory, now),
+    harness,
+    preference.provider.trim(),
+    preference.model.trim(),
+    now,
+  );
 }
 
 /** Insert or replace the index row for one conversation. */

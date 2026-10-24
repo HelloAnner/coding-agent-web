@@ -17,10 +17,13 @@ const agentDir = join(root, "agent");
 const repo = join(root, "repo");
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousOffline = process.env.PI_OFFLINE;
+const previousData = process.env.CODING_AGENT_WEB_DATA;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 // The list is served from the SDK's own data and the models.json below, so the route
 // never reaches for the network here.
 process.env.PI_OFFLINE = "1";
+// Keep this test's project preferences out of the user's data.db.
+process.env.CODING_AGENT_WEB_DATA = join(root, "data.db");
 
 await mkdir(agentDir, { recursive: true });
 await writeFile(join(agentDir, "models.json"), JSON.stringify({
@@ -29,7 +32,7 @@ await writeFile(join(agentDir, "models.json"), JSON.stringify({
       baseUrl: "https://example.invalid/v1",
       apiKey: "sk-test",
       api: "openai-completions",
-      models: [{ id: "one", name: "Acme One" }],
+      models: [{ id: "one", name: "Acme One" }, { id: "two", name: "Acme Two" }],
     },
   },
 }, null, 2));
@@ -45,6 +48,7 @@ await initRepo("repo");
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
+const { PUT: putPreference } = await jiti.import("../project-preferences/route.ts");
 const { GET } = await jiti.import("./route.ts");
 // The repo of the removed worktree below is a project some session named, which is what
 // makes it an allowed root; the fallback never adds one of its own.
@@ -55,12 +59,23 @@ after(async () => {
   else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
   if (previousOffline === undefined) delete process.env.PI_OFFLINE;
   else process.env.PI_OFFLINE = previousOffline;
+  if (previousData === undefined) delete process.env.CODING_AGENT_WEB_DATA;
+  else process.env.CODING_AGENT_WEB_DATA = previousData;
   await rm(root, { recursive: true, force: true });
 });
 
 async function models(cwd) {
   const response = await GET(new Request(`http://localhost/api/models?cwd=${encodeURIComponent(cwd)}`, { headers: { host: "localhost" } }));
   return { status: response.status, body: await response.json() };
+}
+
+async function remember(cwd, preference) {
+  const response = await putPreference(new Request("http://localhost/api/project-preferences", {
+    method: "PUT",
+    headers: { host: "localhost", "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, ...preference }),
+  }));
+  assert.equal(response.status, 200);
 }
 
 test("a removed worktree is listed from the repo it branched from", async () => {
@@ -74,7 +89,7 @@ test("a removed worktree is listed from the repo it branched from", async () => 
   // Not merely some list: the same one the repo answers, which is what a session that ran
   // without worktree isolation gets.
   assert.deepEqual(fromRemoved.body, fromRepo.body);
-  assert.deepEqual(fromRemoved.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one"], "an empty list would make the comparison say nothing");
+  assert.deepEqual(fromRemoved.body.modelList.map((m) => `${m.provider}:${m.id}`), ["acme:one", "acme:two"], "an empty list would make the comparison say nothing");
 });
 
 test("the repo a removed worktree falls back to is authorized as any other cwd", async () => {
@@ -101,4 +116,27 @@ test("a missing folder that is not a removed worktree of a repo is refused as be
   const orphan = await models(join(`${root}-worktrees`, "orphan"));
   assert.equal(orphan.status, 400);
   assert.equal(orphan.body.error, `Directory does not exist: ${join(`${root}-worktrees`, "orphan")}`);
+});
+
+test("a folder's remembered pi model is its default; another harness's pick is ignored", async () => {
+  const picked = await initRepo("picked");
+  allowFileRoot(picked);
+  // Fill the per-folder models cache first: saving a preference must invalidate it.
+  const before = await models(picked);
+  assert.deepEqual(before.body.defaultModel, { provider: "acme", modelId: "one" });
+  await remember(picked, { harness: "pi", provider: "acme", model: "two" });
+
+  const pi = await models(picked);
+  assert.equal(pi.status, 200);
+  assert.deepEqual(pi.body.defaultModel, { provider: "acme", modelId: "two" });
+  assert.deepEqual(pi.body.projectModelPreference, { provider: "acme", modelId: "two" });
+
+  const otherHarness = await initRepo("other-harness");
+  allowFileRoot(otherHarness);
+  await remember(otherHarness, { harness: "dsh", provider: "acme", model: "two" });
+
+  const dsh = await models(otherHarness);
+  assert.equal(dsh.status, 200);
+  assert.deepEqual(dsh.body.defaultModel, { provider: "acme", modelId: "one" });
+  assert.equal(dsh.body.projectModelPreference, null);
 });

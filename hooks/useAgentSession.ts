@@ -353,6 +353,8 @@ type ModelsResponse = {
   models: Record<string, string>;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
+  /** The model this folder used last, when it is still offered. */
+  projectModelPreference?: SelectedModel | null;
   defaultThinkingLevel?: string | null;
   savedDefaultThinkingLevel?: string | null;
   thinkingLevels?: Record<string, string[]>;
@@ -507,6 +509,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialChoices?.model ?? null);
+  // What /api/models says a fresh chat starts on: the folder's last pick, else
+  // the first offered model. Sent only when the user has not picked one.
+  const newSessionDefaultModelRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<ConcreteThinkingLevel | null>(initialChoices?.thinkingLevel ?? null);
   const thinkingLevelPinsRef = useRef<Record<string, string>>({});
   const defaultThinkingLevelRef = useRef<ConcreteThinkingLevel | null>(null);
@@ -1008,9 +1013,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (ensuringNewSessionRef.current) return ensuringNewSessionRef.current;
 
     const promise = (async () => {
-      // Only send explicit user overrides. The server resolves the current
-      // enabledModels scope atomically with AgentSession construction.
-      const selectedModel = newSessionModelOverrideRef.current;
+      // The folder's remembered model or the first offered one, unless the user
+      // has picked one. Sending it keeps pi from falling back to an old global
+      // default that the web no longer shows.
+      const selectedModel = newSessionModelOverrideRef.current ?? newSessionDefaultModelRef.current;
       const selectedThinkingLevel = thinkingLevelOverrideRef.current;
       if (selectedModel) setPendingModel(selectedModel);
       // Undefined means the user never overrode the loadout: omit the field entirely
@@ -1043,9 +1049,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
-      if (result.model && newSessionModelOverrideRef.current === selectedModel) {
+      const modelChoiceStillCurrent = newSessionModelOverrideRef.current
+        ? newSessionModelOverrideRef.current === selectedModel
+        : selectedModel === null
+          || (selectedModel.provider === newSessionDefaultModelRef.current?.provider
+            && selectedModel.modelId === newSessionDefaultModelRef.current?.modelId);
+      if (result.model && modelChoiceStillCurrent) {
         setPendingModel(result.model);
-        if (!selectedModel) setNewSessionDefaultModel(result.model);
+        if (!newSessionModelOverrideRef.current) setNewSessionDefaultModel(result.model);
       }
       if (
         result.thinkingLevel
@@ -2151,7 +2162,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, submitDshPrompt, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (runtimeHarnessRef.current !== "pi") {
@@ -2390,9 +2401,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const displayDefaultModel = d.defaultModel
       ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
       : undefined;
-    setNewSessionDefaultModel(displayDefaultModel
+    const defaultStartModel = displayDefaultModel
       ? { provider: displayDefaultModel.provider, modelId: displayDefaultModel.id }
-      : null);
+      : null;
+    newSessionDefaultModelRef.current = defaultStartModel;
+    setNewSessionDefaultModel(defaultStartModel);
     thinkingLevelPinsRef.current = d.thinkingLevelPins ?? {};
     defaultThinkingLevelRef.current = asConcreteThinkingLevel(d.defaultThinkingLevel);
     setSavedDefaultThinkingLevel(asConcreteThinkingLevel(d.savedDefaultThinkingLevel));
@@ -2408,10 +2421,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         newSessionModelOverrideRef.current = null;
         setNewSessionModel(null);
       }
+      // A fresh composer starts on this folder's last pick. It is an explicit
+      // pick, so the server never falls back to a global default.
+      const projectPreference = d.projectModelPreference;
+      const preferred = !kept && projectPreference
+        ? nextModelList.find((m) => m.provider === projectPreference.provider && m.id === projectPreference.modelId)
+        : undefined;
+      if (preferred) {
+        const selected = { provider: preferred.provider, modelId: preferred.id };
+        newSessionModelOverrideRef.current = selected;
+        setNewSessionModel(selected);
+        setPendingModel(selected);
+      }
       // The first listed model is not necessarily the runtime's automatic choice.
       // An `enabledModels` pattern may pin a thinking level (`anthropic/*:high`).
       // Like pi, apply it to the model a new session starts with.
-      const startModel = kept ? picked : displayDefaultModel && { provider: displayDefaultModel.provider, modelId: displayDefaultModel.id };
+      const startModel = kept
+        ? picked
+        : preferred
+          ? { provider: preferred.provider, modelId: preferred.id }
+          : defaultStartModel;
       const pinned = startModel && d.thinkingLevelPins?.[`${startModel.provider}/${startModel.modelId}`];
       if (thinkingLevelOverrideRef.current === null) {
         setNewSessionDefaultThinkingLevel(
@@ -2421,9 +2450,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, session?.cwd]);
 
-  // Picking a model or reasoning level is session-scoped, as in the TUI. The
-  // selectors' star is the explicit Ctrl+S equivalent: it saves the global
-  // default new sessions start with and also selects it for this chat.
+  // A reasoning level picked with the selector's star is the explicit Ctrl+S
+  // equivalent: it saves the default new sessions start with.
   const saveDefaultPreferences = useCallback(async (
     edit: { provider: string; modelId: string } | { thinkingLevel: ConcreteThinkingLevel },
   ) => {
@@ -2448,21 +2476,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // The star already updated the marker; a failed refresh keeps the old list.
     loadModels().catch(() => {});
   }, [loadModels]);
-
-  const handleSetDefaultModel = useCallback(async (provider: string, modelId: string) => {
-    try {
-      await saveDefaultPreferences({ provider, modelId });
-    } catch (e) {
-      addNotice({ type: "error", message: `Failed to save default model: ${e instanceof Error ? e.message : String(e)}` });
-      return;
-    }
-    addNotice({ type: "success", message: `Default model: ${provider}/${modelId}` });
-    setNewSessionDefaultModel({ provider, modelId });
-    if (displayModel?.provider !== provider || displayModel?.modelId !== modelId) {
-      await handleModelChange(provider, modelId);
-    }
-    reloadModelsQuietly();
-  }, [addNotice, displayModel, handleModelChange, reloadModelsQuietly, saveDefaultPreferences]);
 
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
@@ -3182,7 +3195,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     cancelEdit: editEntryId ? cancelEdit : undefined,
     addNotice,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

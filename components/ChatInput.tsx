@@ -108,6 +108,8 @@ interface Props {
   onHarnessChange?: (id: string) => void;
   /** Remember the chosen model on the catalog row. A harness other than pi does not call `onModelChange`. */
   onCatalogModelChange?: (provider: string, modelId: string) => void;
+  /** A model the user picked in this composer. Saves it as the folder's preference. */
+  onModelPicked?: (provider: string, modelId: string) => void;
 }
 
 export interface ChatInputHandle {
@@ -688,6 +690,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   harnessLocked = false,
   onHarnessChange,
   onCatalogModelChange,
+  onModelPicked,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
@@ -2570,6 +2573,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   ? (provider, modelId) => {
                       setForeignModel({ provider, modelId });
                       onCatalogModelChange?.(provider, modelId);
+                      onModelPicked?.(provider, modelId);
                     }
                   : (onModelChange ?? (() => {}))}
                 onReselect={usingForeignModels ? undefined : onModelChange}

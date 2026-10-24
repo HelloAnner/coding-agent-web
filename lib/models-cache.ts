@@ -2,6 +2,8 @@ export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string; input?: string[] }[];
   defaultModel: { provider: string; modelId: string } | null;
+  /** The model this folder used last, when it is still offered. Applied to a fresh composer. */
+  projectModelPreference?: { provider: string; modelId: string } | null;
   /** Resolved thinking level a new session starts with when the user has not picked one. */
   defaultThinkingLevel: string | null;
   /** `defaultThinkingLevel` as saved in settings, which the reasoning selector's star marks. */

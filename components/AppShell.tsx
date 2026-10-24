@@ -250,6 +250,13 @@ export function AppShell() {
   // the visible model chip for a harness that has no session file yet.
   const [composerModel, setComposerModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [composerHarness, setComposerHarness] = useState("pi");
+  // A new composer reads its folder's preference once. A composer moved here
+  // with its text and picks (carryComposer) keeps them instead.
+  const newSessionCarryRef = useRef(false);
+  const projectPreferenceAppliedRef = useRef<string | null>(null);
+  const projectPreferenceRequestRef = useRef(0);
+  // A pick the user makes while the folder's preference is still loading wins.
+  const projectPreferenceInteractionRef = useRef(0);
   const [carriedNewSessionChoices, setCarriedNewSessionChoices] = useState<NewSessionChoices | null>(null);
   const handleNewSessionChoicesChange = useCallback((choices: NewSessionChoices) => {
     newSessionChoicesRef.current = choices;
@@ -946,6 +953,7 @@ export function AppShell() {
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
     invalidateWorkspaceRestore();
+    newSessionCarryRef.current = Boolean(options?.carryComposer);
     const draftKey = `new:${sessionId}:${cwd}`;
     // Leaving a fresh composer for another cwd parks its draft there, as a
     // workspace switch does; New in the same cwd still starts empty. The bar
@@ -1023,6 +1031,24 @@ export function AppShell() {
       .catch(() => {});
   }, []);
 
+  // One row per folder in the catalog db. New chats in that folder read it.
+  const saveProjectPreference = useCallback((
+    cwd: string | null | undefined,
+    preference: { harness: string; provider?: string; model?: string },
+  ) => {
+    if (!cwd) return;
+    void fetch("/api/project-preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd,
+        harness: preference.harness,
+        provider: preference.provider ?? "",
+        model: preference.model ?? "",
+      }),
+    }).catch(() => {});
+  }, []);
+
   // Called by ChatWindow when a new session gets its real id from its harness.
   // The index row is written before the list is read back, so the sidebar
   // shows the chat that was just started.
@@ -1040,6 +1066,7 @@ export function AppShell() {
       const model = meta?.model || picked?.modelId || "";
       const sessionPath = session.path || meta?.path;
       const title = catalogTitle(session) || meta?.name;
+      saveProjectPreference(session.cwd, { harness, provider, model });
       try {
         await fetch("/api/catalog/sessions", {
           method: "POST",
@@ -1074,14 +1101,25 @@ export function AppShell() {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
       setRefreshKey((k) => k + 1);
     })();
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession, saveProjectPreference]);
 
   const handleHarnessChange = useCallback((id: string) => {
     // An open session already has a harness. A fresh composer only remembers the next one.
     if (selectedSessionRef.current?.id) return;
+    projectPreferenceInteractionRef.current += 1;
     harnessRef.current = id;
     setComposerHarness(id);
-  }, []);
+    saveProjectPreference(
+      selectedSessionRef.current?.cwd ?? newSessionCwd ?? activeCwd,
+      { harness: id },
+    );
+  }, [activeCwd, newSessionCwd, saveProjectPreference]);
+
+  const handleProjectPreferenceChange = useCallback((harness: string, provider: string, modelId: string) => {
+    projectPreferenceInteractionRef.current += 1;
+    const cwd = selectedSessionRef.current?.cwd ?? newSessionCwd ?? activeCwd;
+    saveProjectPreference(cwd, { harness, provider, model: modelId });
+  }, [activeCwd, newSessionCwd, saveProjectPreference]);
 
   const handleCatalogModelChange = useCallback((provider: string, modelId: string) => {
     const session = selectedSessionRef.current;
@@ -1431,6 +1469,56 @@ export function AppShell() {
   const newSessionDraftKey = selectedSession === null && effectiveNewSessionCwd
     ? `new:${newSessionDraftId}:${effectiveNewSessionCwd}`
     : null;
+  // Every fresh composer starts on its folder's last harness and model. A moved
+  // composer keeps its own picks, and a folder with no row yet starts on pi.
+  useEffect(() => {
+    if (selectedSession !== null || !effectiveNewSessionCwd || !newSessionDraftKey) return;
+    const key = newSessionDraftKey;
+    if (projectPreferenceAppliedRef.current === key) return;
+    projectPreferenceAppliedRef.current = key;
+    const carry = newSessionCarryRef.current;
+    newSessionCarryRef.current = false;
+    if (carry) return;
+    const interaction = projectPreferenceInteractionRef.current;
+    const requestId = ++projectPreferenceRequestRef.current;
+    void fetch(`/api/project-preferences?cwd=${encodeURIComponent(effectiveNewSessionCwd)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: {
+        preference?: { harness?: unknown; provider?: unknown; model?: unknown } | null;
+      } | null) => {
+        if (requestId !== projectPreferenceRequestRef.current) return;
+        if (interaction !== projectPreferenceInteractionRef.current) return;
+        const preference = body?.preference;
+        const harness = typeof preference?.harness === "string" ? preference.harness : "";
+        if (!harness) {
+          harnessRef.current = "pi";
+          setComposerHarness("pi");
+          harnessModelRef.current = null;
+          setComposerModel(null);
+          return;
+        }
+        harnessRef.current = harness;
+        setComposerHarness(harness);
+        const provider = typeof preference?.provider === "string" ? preference.provider : "";
+        const modelId = typeof preference?.model === "string" ? preference.model : "";
+        if (harness === "pi") {
+          harnessModelRef.current = null;
+          setComposerModel(null);
+        } else {
+          const picked = provider && modelId ? { provider, modelId } : null;
+          harnessModelRef.current = picked;
+          setComposerModel(picked);
+        }
+      })
+      .catch(() => {
+        if (requestId !== projectPreferenceRequestRef.current) return;
+        if (interaction !== projectPreferenceInteractionRef.current) return;
+        harnessRef.current = "pi";
+        setComposerHarness("pi");
+        harnessModelRef.current = null;
+        setComposerModel(null);
+      });
+  }, [effectiveNewSessionCwd, newSessionDraftKey, selectedSession]);
   useLayoutEffect(() => {
     activeNewSessionDraftKeyRef.current = newSessionDraftKey;
   }, [newSessionDraftKey]);
@@ -2724,6 +2812,7 @@ export function AppShell() {
               harnessModel={composerModel}
               onHarnessChange={handleHarnessChange}
               onCatalogModelChange={handleCatalogModelChange}
+              onProjectPreferenceChange={handleProjectPreferenceChange}
               onAgentEnd={handleAgentEnd}
               onToolEnd={handleToolEnd}
               onAttentionNeeded={handleAttentionNeeded}

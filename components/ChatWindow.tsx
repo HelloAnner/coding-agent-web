@@ -66,6 +66,8 @@ interface Props {
   harnessModel?: { provider: string; modelId: string } | null;
   onHarnessChange?: (id: string) => void;
   onCatalogModelChange?: (provider: string, modelId: string) => void;
+  /** A model the user picked here becomes this folder's preference. */
+  onProjectPreferenceChange?: (harness: string, provider: string, modelId: string) => void;
   onAgentEnd?: (end: AgentEndInfo) => void;
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
@@ -254,7 +256,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, harnessModel, onHarnessChange, onCatalogModelChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, harnessModel, onHarnessChange, onCatalogModelChange, onProjectPreferenceChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -293,7 +295,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused, addNotice,
     isAutoModelSelection,
     isAutoThinkingSelection,
-    defaultModel,
     savedDefaultThinkingLevel,
     agentPhase,
     isNew,
@@ -306,7 +307,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     dismissCompactError,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, harness: composerHarness, harnessModel, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
@@ -982,8 +983,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         if (id === "pi" && displayModelValue) onCatalogModelChange?.(displayModelValue.provider, displayModelValue.modelId);
       }}
       onCatalogModelChange={onCatalogModelChange}
-      model={foreignHarness && session?.modelProvider && session.modelId
-        ? { provider: session.modelProvider, modelId: session.modelId }
+      model={foreignHarness
+        ? (session?.modelProvider && session.modelId
+          ? { provider: session.modelProvider, modelId: session.modelId }
+          : harnessModel ?? displayModelValue)
         : displayModelValue}
       isAutoModelSelection={foreignHarness ? false : isAutoModelSelection}
       modelNames={modelNames}
@@ -993,10 +996,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onModelChange={(provider, modelId) => {
         void handleModelChange(provider, modelId);
         onCatalogModelChange?.(provider, modelId);
+        onProjectPreferenceChange?.(composerHarness, provider, modelId);
+      }}
+      onModelPicked={(provider, modelId) => {
+        onProjectPreferenceChange?.(composerHarness, provider, modelId);
       }}
       modelSwitching={modelSwitching}
-      defaultModel={defaultModel}
-      onSetDefaultModel={foreignHarness ? undefined : handleSetDefaultModel}
       onCompact={!foreignHarness && (session || isNew) ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
