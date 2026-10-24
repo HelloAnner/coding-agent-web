@@ -260,6 +260,38 @@ function rows(file = catalogDbPath()): SessionRow[] {
   `).all() as unknown as SessionRow[];
 }
 
+/** One indexed session. Null for an id the index has never seen. */
+export interface CatalogSession {
+  id: string;
+  cwd: string;
+  harness: string;
+  provider: string;
+  model: string;
+  title: string;
+  sessionPath: string;
+}
+
+export function readCatalogSession(id: string, file = catalogDbPath()): CatalogSession | null {
+  const db = database(file);
+  const row = db.prepare(`
+    SELECT sessions.id, directories.path AS cwd, sessions.harness, sessions.provider, sessions.model,
+           sessions.title, sessions.session_path
+    FROM sessions
+    JOIN directories ON directories.id = sessions.directory_id
+    WHERE sessions.id = ?
+  `).get(id) as SessionRow | undefined;
+  if (!row) return null;
+  return {
+    id: row.id,
+    cwd: row.cwd,
+    harness: row.harness,
+    provider: row.provider,
+    model: row.model,
+    title: row.title,
+    sessionPath: row.session_path,
+  };
+}
+
 /** Sidebar rows. Empty until something is written here. Does not read a harness. */
 export function listCatalogSessionInfos(file = catalogDbPath()): { sessions: SessionInfo[]; sessionListVersion: number } {
   const listed = rows(file);

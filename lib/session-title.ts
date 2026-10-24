@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Agent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Agent, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   getSupportedThinkingLevels,
   normalizeContext,
@@ -13,7 +13,9 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const TITLE_MAX_TOKENS = 256;
-const MAX_TITLE_LENGTH = 80;
+const MAX_TITLE_CHARS = 10;
+const MAX_TITLE_WORDS = 10;
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 // Per-message caps. A title needs what the user asked for (every user turn,
 // including mid-session pivots) and what came out of it (the last reply); the
@@ -43,9 +45,14 @@ const TITLE_PROMPT = `Create a concise title for this session based on the conve
 Requirements:
 - Match the primary language used by the user.
 - Describe the user's concrete goal or the outcome, not the act of chatting.
-- Use 4-12 words for space-separated languages, or 8-24 characters for CJK text when practical.
+- At most ${MAX_TITLE_CHARS} characters for CJK text, at most ${MAX_TITLE_WORDS} words for space-separated languages.
 - Do not call any tools.
 - Return only the title as plain text, with no quotes, label, markdown, or explanation.`;
+
+/** The single user turn a title model reads: the transcript plus what to do with it. */
+export function buildTitlePrompt(transcript: string): string {
+  return `${transcript}\n\n${TITLE_PROMPT}`;
+}
 
 export interface GeneratedSessionTitle {
   title: string;
@@ -94,7 +101,7 @@ export function buildTitleRequest(source: Agent, transcript: string): TitleReque
       systemPrompt: TITLE_SYSTEM_PROMPT,
       messages: [{
         role: "user",
-        content: [{ type: "text", text: `${transcript}\n\n${TITLE_PROMPT}` }],
+        content: [{ type: "text", text: buildTitlePrompt(transcript) }],
         timestamp: Date.now(),
       }],
     },
@@ -168,9 +175,21 @@ function boundTranscript(lines: string[]): string {
   return [...head, ELISION, ...tail].join("\n\n");
 }
 
-function lineForMessage(message: AgentMessage, lastAssistant?: AgentMessage): string | undefined {
+/**
+ * What a title needs from a message. Structural on purpose: pi's own messages
+ * and the ones the harness transcripts produce are different types that agree
+ * on these fields.
+ */
+export interface TitleSourceMessage {
+  role: string;
+  content?: unknown;
+  summary?: string;
+  command?: string;
+}
+
+function lineForMessage(message: TitleSourceMessage, lastAssistant?: TitleSourceMessage): string | undefined {
   if (message.role === "compactionSummary" || message.role === "branchSummary") {
-    const summary = message.summary.trim();
+    const summary = message.summary?.trim() ?? "";
     if (!summary) return undefined;
     return `[Earlier summary] ${clip(summary, SUMMARY_CHARS)}`;
   }
@@ -179,7 +198,7 @@ function lineForMessage(message: AgentMessage, lastAssistant?: AgentMessage): st
     return text ? `User: ${clip(text, USER_CHARS)}` : undefined;
   }
   if (message.role === "bashExecution") {
-    const command = message.command.trim();
+    const command = message.command?.trim() ?? "";
     return command ? `User: ${clip(`Ran \`${command}\``, USER_CHARS)}` : undefined;
   }
   if (message.role !== "user" && message.role !== "assistant") return undefined;
@@ -190,8 +209,8 @@ function lineForMessage(message: AgentMessage, lastAssistant?: AgentMessage): st
 }
 
 /** Flatten the session into the plain-text transcript the title model reads. */
-export function buildTitleTranscript(messages: AgentMessage[]): string {
-  let lastAssistant: AgentMessage | undefined;
+export function buildTitleTranscript(messages: TitleSourceMessage[]): string {
+  let lastAssistant: TitleSourceMessage | undefined;
   for (const message of messages) {
     if (message.role === "assistant" && textOf(message.content).trim()) lastAssistant = message;
   }
@@ -244,10 +263,11 @@ export function parseGeneratedSessionTitle(raw: string): string {
     throw new Error("The model did not return a usable session title");
   }
 
-  const characters = Array.from(value);
-  if (characters.length > MAX_TITLE_LENGTH) {
-    value = characters.slice(0, MAX_TITLE_LENGTH).join("").trim();
-  }
+  // Chinese titles are counted in characters, Latin ones in words: a hard cap
+  // in either unit would mangle the other. The prompt asks for the same.
+  value = CJK.test(value)
+    ? Array.from(value).slice(0, MAX_TITLE_CHARS).join("").trim()
+    : value.split(/\s+/).slice(0, MAX_TITLE_WORDS).join(" ");
   return value;
 }
 
