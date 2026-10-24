@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -103,6 +103,44 @@ test("a torn final frame keeps the frames before it", () => {
 test("a session with no log is not an error", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "dsh-log-"));
   assert.deepEqual(readDshTranscript(dir), { messages: [], exists: false, path: null, model: null });
+});
+
+test("a user image is read back from the attachment store", () => {
+  const hex = "a".repeat(64);
+  const home = mkdtempSync(path.join(tmpdir(), "dsh-home-"));
+  process.env.DSH_HOME = home;
+  const objectDir = path.join(home, "attachments", "v1", "objects", hex.slice(0, 2));
+  mkdirSync(objectDir, { recursive: true });
+  const bytes = Buffer.from("89504e470d0a1a0a", "hex");
+  writeFileSync(path.join(objectDir, hex), bytes);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "dsh-log-"));
+  writeLog(dir, [
+    HEADER,
+    {
+      type: "user/message",
+      seq: 1,
+      time: 1000,
+      data: {
+        content: [
+          { type: "text", text: "what is this" },
+          {
+            type: "image",
+            attachment: { attachmentId: `sha256:${hex}`, mediaType: "image/png", width: 1, height: 1, bytes: bytes.length },
+          },
+        ],
+        source: { kind: "user" },
+      },
+    },
+  ]);
+
+  const [message] = readDshTranscript(dir).messages;
+  assert.equal(message.role, "user");
+  assert.deepEqual(message.content, [
+    { type: "text", text: "what is this" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: bytes.toString("base64") } },
+  ]);
+  delete process.env.DSH_HOME;
 });
 
 test("one uncompressed frame still decompresses", () => {

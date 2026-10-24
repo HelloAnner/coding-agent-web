@@ -1718,9 +1718,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       return;
     }
     let cancelled = false;
-    void fetch(`/api/harnesses/${encodeURIComponent(harnessId)}/models`, { cache: "no-store" })
+    void fetch(`/api/harnesses/${encodeURIComponent(harnessId)}/models?live=1`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((body: { models?: { enabled?: boolean; provider?: string; model?: string; name?: string; key?: string }[] } | null) => {
+      .then((body: { models?: { enabled?: boolean; provider?: string; model?: string; name?: string; key?: string; isDefault?: boolean }[] } | null) => {
         if (cancelled) return;
         const options = (body?.models ?? [])
           .filter((item) => item.enabled !== false)
@@ -1728,6 +1728,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             provider: String(item.provider ?? ""),
             modelId: String(item.model || item.key || ""),
             name: String(item.name || item.model || item.key || ""),
+            isDefault: item.isDefault === true,
           }))
           .filter((item) => item.provider && item.modelId);
         setForeignModels(options);
@@ -1735,13 +1736,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         const current = foreignModelRef.current;
         const fromCurrent = current && options.find((item) => item.provider === current.provider && item.modelId === current.modelId);
         const fromProp = propModel && options.find((item) => item.provider === propModel.provider && item.modelId === propModel.modelId);
+        const fallback = options.find((item) => item.isDefault) ?? options[0];
+        // A saved pair the runtime no longer mounts stays on the chip: the send
+        // then names the model it could not find instead of switching quietly.
         const next = fromCurrent
           ? { provider: fromCurrent.provider, modelId: fromCurrent.modelId }
           : fromProp
             ? { provider: fromProp.provider, modelId: fromProp.modelId }
-            : options[0]
-              ? { provider: options[0].provider, modelId: options[0].modelId }
-              : null;
+            : propModel
+              ? { provider: propModel.provider, modelId: propModel.modelId }
+              : fallback
+                ? { provider: fallback.provider, modelId: fallback.modelId }
+                : null;
         foreignModelRef.current = next;
         setForeignModel(next);
         if (next && (next.provider !== propModel?.provider || next.modelId !== propModel.modelId)) {

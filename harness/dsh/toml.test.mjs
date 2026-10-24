@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-const { parseDshToml, updateDshModel } = await createJiti(import.meta.url).import("./toml.ts");
+const { parseDshToml, parseDshRuntime, updateDshModel } = await createJiti(import.meta.url).import("./toml.ts");
 
 const SAMPLE = `
 # comment
@@ -59,4 +59,20 @@ test("updates one model and leaves the key line alone", () => {
   });
   assert.equal(parsed.models[0].name, "DeepSeek");
   assert.equal(updateDshModel(SAMPLE, "missing", { enabled: false }), null);
+});
+
+test("runtime config keeps the default model and every key", () => {
+  const runtime = parseDshRuntime(SAMPLE);
+  assert.equal(runtime.defaultModel, "ds-flash");
+  assert.deepEqual(runtime.providers, [
+    { id: "fineres", url: "https://example.invalid/v1", api: "sk-test-secret", apiEnv: "" },
+  ]);
+  assert.deepEqual(runtime.models[1], {
+    key: "company",
+    provider: "fineres",
+    model: "deepseek-v4.1-flash",
+    enabled: false,
+    api: "",
+    apiEnv: "",
+  });
 });

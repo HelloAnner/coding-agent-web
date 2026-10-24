@@ -40,6 +40,8 @@ export function DshModels() {
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  // `provider/model` pairs the ACP kernel mounts. Null until the live read answers.
+  const [mounted, setMounted] = useState<Set<string> | null>(null);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/harnesses/dsh/models", { cache: "no-store" });
@@ -67,6 +69,18 @@ export function DshModels() {
   }, []);
 
   useEffect(() => { void load().catch(() => setMissing(true)); }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/harnesses/dsh/models?live=1", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { models?: DshModel[] } | null) => {
+        if (cancelled || !body?.models) return;
+        setMounted(new Set(body.models.map((item) => `${item.provider}/${item.model}`)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const current = models.find((item) => item.key === selected) ?? null;
   useEffect(() => { setNameDraft(current?.name ?? ""); }, [current?.key, current?.name]);
@@ -129,7 +143,11 @@ export function DshModels() {
                   {rows.map((row) => (
                     <ConfigSidebarItem key={row.key} active={row.key === selected} onClick={() => setSelected(row.key)}>
                       <ConfigSidebarText>{row.name || row.key}</ConfigSidebarText>
-                      {!row.enabled && <span className="models-sidebar-badge">{t("harness.off")}</span>}
+                      {!row.enabled
+                        ? <span className="models-sidebar-badge">{t("harness.off")}</span>
+                        : mounted && !mounted.has(`${row.provider}/${row.model}`)
+                          ? <span className="models-sidebar-badge">{t("harness.notMounted")}</span>
+                          : null}
                     </ConfigSidebarItem>
                   ))}
                 </Fragment>

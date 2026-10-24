@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
+import { dshKernelSpawn } from "./acp-patch";
 import { dshBin } from "./index";
 
 /**
@@ -47,6 +48,8 @@ interface Pending {
 
 class AcpClient {
   private child: ChildProcess | null = null;
+  private spawnSignature = "";
+  private _generation = 0;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly updates = new Set<UpdateListener>();
@@ -57,14 +60,18 @@ class AcpClient {
 
   /** Spawn the kernel if it is not running. */
   private start(): ChildProcess {
+    const launch = dshKernelSpawn();
+    if (this.child && this.spawnSignature !== launch.signature) this.stop();
     if (this.child) return this.child;
     this.stopping = false;
-    const child = spawn(dshBin(), ["--profile", "acp"], {
+    this.spawnSignature = launch.signature;
+    const child = spawn(dshBin(), launch.args, {
       cwd: homedir(),
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: launch.env,
     });
     this.child = child;
+    this._generation += 1;
     this.stderr = "";
     child.stdout?.setEncoding("utf8");
     createInterface({ input: child.stdout! }).on("line", (line) => this.receive(line));
@@ -72,9 +79,18 @@ class AcpClient {
     child.stderr?.on("data", (chunk: string) => {
       this.stderr = (this.stderr + chunk).slice(-4000);
     });
-    child.on("error", (error) => this.die(`dsh could not start: ${error.message}`));
-    child.on("close", (code) => this.die(`dsh exited with code ${code}`));
+    child.on("error", (error) => {
+      if (this.child === child) this.die(`dsh could not start: ${error.message}`);
+    });
+    child.on("close", (code) => {
+      if (this.child === child) this.die(`dsh exited with code ${code}`);
+    });
     return child;
+  }
+
+  /** Bumped on every spawn, so callers can cache per kernel process. */
+  get generation(): number {
+    return this._generation;
   }
 
   private receive(line: string): void {
@@ -146,6 +162,8 @@ class AcpClient {
 
   /** The handshake, once per kernel process. */
   ready(): Promise<void> {
+    // A settings write changes the patches; the next request boots the new tree.
+    if (this.child && this.spawnSignature !== dshKernelSpawn().signature) this.stop();
     if (this.handshake) return this.handshake;
     const attempt = this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
@@ -175,9 +193,16 @@ class AcpClient {
 
   stop(): void {
     this.stopping = true;
-    this.child?.kill("SIGTERM");
+    const child = this.child;
     this.child = null;
     this.handshake = null;
+    const error = new Error("dsh was restarted");
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+    child?.kill("SIGTERM");
+    // The close handler is skipped while stopping, so tell the runtime here:
+    // its ACP session ids belonged to the process that just went away.
+    if (child) for (const listener of [...this.exits]) listener(error.message);
   }
 }
 

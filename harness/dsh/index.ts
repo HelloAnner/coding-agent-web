@@ -59,6 +59,11 @@ export const dshHarness: HarnessDescriptor = {
       throw new HarnessModelsError("ds.toml was not found", dshConfigFile());
     }
   },
+  /** The composer shows what the kernel mounts; settings keeps showing ds.toml. */
+  async readChatModels() {
+    const { listDshModels } = await import("./runtime");
+    return listDshModels();
+  },
   writeModel(key, patch) {
     if (key.includes(".") || key.includes("/")) {
       throw new HarnessModelsError("Missing model key", dshConfigFile(), 400);

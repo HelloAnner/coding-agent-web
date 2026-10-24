@@ -1,9 +1,12 @@
+import { rmSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { AgentEventLike } from "@/lib/agent-event-wire";
 import type { AssistantMessage } from "@/lib/types";
+import type { HarnessModelList, HarnessModelRow } from "../types";
 import { dshKernel, type AcpConfigOption, type AcpSessionState } from "./acp";
 import { DshEventMapper } from "./events";
-import { findDshSessionDir } from "./index";
+import { dshConfigFile, findDshSessionDir, readDshModels } from "./index";
 
 /**
  * The dsh runtime: one kernel process (`dsh --profile acp`), one ACP session per
@@ -20,6 +23,8 @@ export interface DshPrompt {
   sessionId: string;
   cwd: string;
   text: string;
+  /** Attached images, base64 without a data URL prefix. */
+  images?: Array<{ data: string; mimeType: string }>;
   provider?: string | null;
   model?: string | null;
   /** The kernel session directory this chat already has, when it has one. */
@@ -121,6 +126,18 @@ function modelValue(provider: string, model: string): string {
   return JSON.stringify([provider, model]);
 }
 
+function parseModelValue(value: string): { provider: string; model: string } | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "string") {
+      return { provider: parsed[0], model: parsed[1] };
+    }
+  } catch {
+    /* not one of the kernel's values */
+  }
+  return null;
+}
+
 function offersModel(options: AcpConfigOption[] | undefined, value: string): boolean {
   const model = options?.find((option) => option.id === "model");
   return (model?.options ?? []).some((group) => (group.options ?? []).some((entry) => entry.value === value));
@@ -154,7 +171,7 @@ async function openAcpSession(run: DshSession, prompt: DshPrompt): Promise<void>
   const current = state.configOptions?.find((option) => option.id === "model")?.currentValue;
   if (current === wanted) return;
   if (!offersModel(state.configOptions, wanted)) {
-    throw new Error(`This dsh profile does not mount ${prompt.provider}/${prompt.model}`);
+    throw new Error(`dsh does not mount ${prompt.provider}/${prompt.model}. Pick another model from the menu.`);
   }
   await client.request("session/set_config_option", { sessionId: state.sessionId, configId: "model", value: wanted });
 }
@@ -166,7 +183,7 @@ async function openAcpSession(run: DshSession, prompt: DshPrompt): Promise<void>
 export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: string }> {
   const run = getDshSession(prompt.sessionId);
   if (run.isStreaming) throw new Error("dsh is already answering in this chat");
-  if (!prompt.text.trim()) throw new Error("empty prompt");
+  if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
 
   const client = dshKernel();
   await client.ready();
@@ -198,7 +215,14 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
   void client
     .request<{ stopReason?: string }>("session/prompt", {
       sessionId: acpSessionId,
-      prompt: [{ type: "text", text: prompt.text }],
+      prompt: [
+        ...(prompt.text.trim() ? [{ type: "text" as const, text: prompt.text }] : []),
+        ...(prompt.images ?? []).map((image) => ({
+          type: "image" as const,
+          data: image.data,
+          mimeType: image.mimeType,
+        })),
+      ],
     })
     .then((result) => settle(result?.stopReason))
     .catch((error: unknown) => settle(undefined, error instanceof Error ? error.message : String(error)));
@@ -212,4 +236,64 @@ export function abortDshPrompt(sessionId: string): boolean {
   run.aborted = true;
   dshKernel().notify("session/cancel", { sessionId: run.acpSessionId });
   return true;
+}
+
+let modelCache: { at: number; generation: number; file: HarnessModelList } | null = null;
+
+/**
+ * What the running kernel actually mounts. ACP only reports the catalog on a
+ * session, so open a throwaway one, read the options, close it, and drop its
+ * log. The composer uses this list: anything it shows can be pinned.
+ */
+export async function listDshModels(): Promise<HarnessModelList> {
+  const client = dshKernel();
+  if (modelCache && modelCache.generation === client.generation && Date.now() - modelCache.at < 30_000) {
+    return modelCache.file;
+  }
+  await client.ready();
+  const state = await client.request<AcpSessionState>("session/new", {
+    cwd: homedir(),
+    mcpServers: [] as unknown[],
+  });
+  const option = state.configOptions?.find((item) => item.id === "model");
+  // The kernel's names come from the dsh-tui patch; ds.toml is the editor this
+  // app shows, so its name wins when the same route is listed there.
+  const names = new Map<string, string>();
+  try {
+    for (const model of readDshModels().models) {
+      if (model.enabled) names.set(`${model.provider}/${model.model}`, model.name);
+    }
+  } catch {
+    /* no ds.toml: keep the kernel's names */
+  }
+  const rows: HarnessModelRow[] = [];
+  for (const group of option?.options ?? []) {
+    for (const entry of group.options ?? []) {
+      const route = parseModelValue(entry.value);
+      if (!route) continue;
+      rows.push({
+        key: entry.value,
+        name: names.get(`${route.provider}/${route.model}`) || entry.name || `${route.provider}/${route.model}`,
+        provider: route.provider,
+        model: route.model,
+        enabled: true,
+        ...(entry.value === option?.currentValue ? { isDefault: true } : {}),
+      });
+    }
+  }
+  const sessionDir = findDshSessionDir(state.sessionId);
+  const closed = await client
+    .request("session/close", { sessionId: state.sessionId })
+    .then(() => true)
+    .catch(() => false);
+  if (closed && sessionDir) {
+    try {
+      rmSync(sessionDir, { recursive: true, force: true });
+    } catch {
+      /* the kernel owns the log; an extra empty one is harmless */
+    }
+  }
+  const file = { path: dshConfigFile(), models: rows };
+  modelCache = { at: Date.now(), generation: client.generation, file };
+  return file;
 }

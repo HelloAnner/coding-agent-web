@@ -1972,14 +1972,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!cwd) addNotice({ type: "error", message: "Pick a folder first" });
       return;
     }
-    if (images?.length) {
-      restoreSubmission(text, images, composerDraftKey);
-      addNotice({ type: "error", message: "The dsh harness sends text only for now" });
-      return;
-    }
     const sid = sessionIdRef.current ?? newDshSessionId();
     sessionIdRef.current = sid;
-    const userMessage: AgentMessage = { role: "user", content: text, timestamp: Date.now() };
+    const imageBlocks = images?.map((img) => ({
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: img.mimeType, data: img.data },
+    }));
+    const userMessage: AgentMessage = {
+      role: "user",
+      content: imageBlocks?.length
+        ? [...(text.trim() ? [{ type: "text" as const, text }] : []), ...imageBlocks]
+        : text,
+      timestamp: Date.now(),
+    };
 
     dispatch({ type: "start" });
     agentRunningRef.current = true;
@@ -1995,6 +2000,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const result = await sendDshCommand<{ sessionPath?: string }>(sid, {
         type: "prompt",
         message: text,
+        ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
         cwd,
         sessionPath: dshSessionPathRef.current ?? undefined,
         ...(grokModelRef.current?.provider ? { provider: grokModelRef.current.provider } : {}),

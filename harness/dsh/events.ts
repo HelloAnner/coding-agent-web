@@ -64,7 +64,8 @@ export class DshEventMapper {
   push(update: Record<string, unknown>): void {
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
-        this.chunk("text", update);
+        if (isObject(update.content) && update.content.type === "image") this.image(update);
+        else this.chunk("text", update);
         return;
       case "agent_thought_chunk":
         this.chunk("thinking", update);
@@ -120,6 +121,26 @@ export class DshEventMapper {
         type: kind === "text" ? "text_delta" : "thinking_delta",
         contentIndex: this.openBlock.index,
         delta,
+      },
+    });
+  }
+
+  /** A committed image block. It renders with the message_end, not as a delta. */
+  private image(update: Record<string, unknown>): void {
+    const content = isObject(update.content) ? update.content : null;
+    const data = typeof content?.data === "string" ? content.data : "";
+    if (!data) return;
+    const messageId = typeof update.messageId === "string" ? update.messageId : "";
+    if (messageId && this.messageId && messageId !== this.messageId) this.closeAssistant();
+    if (messageId) this.messageId = messageId;
+    this.ensureAssistant();
+    this.closeBlock();
+    this.content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: typeof content?.mimeType === "string" ? content.mimeType : "image/png",
+        data,
       },
     });
   }

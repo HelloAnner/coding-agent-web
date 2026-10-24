@@ -30,7 +30,7 @@
   pi 的会话文件决定它是 pi。模型以文件里正在用的为准，索引里不一样就改过来
   pi 的发送仍走 pi 自己的会话
   选了 dsh 或 grok，不会创建 pi 会话，也不会把模型 id 交给 pi
-  dsh 的模型来自 ds.toml。选中后记在索引里
+  dsh 的模型在 ds.toml 里配，输入框的菜单只列内核挂上的那些。选中后记在索引里
   grok 的模型来自官方列表。默认模型排在第一个
   grok 能发消息：每问一个 grok 进程，回复走这条会话自己的事件流
   dsh 能发消息：dsh 内核常驻一个进程，每条对话一个 ACP 会话
@@ -97,10 +97,41 @@ dsh --profile acp                  stdio 上的 ACP v1，没有 HTTP、没有端
   session/new       {cwd, mcpServers:[]} -> {sessionId, configOptions}
   session/resume    <内核自己的 session id>，续聊；没有日志就报错
   session/set_config_option  "model" 的值是 JSON.stringify([provider, model])
-  session/prompt    {sessionId, prompt:[{type:"text"}]}，这一轮结束才返回
+  session/prompt    {sessionId, prompt:[{type:"text"}|{type:"image"}]}，这一轮结束才返回
   session/cancel    通知，不是请求；grok 那边的 SIGINT 在这里没有对应物
   session/update    内核 -> 网页：已提交的正文、思考、工具生命周期
   session/request_permission  内核问权限，网页一律 allow-once
+```
+
+ACP 自带的 profile 只挂 deepseek-official。网页启动内核时再叠两层补丁，和 dst 对齐：
+
+```
+--patch ~/.dsh/profiles/dsh-tui/cordis.patch.yml   ds 维护的 llm-pi-ai 路由
+--patch ~/.dsh/profiles/acp/.pi-web.patch.yml      网页按 ds.toml 生成
+                                                    acp 默认模型 + dsh-auth 的 OAuth 路由
+```
+
+第二份补丁只在内容变化时重写，不含 key。ds.toml 里的网关 key 注入子进程环境，
+`llm-pi-ai` 按 `apiKeyEnv` 取。ds.toml 改了，下一问会重启内核再加载。
+
+模型列表分两处：
+
+```
+设置 › 模型 › dsh   读 ds.toml，是文件编辑器
+输入框的模型菜单    问内核：session/new 拿 configOptions，读完整关掉
+                    所以菜单里有的模型一定能 set_config_option
+                    内核目录里没有的 id（如旧 ds.toml 写的 gpt-6.1-sol）
+                    设置页会标「dsh 没有这个模型」
+```
+
+图片：
+
+```
+input  [text, image] 的模型，输入框可以直接发图
+  session/prompt 里是 ACP image block：{type:"image", data(base64), mimeType}
+  内核把字节存进 ~/.dsh/attachments/v1/objects/<aa>/<sha256>
+  会话日志只写 attachmentId；读记录时再读回字节
+权限只看这一轮选的模型：model 不声明 image input 时内核明确拒绝，不换模型
 ```
 
 网页的 session id 是自己的（`dsh-...`）。内核自己发 id，所以映射留在
@@ -124,8 +155,9 @@ tool_call_update      -> tool_execution_end + toolResult 消息
 内核提交的是整条 assistant 消息，不是 token。所以 dsh 的回复按「一步一块」出现，
 不是逐字出现；新的 `messageId` 就把上一个气泡关掉。
 
-模型：ds.toml 的 `provider`/`model` 两项直接就是 ACP 的选项值。内核没挂这个路由
-（比如 ds.toml 里自定义网关，只有 `ds` 启动时才注入）就明确报错，不静默换模型。
+模型：ds.toml 的 `provider`/`model` 两项直接就是 ACP 的选项值。
+输入框只列内核挂上的模型；`openai-codex` 的 id 由 dsh 内置的 pi-ai 目录决定，
+ds.toml 写了目录里没有的 id 时，内核不会挂它。设了但发不出去时明确报错，不静默换模型。
 
 ```
 浏览器               useAgentSession 里按 harness 分叉
@@ -149,7 +181,7 @@ PI_WEB_DSH_BIN     dsh 可执行文件，默认走 PATH
 DSH_HOME           默认 ~/.dsh，会话目录和凭据都在这下面
 ```
 
-还没做的：图片附件、思考档位（`reasoning_effort` 选项已经在内核里，网页没接）、
+还没做的：思考档位（`reasoning_effort` 选项已经在内核里，网页没接）、
 每条对话单独的沙箱/审批档位、用量统计。
 
 索引
@@ -192,6 +224,7 @@ harness/registry.ts           现在有哪些。路由只问 registry，不认�
 harness/pi/                   pi。配置仍是 ~/.pi/agent。模型走原来的 /api/models
 harness/dsh/                  dsh。读 ds.toml 的 [provider.*] 和 [model.*]
 harness/dsh/acp.ts            dsh --profile acp 的 stdio 客户端，一个进程给全站
+harness/dsh/acp-patch.ts      按 ds.toml 生成 ACP 补丁、注入网关 key，配置变了就重启内核
 harness/dsh/runtime.ts        每条对话一个 ACP 会话：开、续、发、中断
 harness/dsh/events.ts         ACP session/update -> 网页已有的事件名
 harness/dsh/transcript.ts     session.v4.jsonl.zstd -> 聊天里的消息

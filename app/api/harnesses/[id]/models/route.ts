@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
-import { HarnessModelsError } from "@/harness/types";
+import { HarnessModelsError, type HarnessModelList } from "@/harness/types";
 import { shortenPath } from "@/lib/display-path";
 
 export const dynamic = "force-dynamic";
@@ -10,20 +10,35 @@ export const dynamic = "force-dynamic";
  * pi keeps using /api/models. A harness with no reader answers an empty list.
  * This route never returns credentials.
  */
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const harness = findHarness(id);
   if (!harness) return NextResponse.json({ error: "Unknown harness" }, { status: 404 });
-  if (!harness.readModels) return NextResponse.json({ harness: id, models: [] });
+  const live = new URL(req.url).searchParams.get("live") === "1";
+  if (!harness.readModels && !harness.readChatModels) {
+    return NextResponse.json({ harness: id, models: [] });
+  }
+  const send = (file: HarnessModelList) => NextResponse.json({
+    harness: id,
+    path: shortenPath(file.path),
+    ...(file.providers ? { providers: file.providers } : {}),
+    models: file.models,
+  }, { headers: { "Cache-Control": "no-store" } });
   try {
-    const file = harness.readModels();
-    return NextResponse.json({
-      harness: id,
-      path: shortenPath(file.path),
-      ...(file.providers ? { providers: file.providers } : {}),
-      models: file.models,
-    }, { headers: { "Cache-Control": "no-store" } });
+    const file = live && harness.readChatModels
+      ? await harness.readChatModels()
+      // The composer falls back to the file when the runtime is not up yet.
+      : harness.readModels?.();
+    if (!file) return NextResponse.json({ harness: id, models: [] });
+    return send(file);
   } catch (error) {
+    if (live && harness.readModels) {
+      try {
+        return send(harness.readModels());
+      } catch {
+        /* fall through to the runtime error */
+      }
+    }
     const missing = error instanceof HarnessModelsError ? error : null;
     return NextResponse.json({
       error: missing?.message ?? "Model list was not found",

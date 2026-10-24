@@ -15,6 +15,7 @@ export const enLocale: LocalePlugin = {
     "harness.missingGrok": "Grok's model list was not found",
     "harness.default": "default",
     "harness.off": "off",
+    "harness.notMounted": "dsh has no such model",
     "common.skills": "Skills",
     "common.agents": "Sub-agents",
     "common.plugins": "Plugins",

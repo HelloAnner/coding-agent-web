@@ -46,6 +46,8 @@ export interface HarnessDescriptor {
   configDir(): string;
   /** Absent when this app already has a model editor for the harness (pi uses `/api/models`). */
   readModels?(): HarnessModelList;
+  /** What the harness's own runtime mounts, when that is narrower than the file. */
+  readChatModels?(): Promise<HarnessModelList>;
   /** Absent when the model list is read-only. */
   writeModel?(key: string, patch: { name?: string; enabled?: boolean }): boolean;
 }

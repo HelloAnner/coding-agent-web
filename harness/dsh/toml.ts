@@ -126,6 +126,60 @@ function setField(section: Section, key: string, value: string): void {
   section.lines.splice(sub, 0, rendered);
 }
 
+/**
+ * What the dsh kernel needs from ds.toml, keys included. Kept separate from
+ * `parseDshToml` so the browser-facing model list never sees a credential.
+ */
+export interface DshRuntimeConfig {
+  /** `[common].default`: the config key of the model ds starts with. */
+  defaultModel: string;
+  providers: Array<{ id: string; url: string; api: string; apiEnv: string }>;
+  models: Array<{
+    key: string;
+    provider: string;
+    model: string;
+    enabled: boolean;
+    api: string;
+    apiEnv: string;
+  }>;
+}
+
+/** Read the whole ds.toml the kernel composition needs. Nothing here is returned to a browser. */
+export function parseDshRuntime(text: string): DshRuntimeConfig {
+  const { sections } = parseSections(text);
+  const providers: DshRuntimeConfig["providers"] = [];
+  const models: DshRuntimeConfig["models"] = [];
+  let defaultModel = "";
+  for (const section of sections) {
+    if (section.header === "common") {
+      defaultModel = field(section, "default") || "";
+      continue;
+    }
+    const provider = section.header.match(/^provider\.([^.]+)$/);
+    if (provider) {
+      providers.push({
+        id: provider[1],
+        url: field(section, "url") || "",
+        api: field(section, "api") || "",
+        apiEnv: field(section, "api_env") || "",
+      });
+      continue;
+    }
+    const model = section.header.match(/^model\.([^.]+)$/);
+    if (model) {
+      models.push({
+        key: model[1],
+        provider: field(section, "provider") || "",
+        model: field(section, "model") || "",
+        enabled: field(section, "enabled") !== "false",
+        api: field(section, "api") || "",
+        apiEnv: field(section, "api_env") || "",
+      });
+    }
+  }
+  return { defaultModel, providers, models };
+}
+
 /** Rewrite one model's name and enabled flag. Other lines, including keys, stay. */
 export function updateDshModel(text: string, key: string, patch: { name?: string; enabled?: boolean }): string | null {
   const { preamble, sections } = parseSections(text);

@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
-import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/lib/types";
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ImageContent, TextContent } from "@/lib/types";
+import { dshHome } from "./index";
 
 /**
  * The kernel's own session log -> the message list this app renders.
@@ -39,6 +40,46 @@ function parseArguments(raw: unknown): Record<string, unknown> {
     }
   }
   return {};
+}
+
+/**
+ * The kernel keeps image bytes in `DSH_HOME/attachments/v1/objects/<aa>/<hex>`
+ * and writes a content-addressed reference into the log. Read it back so a
+ * reloaded chat still shows the image.
+ */
+function imageContent(block: Record<string, unknown>): ImageContent | null {
+  const attachment = isObject(block.attachment) ? block.attachment : block;
+  const id = typeof attachment.attachmentId === "string" ? attachment.attachmentId : "";
+  const match = /^sha256:([0-9a-f]{64})$/.exec(id);
+  if (!match) return null;
+  const mediaType = typeof attachment.mediaType === "string" ? attachment.mediaType : "image/png";
+  const file = path.join(dshHome(), "attachments", "v1", "objects", match[1].slice(0, 2), match[1]);
+  try {
+    return {
+      type: "image",
+      source: { type: "base64", media_type: mediaType, data: readFileSync(file).toString("base64") },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** A user message is text, or text mixed with images once either is present. */
+function userContent(content: unknown): string | (TextContent | ImageContent)[] | null {
+  if (typeof content === "string") return content.trim() ? content : null;
+  if (!Array.isArray(content)) return null;
+  const blocks: (TextContent | ImageContent)[] = [];
+  for (const part of content) {
+    if (!isObject(part)) continue;
+    if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+      blocks.push({ type: "text", text: part.text });
+    } else if (part.type === "image") {
+      const image = imageContent(part);
+      if (image) blocks.push(image);
+    }
+  }
+  if (blocks.length === 0) return null;
+  return blocks.length === 1 && blocks[0].type === "text" ? blocks[0].text : blocks;
 }
 
 /**
@@ -129,9 +170,9 @@ export function readDshTranscript(sessionDir: string): DshTranscript {
       case "user/message": {
         const source = isObject(data.source) ? data.source : null;
         if (source?.kind !== "user") break;
-        const body = textOf(data.content).trim();
-        if (!body) break;
-        messages.push({ role: "user", content: body, ...(time ? { timestamp: time } : {}) });
+        const content = userContent(data.content);
+        if (!content) break;
+        messages.push({ role: "user", content, ...(time ? { timestamp: time } : {}) });
         break;
       }
       case "assistant/message": {
@@ -146,6 +187,9 @@ export function readDshTranscript(sessionDir: string): DshTranscript {
             content.push({ type: "thinking", thinking: block.text });
           } else if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
             content.push({ type: "text", text: block.text });
+          } else if (block.type === "image") {
+            const image = imageContent(block);
+            if (image) content.push(image);
           } else if (block.type === "tool-call" && typeof block.id === "string") {
             const name = typeof block.name === "string" ? block.name : "tool";
             toolNames.set(block.id, name);

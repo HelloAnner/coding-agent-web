@@ -6,6 +6,27 @@ import { readDshTranscript } from "@/harness/dsh/transcript";
 
 export const dynamic = "force-dynamic";
 
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** ACP image blocks, base64 without a prefix. Same limits as the kernel's decoder. */
+function readImages(raw: unknown): Array<{ data: string; mimeType: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const images: Array<{ data: string; mimeType: string }> = [];
+  let total = 0;
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const value = item as { data?: unknown; mimeType?: unknown };
+    if (typeof value.data !== "string" || typeof value.mimeType !== "string") continue;
+    if (!value.data) continue;
+    if (!IMAGE_TYPES.has(value.mimeType)) throw new Error(`Unsupported image type: ${value.mimeType}`);
+    total += value.data.length;
+    if (total > MAX_IMAGE_BYTES) throw new Error("Images are too large");
+    images.push({ data: value.data, mimeType: value.mimeType });
+  }
+  return images.length > 0 ? images : undefined;
+}
+
 /**
  * POST /api/dsh/[id] - one command for a dsh chat.
  *
@@ -34,12 +55,21 @@ export async function POST(
       const provider = typeof body.provider === "string" ? body.provider : undefined;
       const model = typeof body.model === "string" ? body.model : undefined;
       const sessionPath = typeof body.sessionPath === "string" ? body.sessionPath : undefined;
-      if (!message.trim()) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
+      let images: Array<{ data: string; mimeType: string }> | undefined;
+      try {
+        images = readImages(body.images);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 400 },
+        );
+      }
+      if (!message.trim() && !images) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
       if (!cwd || !path.isAbsolute(cwd)) {
         return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
       }
       try {
-        const result = await sendDshPrompt({ sessionId: id, cwd, text: message, provider, model, sessionPath });
+        const result = await sendDshPrompt({ sessionId: id, cwd, text: message, images, provider, model, sessionPath });
         return NextResponse.json({
           success: true,
           data: { sessionId: id, sessionPath: result.sessionPath, accepted: true },
