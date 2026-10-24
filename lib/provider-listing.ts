@@ -17,6 +17,13 @@ export type ProviderCredentialType = "api_key" | "oauth";
 /** Auth status sources that mean "this key comes from models.json". */
 const CUSTOM_PROVIDER_SOURCES = new Set(["models_json_key", "models_json_command"]);
 
+/**
+ * Built-in providers this app deliberately keeps out of the Models panel.
+ * OpenRouter ships in pi's provider registry, so it is listed for every
+ * install; this build does not offer it.
+ */
+const HIDDEN_PROVIDER_IDS = new Set(["openrouter"]);
+
 /** Friendlier names for OAuth entries whose provider name is not self-explanatory. */
 const OAUTH_DISPLAY_NAMES: Record<string, string> = {
   "openai-codex": "ChatGPT Plus/Pro",
@@ -63,7 +70,7 @@ function dedupeById(providers: readonly ProviderListingInput[]): ProviderListing
   const seen = new Set<string>();
   const result: ProviderListingInput[] = [];
   for (const provider of providers) {
-    if (seen.has(provider.id)) continue;
+    if (seen.has(provider.id) || HIDDEN_PROVIDER_IDS.has(provider.id)) continue;
     seen.add(provider.id);
     result.push(provider);
   }
