@@ -21,7 +21,7 @@ export class ClaudeEventMapper {
   push(record: Record<string, unknown>): void {
     const parent = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null;
     if (parent) {
-      if (record.type === "assistant") {
+      if (record.type === "assistant" && this.runningTools.has(parent)) {
         const content = claudeAssistantContent(object(record.message).content).filter((block) => block.type === "text" || block.type === "thinking");
         const text = content.map((block) => block.type === "text" ? block.text : block.type === "thinking" ? block.thinking : "").join("\n");
         if (text) this.emit({ type: "tool_execution_update", toolCallId: parent, toolName: this.toolNames.get(parent) ?? "Agent", partialResult: { content: [{ type: "text", text }] } });

@@ -37,6 +37,7 @@ import { cacheMissSummaryText, TRANSCRIPT_NOTICE_WARNING_COLOR, TranscriptNotice
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { composerHarnessFor } from "./session-catalog-helpers";
 import { ClaudeQuestions } from "./harness/ClaudeQuestions";
+import { HARNESS_SESSION_PANELS } from "./harness/session-panels";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -286,6 +287,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   });
   const [restoreAnchorReady, setRestoreAnchorReady] = useState(false);
   const composerHarness = composerHarnessFor(session, harness);
+  const HarnessSessionPanel = HARNESS_SESSION_PANELS[composerHarness];
   const confirmClaudeProject = useCallback((cwd: string) => window.confirm(t("harness.claudeTrust", { cwd })), [t]);
 
   const {
@@ -1544,6 +1546,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         )}
+        {HarnessSessionPanel && session?.id && <HarnessSessionPanel key={session.id} sessionId={session.id} active={agentRunning} />}
         {chatInputElement}
         <ExtensionStatusBar
           statuses={extensionStatuses}

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, ToolResultMessage } from "../../lib/types";
 import { object } from "./index";
+import { CLAUDE_TASK_ID } from "./tasks";
 import { mergeSessionStats, type SessionFileStats } from "../../lib/session-stats";
 
 export type ClaudeMessage = AgentMessage & { nativeId: string };
@@ -20,6 +21,7 @@ export function claudeTranscriptFile(profileDir: string, id: string): string | n
     if (!existsSync(file)) continue;
     const real = realpathSync(file);
     if (!real.startsWith(realRoot + path.sep)) throw new Error("Claude Code transcript escapes its profile");
+    if (path.basename(real) !== `${id}.jsonl`) throw new Error("Claude Code transcript does not match its session id");
     return real;
   }
   return null;
@@ -67,8 +69,8 @@ function claudeToolDetails(record: Record<string, unknown>): { diff: string } | 
   return hunks.length ? { diff: `--- a/${result.filePath}\n+++ b/${result.filePath}\n${hunks.join("\n")}\n` } : undefined;
 }
 
-export function claudeRecordMessages(record: Record<string, unknown>, toolNames: Map<string, string>): ClaudeMessage[] {
-  if (record.isSidechain || (record.isMeta && !record.isCompactSummary) || record.parent_tool_use_id) return [];
+export function claudeRecordMessages(record: Record<string, unknown>, toolNames: Map<string, string>, includeSidechain = false): ClaudeMessage[] {
+  if ((!includeSidechain && record.isSidechain) || (record.isMeta && !record.isCompactSummary) || record.parent_tool_use_id || object(record.origin).kind === "task-notification") return [];
   const message = object(record.message);
   const timestamp = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : Date.now();
   const nativeId = String(record.uuid ?? message.id ?? "");
@@ -95,18 +97,22 @@ export function claudeRecordMessages(record: Record<string, unknown>, toolNames:
 }
 
 /** Native JSONL is versioned by the CLI, so keep all format knowledge here. */
-export function parseClaudeTranscript(text: string): ClaudeMessage[] {
-  const records: Record<string, unknown>[] = [];
-  const byId = new Map<string, Record<string, unknown>>();
+export function* claudeNativeRecords(text: string): Generator<Record<string, unknown>> {
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    try {
-      const record = object(JSON.parse(line));
-      if (record.isSidechain || typeof record.uuid !== "string") continue;
-      // Attachments are hidden, but their UUIDs still link the native message chain.
-      records.push(record);
-      byId.set(record.uuid, record);
-    } catch { /* the CLI can be appending the last line */ }
+    try { yield object(JSON.parse(line)); }
+    catch { /* the CLI can be appending the last line */ }
+  }
+}
+
+export function parseClaudeTranscript(text: string, includeSidechain = false): ClaudeMessage[] {
+  const records: Record<string, unknown>[] = [];
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const record of claudeNativeRecords(text)) {
+    if ((!includeSidechain && record.isSidechain) || typeof record.uuid !== "string") continue;
+    // Attachments are hidden, but their UUIDs still link the native message chain.
+    records.push(record);
+    byId.set(record.uuid, record);
   }
   // Follow the active leaf, not abandoned siblings left by native resume/rewind.
   const leaf = records.findLast((record) => record.type === "user" || record.type === "assistant");
@@ -120,7 +126,7 @@ export function parseClaudeTranscript(text: string): ClaudeMessage[] {
   const messages: ClaudeMessage[] = [];
   const tools = new Map<string, string>();
   for (const record of source) {
-    for (const message of claudeRecordMessages(record, tools)) {
+    for (const message of claudeRecordMessages(record, tools, includeSidechain)) {
       const previous = messages.at(-1);
       if (message.role === "assistant" && previous?.role === "assistant" && previous.nativeId === message.nativeId) {
         const index = record.apiBlockIndex;
@@ -131,6 +137,35 @@ export function parseClaudeTranscript(text: string): ClaudeMessage[] {
     }
   }
   return messages;
+}
+
+function claudeSubagentsRoot(profileDir: string, id: string): string | null {
+  const parent = claudeTranscriptFile(profileDir, id);
+  if (!parent) return null;
+  const sessionRoot = path.join(path.dirname(parent), id);
+  const root = path.join(sessionRoot, "subagents");
+  if (!existsSync(root)) return null;
+  const realRoot = realpathSync(root);
+  if (!realRoot.startsWith(sessionRoot + path.sep)) throw new Error("Claude Code subagent directory escapes its session");
+  return realRoot;
+}
+
+export function claudeSubagentIds(profileDir: string, id: string): string[] {
+  const root = claudeSubagentsRoot(profileDir, id);
+  if (!root) return [];
+  return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /^agent-.+\.jsonl$/.test(entry.name)).map((entry) => entry.name.slice(6, -6)).filter((id) => CLAUDE_TASK_ID.test(id));
+}
+
+export function readClaudeSubagentTranscript(profileDir: string, id: string, agentId: string): ClaudeMessage[] {
+  if (!CLAUDE_TASK_ID.test(agentId)) throw new Error("Invalid Claude Code agent id");
+  const root = claudeSubagentsRoot(profileDir, id);
+  if (!root) return [];
+  const file = path.join(root, `agent-${agentId}.jsonl`);
+  if (!existsSync(file)) return [];
+  const realFile = realpathSync(file);
+  if (!realFile.startsWith(root + path.sep)) throw new Error("Claude Code subagent transcript escapes its session");
+  if (path.basename(realFile) !== `agent-${agentId}.jsonl`) throw new Error("Claude Code transcript does not match its subagent id");
+  return parseClaudeTranscript(readFileSync(realFile, "utf8"), true);
 }
 
 export function readClaudeTitle(profileDir: string, id: string): string {

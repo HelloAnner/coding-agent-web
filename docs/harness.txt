@@ -138,7 +138,11 @@ Claude Code：保留原生 agent，用 profile 适配不同模型
   所以这是逻辑隔离，不是操作系统沙箱。共享原生能力不等于复制另一模型的上下文。
   默认 ~/.claude 沿用原生设置，不等于保证使用官方 OAuth 或官方 endpoint。
 
-  可复用：稳定 profile 身份、环境隔离、原生双向控制、审批与问题回传。
+  已接入独立任务面板：后台 shell、Monitor、子智能体的状态、原生工作记录与单独控制。
+  发送、轮询、任务详情和控件留在本模块的 client/，不为这些功能扩张公共会话 hook。
+  支持范围、原生输出限制和服务重启边界见 docs/claude-code.txt。
+
+  可复用：稳定 profile 身份、环境隔离、原生双向控制、审批与问题回传，以及前后端纵向模块。
   不照搬：在旧会话里直接改 profile，或依赖个人 cc 脚本来决定模型和配置目录。
 
 名称与身份不要混用
@@ -276,7 +280,11 @@ Claude：
   同一活跃会话多轮复用 CLI，空闲 10 分钟回收，下次 --resume <UUID>，不用 --continue。
   权限、提问和 MCP 输入通过原生 control_request/control_response 回传，不伪造执行结果。
   默认 manual；bypassPermissions 必须显式配置。项目 trust 与工具审批分别处理。
-  停止先用原生 interrupt，必要时升级信号；浏览器断开不等于终止原生任务。
+  主回复停止先用原生 interrupt，必要时升级信号；后台任务通过 stop_task 单独停止。
+  前台转后台用 background_tasks，shell/Monitor 输出用 get_task_output，不额外请求模型。
+  任务集合以 background_tasks_changed 为准，兼容 task_updated 的终止补丁和旧 run_id。
+  后台任务与主回复分别计状态，主轮结束不清掉子智能体尚未回答的审批。
+  浏览器断开不等于终止任务；服务重启也不代表能自动接回旧进程中的 shell/Monitor。
   其他参数、共享能力和验证方式见 docs/claude-code.txt。
 
 已有经验：新接入时先检查这些
@@ -352,10 +360,14 @@ Claude：
   harness/dsh/                      ACP、补丁、模型配置、事件与原生 zstd 日志
   harness/grok/                     官方目录、逐轮 CLI、事件与 chat_history.jsonl
   harness/claude-code/              自有 JSON、profile、原生 CLI、事件、历史与权限
+  harness/claude-code/tasks.ts      原生任务状态、代际、后台集合与离线元数据恢复
+  harness/claude-code/task-api.ts   会话/profile 约束的任务读取、停止和转后台
+  harness/claude-code/client/       专属任务面板、可见页轮询和交互；不导入服务端入口
   lib/{dsh,grok,claude-code}-client.ts  浏览器的原生端点调用和现有 helper
   app/api/<harness>/[id]/           各家发送/停止/状态/历史及 events SSE
   hooks/useAgentSession.ts          按 harness 选择运行时，共用事件展示
   components/harness/panels.tsx     独立设置面板登记
+  components/harness/session-panels.tsx  专属会话面板按需登记，公共页面只组合
   components/ChatInput.tsx          选择器和锁定显示
   components/AppShell.tsx           选择回调、目录偏好与会话导航
   lib/catalog-db.ts                 索引与服务端身份保护

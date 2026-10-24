@@ -98,6 +98,8 @@ effort 支持 low、medium、high、xhigh、max。
 要换模型先新建，不因选模型自动创建对话或复制草稿；原会话和草稿仍留在原位。
 服务端固定 harness、provider、profile id、cwd 和 profile 根目录，原生 /model 指令也拒绝。
 不要用已有 profile id 改绑另一模型或目录；增加新 profile id 和独立目录后再开对话。
+/clear、/reset、/new、/resume、/fork 等会话内换 UUID 命令不透传，使用网页的显式新建。
+若原生流程意外切换 UUID，停止该连接并提示，不把新上下文或任务写到旧索引下面。
 终端和网页可以接力恢复同一个原生 UUID，但不要同时写同一条会话。
 
 运行与交互
@@ -121,13 +123,74 @@ MCP JSON 输入仍由原生 CLI/MCP 服务校验；特殊的原生终端对话�
 首次进入未信任项目时，由网页明确确认加载项目 hooks/MCP。
 已有原生 trust 可以沿用；网页新确认保存在 data.db，不覆盖 CLI 正在维护的元数据。
 
-停止优先使用 CLI interrupt，超时升级 SIGINT / SIGTERM / SIGKILL。
+输入框的停止按钮使用 CLI interrupt 停止当前回复，超时升级 SIGINT / SIGTERM / SIGKILL。
+后台任务另有自己的停止按钮，见下一节；不能把主轮结束当成所有后台任务都已结束。
 网页断开不终止正在进行的任务；重新打开读取原生历史、当前回复和待回答问题。
 流式与完整消息按原生 id 对齐，不重复追加。侧栏可显示运行中和等待输入状态。
 用量和费用取原生最新累计记录，不重复累加每轮快照；费用是 CLI 估算，不是代理账单。
 
 Pi 的队列、分支编辑等专用控件不套用到 Claude Code。
 标题操作优先取原生标题，没有时取首条提问，不额外启动一次模型请求。
+
+后台 shell、Monitor 与子智能体
+-----------------------------
+
+Claude 会话的输入框上方有「任务」入口。点开列出原生任务，点击一行查看详情。
+只在 Claude 页面按需加载；状态、请求、页面兼容逻辑均在 harness/claude-code 内，
+公共 ChatWindow 只登记和组合这个面板，不把原生任务分支加进公共会话 hook。
+
+  shell      显示命令、状态、输出尾部；可停止，前台任务可转后台
+  Monitor    显示原生监视任务、输出与结束状态；可单独停止
+  子智能体   显示任务类型、进度、工具次数、耗时和父子关系；可查看思考、正文与工具卡
+             前台任务可转后台，后台任务可单独停止
+
+启动和继续工作仍交给原生 Agent/Bash/Monitor 等工具，不在网页里重写这些工具。
+例如让 Claude 启动一个后台命令、监视日志、派一个子智能体检查代码，随后在任务入口
+查看和控制它们。Web 不另外执行一条 shell、启动另一个 agent 循环或轮询模型 API。
+
+查看输出、停止和转后台走原生控制请求，不额外发起模型轮次：
+  get_task_output    shell/Monitor 的末尾最多 8 KiB，按纯文本渲染，不执行 HTML 或终端转义
+  stop_task          指定当前会话的 task_id，结果等原生事件确认，不把按钮点击伪装成已完成
+  background_tasks   按原生 tool_use_id 将前台 shell/子智能体转入后台，相当于终端 Ctrl+B
+
+Monitor 本身按 CLI 规则工作，其事件可能触发新的模型回复和费用；读取面板不会。
+Monitor 可能以 local_bash 类型上报，按原始 Monitor 工具归类，不能因此显示成普通 shell。
+子智能体对话来自同一 profile、同一主会话下的 subagents/agent-<id>.jsonl，按原生提交
+的消息块刷新，不宣称逐 token 转发。详情只展示末尾 120 条消息，省略时有提示。
+不会把它改造成 pi 子代理会话，也不会在网页侧存第二份原生正文。
+
+状态分别处理 task_started、task_updated、task_progress、task_notification，
+background_tasks_changed 是完整集合，收到时替换，不靠「开始减结束」猜测。
+终止补丁 killed 也会结束任务，不要求一定收到 stopped 通知；run_id 防止旧轮次回写。
+主回复与后台工作分别计状态，后台运行不让输入框误以为还在流式回复。
+只在 CLI 明确标记 ambient 时把任务排除在会话活动指示之外，不按 Monitor 名称猜测；
+仍有原生后台任务或待回答审批时保留进程，避免空闲回收杀掉工作。
+
+CLI 提供 agent_id 时，子智能体的审批/问题会标出所属任务；主轮结束不清掉后台审批，
+等原生取消或进程退出关闭。
+初始化声明 perTaskStopAffordance，让原生 interrupt 保留可以单独停止的后台子智能体；
+强制结束进程或服务退出仍会影响其中的所有任务，不能承诺它们跨服务重启继续运行。
+
+面板只控制已索引会话自身的任务，不接受浏览器传来的 profile、日志路径或输出文件路径。
+任务操作携带展示时的 run_id，已恢复到新轮次的旧按钮会被拒绝；禁用 profile 后仍能查看
+历史并停止已经运行的进程。浏览器隐藏时暂停轮询，返回时恢复；收起面板停止读取详情。
+
+CLI 离线时，从原生日志恢复任务摘要和子智能体对话；不能确认的运行状态写「状态未知」，
+不自动重跑 shell/Monitor。离线时不读取实时 shell 输出，也不盲读通知里的 output_file。
+原生日志、输出或当前 CLI 不支持对应控制时明确报错，不伪造空输出或完成状态。
+
+适配范围
+--------
+
+  已接入    文本/图片、思考与工具流、Edit diff、原生审批、AskUserQuestion、MCP JSON 输入，
+            shell/Monitor/子智能体任务查看、转后台/停止、原生历史和切页重连
+  原生可用  原生 tools/skills/MCP/hooks/Agent 定义仍由本机 CLI 加载，不代表都有独立设置页
+  尚未专门适配  Agent 定义编辑、团队成员发消息界面、定时任务管理、云会话/Remote Control、
+                claude --bg 常驻会话管理、会话内换 UUID 的流程，以及特殊原生终端对话框
+
+后台 Bash/Monitor/子智能体任务不是 claude --bg 创建的另一条常驻会话。
+这里不扫描或导入全部终端后台会话，不把未接的功能伪装成完整 CLI 界面。
+新增能力继续在本 harness 内接，按上表更新支持范围。
 
 验证
 ----
@@ -139,12 +202,16 @@ Pi 的队列、分支编辑等专用控件不套用到 Claude Code。
 真实 CLI 的隔离协议测试：
 
   CLAUDE_CODE_TEST_BIN="$(command -v claude)" \
-    node --experimental-strip-types --test harness/claude-code/claude-code.test.mjs
+    node --experimental-strip-types --test harness/claude-code/*.test.mjs
 
 测试使用临时 HOME、临时 profile 和本地假网关，无真实模型请求。
 覆盖原生 Bash/Read/Edit、审批、提问、连续两轮、重启恢复、中断后续聊，
 以及配置生成、模型隔离、历史归并、索引保护、/model 拦截和缺失 CLI。
 网页组件、hook 与接口另有模型锁定、不自动新建、发送、切页、原生端点、问题回传和重连历史检查。
+任务检查还覆盖原生前台转后台、Monitor 输出、子智能体对话/子任务、逐任务停止、主轮中断
+保留后台 agent、进程退出后恢复历史、集合替换、终止补丁、旧 run 丢弃和 profile 路径约束。
+client 检查覆盖切会话/切 run 的迟到响应、隐藏页恢复、操作不伪造状态和错误后的手动重试。
+隔离浏览器组件检查不等于运行中 Web 服务已更新；构建与重启仍由用户执行。
 
 参考
 ----
@@ -153,3 +220,7 @@ https://code.claude.com/docs/en/headless
 https://code.claude.com/docs/en/cli-reference
 https://code.claude.com/docs/en/settings
 https://code.claude.com/docs/en/sessions
+https://code.claude.com/docs/en/interactive-mode
+https://code.claude.com/docs/en/agent-sdk/typescript
+
+最后一个链接只作为原生 stdio 消息与控制请求的协议参考，不是应用依赖。

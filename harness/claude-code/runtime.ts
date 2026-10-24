@@ -1,13 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { AgentEventLike } from "../../lib/agent-event-wire";
 import { readCatalogSession, upsertCatalogSession } from "../../lib/catalog-db";
 import type { ExtensionUiRequest } from "../../lib/types";
 import { ClaudeEventMapper } from "./events";
 import { claudeProcessEnv, object, prepareClaudeProfile, resolveClaudeProfile, type ClaudeProfile } from "./index";
-import { claudeTranscriptFile, CLAUDE_UUID } from "./transcript";
+import { claudeNativeRecords, claudeTranscriptFile, CLAUDE_UUID } from "./transcript";
+import { ClaudeTasks, type ClaudeTaskSnapshot } from "./tasks";
 
 type Listener = (event: AgentEventLike) => void;
 interface PendingInput { request: Record<string, unknown>; ui: ExtensionUiRequest }
@@ -18,7 +19,8 @@ class ClaudeRun {
   readonly subscribers = new Set<Listener>();
   readonly inputs = new Map<string, PendingInput>();
   readonly controls = new Map<string, ControlWaiter>();
-  readonly backgroundTasks = new Set<string>();
+  readonly tasks = new ClaudeTasks();
+  get backgroundTasks() { return this.tasks.backgroundIds; }
   child: ChildProcessWithoutNullStreams | null = null;
   mapper: ClaudeEventMapper | null = null;
   isStreaming = false;
@@ -30,6 +32,7 @@ class ClaudeRun {
   private stderr = "";
   private secrets: string[] = [];
   private ready: Promise<void> | null = null;
+  private invalidSession = false;
 
   constructor(readonly id: string) {}
   get streamingMessage() { return this.mapper?.message ?? null; }
@@ -63,6 +66,10 @@ class ClaudeRun {
     for (const value of this.secrets) text = text.replaceAll(value, "[redacted]");
     return text;
   }
+  taskSnapshot(): ClaudeTaskSnapshot {
+    return { connected: Boolean(this.child?.stdin.writable), foreground: this.isStreaming, tasks: [...this.tasks.rows.values()].map((task) => Object.fromEntries(Object.entries(task).map(([key, value]) => [key, typeof value === "string" ? this.redact(value) : value])) as ClaudeTaskSnapshot["tasks"][number]) };
+  }
+  redactOutput(text: string): string { return this.redact(text); }
   async start(profile: ClaudeProfile, cwd: string, resume: boolean): Promise<void> {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
@@ -82,6 +89,11 @@ class ClaudeRun {
       });
     }
     if (this.aborted) throw new Error("Claude Code was stopped before sending this message");
+    if (resume) {
+      const file = claudeTranscriptFile(profile.configDir, this.id);
+      if (file) this.tasks.restore(claudeNativeRecords(readFileSync(file, "utf8")));
+    } else this.tasks.disconnect();
+    this.invalidSession = false;
     prepareClaudeProfile(profile);
     this.profile = profile;
     this.cwd = cwd;
@@ -110,17 +122,27 @@ class ClaudeRun {
       for (const pending of this.controls.values()) { clearTimeout(pending.timer); pending.reject(new Error(reason)); }
       this.controls.clear();
       if (this.isStreaming) this.settle(this.aborted ? undefined : this.redact(this.stderr.trim().split("\n").at(-1) || reason));
-      this.backgroundTasks.clear();
+      for (const id of [...this.inputs.keys()]) this.removeInput(id);
+      this.tasks.disconnect();
       if (!this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
     };
     child.on("error", (error) => closed(`Claude Code could not start: ${error.message}`));
     child.on("close", (code) => closed(`Claude Code exited before completing the turn (${code})`));
     child.stdin.on("error", () => { /* child error/close settles the run and its control waiters */ });
-    this.ready = this.request({ subtype: "initialize" }).then(() => undefined);
+    this.ready = this.request({ subtype: "initialize", perTaskStopAffordance: true }).then(() => undefined);
     try { await this.ready; }
     catch (error) { if (this.child === child) this.close(); throw error; }
   }
   private receive(record: Record<string, unknown>): void {
+    if (this.invalidSession) return;
+    if (record.type === "conversation_reset" || (typeof record.session_id === "string" && record.session_id.toLowerCase() !== this.id.toLowerCase())) {
+      this.invalidSession = true;
+      const error = "Claude Code changed its native session identity. Start a new chat; this web session will not follow a different UUID.";
+      if (this.isStreaming) this.settle(error);
+      else this.publish({ type: "prompt_error", errorMessage: error });
+      this.close();
+      return;
+    }
     if (record.type === "control_response") {
       const response = object(record.response);
       const id = String(response.request_id ?? "");
@@ -134,8 +156,7 @@ class ClaudeRun {
     }
     if (record.type === "control_request") { this.input(record); return; }
     if (record.type === "control_cancel_request") { this.removeInput(String(record.request_id)); return; }
-    if (record.type === "system" && record.subtype === "task_started" && typeof record.task_id === "string") this.backgroundTasks.add(record.task_id);
-    if (record.type === "system" && record.subtype === "task_notification" && typeof record.task_id === "string") this.backgroundTasks.delete(record.task_id);
+    this.tasks.observe(record);
     if (record.type === "system" && record.subtype === "init") {
       this.publish({ type: "extension_ui_request", id: "claude-model", method: "setStatus", statusKey: "claude-model", statusText: typeof record.model === "string" ? record.model : undefined });
       for (const key of ["plugin_errors", "mcp_server_errors"]) if (Array.isArray(record[key]) && record[key].length) this.publish({ type: "prompt_error", errorMessage: `Claude Code reported ${record[key].length} ${key.replaceAll("_", " ")}` });
@@ -160,6 +181,9 @@ class ClaudeRun {
     const id = String(record.request_id ?? "");
     const request = object(record.request);
     const input = object(request.input);
+    const agent = typeof request.agent_id === "string" ? this.tasks.rows.get(request.agent_id) : undefined;
+    const context = agent?.description || agent?.agentType;
+    const title = context ? this.redact(`Claude Code · ${context.slice(0, 160)}`) : "Claude Code";
     let ui: ExtensionUiRequest;
     if (request.subtype === "can_use_tool" && request.tool_name === "AskUserQuestion" && Array.isArray(input.questions)) {
       const questions = input.questions.map((raw) => {
@@ -167,9 +191,9 @@ class ClaudeRun {
         return { question: String(question.question ?? ""), header: String(question.header ?? ""), multiSelect: question.multiSelect === true,
           options: Array.isArray(question.options) ? question.options.map((rawOption) => { const option = object(rawOption); return { label: String(option.label ?? ""), description: String(option.description ?? "") }; }) : [] };
       });
-      ui = { type: "extension_ui_request", id, method: "editor", title: "Claude Code", questions, prefill: "{}" };
+      ui = { type: "extension_ui_request", id, method: "editor", title, questions, prefill: "{}" };
     } else if (request.subtype === "can_use_tool") {
-      ui = { type: "extension_ui_request", id, method: "confirm", title: `Claude Code · ${String(request.tool_name ?? "Tool")}`, message: this.redact(`${String(request.decision_reason ?? request.description ?? "")}\n\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\``) };
+      ui = { type: "extension_ui_request", id, method: "confirm", title: `${title} · ${String(request.tool_name ?? "Tool")}`, message: this.redact(`${String(request.decision_reason ?? request.description ?? "")}\n\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\``) };
     } else if (request.subtype === "elicitation") {
       ui = { type: "extension_ui_request", id, method: "editor", title: `${String(request.message ?? "MCP input")}\n${JSON.stringify(request.requested_schema ?? {})}`, prefill: "{}" };
     } else {
@@ -214,7 +238,8 @@ class ClaudeRun {
     this.stopTimer = null;
     this.mapper?.finish(this.aborted);
     this.isStreaming = false;
-    for (const id of [...this.inputs.keys()]) this.removeInput(id);
+    // A background subagent may still be awaiting input after the main turn ends.
+    // Only native cancellation or process exit closes those requests.
     if (error) this.publish({ type: "prompt_error", errorMessage: error });
     this.publish({ type: "agent_end" });
     this.publish({ type: "agent_settled", aborted: this.aborted });
@@ -224,19 +249,19 @@ class ClaudeRun {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       if (this.isStreaming) return;
-      if (this.backgroundTasks.size) this.scheduleIdle();
+      if (this.backgroundTasks.size || this.inputs.size) this.scheduleIdle();
       else this.close();
     }, IDLE_MS);
     this.idleTimer.unref();
   }
   abort(): boolean {
-    if (!this.isStreaming && !this.backgroundTasks.size) return false;
+    if (!this.isStreaming) return false;
     this.aborted = true;
     if (!this.child) return true;
     // The native host interrupt ends the current turn without discarding its session.
     const child = this.child;
     const turn = this.mapper;
-    const stillStopping = () => this.child === child && this.mapper === turn && (this.isStreaming || this.backgroundTasks.size > 0);
+    const stillStopping = () => this.child === child && this.mapper === turn && this.isStreaming;
     void this.request({ subtype: "interrupt" }).catch(() => { if (stillStopping()) child.kill("SIGINT"); });
     this.stopTimer = setTimeout(() => { if (stillStopping()) child.kill("SIGINT"); }, 3000);
     this.stopTimer.unref();
@@ -273,11 +298,12 @@ export function getClaudeRun(id: string): ClaudeRun {
   if (!runs.has(id)) runs.set(id, new ClaudeRun(id));
   return runs.get(id)!;
 }
-export function claudeRunningIds(): string[] { return [...registry().runs.values()].filter((run) => run.isStreaming || run.backgroundTasks.size).map((run) => run.id); }
+export function findClaudeRun(id: string): ClaudeRun | undefined { return registry().runs.get(id); }
+export function claudeRunningIds(): string[] { return [...registry().runs.values()].filter((run) => run.isStreaming || run.tasks.hasActivity || run.inputs.size).map((run) => run.id); }
 export function claudeAwaitingInputIds(): string[] { return [...registry().runs.values()].filter((run) => run.inputs.size).map((run) => run.id); }
 export function claudeState(id: string) {
   const run = registry().runs.get(id);
-  return { running: Boolean(run?.isStreaming || run?.backgroundTasks.size), state: { isStreaming: Boolean(run?.isStreaming || run?.backgroundTasks.size), isPromptRunning: false } };
+  return { running: Boolean(run?.isStreaming || run?.tasks.hasActivity || run?.inputs.size), state: { isStreaming: Boolean(run?.isStreaming), isPromptRunning: false } };
 }
 export function stopClaudeRuns(): void { for (const run of registry().runs.values()) run.close(); }
 
@@ -286,6 +312,7 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   if (!prompt.text.trim() && !prompt.images?.length) throw new Error("Message is empty");
   if (run.isStreaming) throw new Error("Claude Code is already answering in this session");
   if (/^\/model(?:\s|$)/i.test(prompt.text.trimStart())) throw new Error("Claude Code model is fixed by its profile. Start a new chat to switch models.");
+  if (/^\/(?:clear|reset|new|resume|fork)(?:\s|$)/i.test(prompt.text.trimStart())) throw new Error("Start a new chat to change Claude Code conversations. This session keeps its native UUID.");
   const profile = resolveClaudeProfile(prompt.profileId, prompt.provider);
   const cwd = realpathSync(prompt.cwd);
   const existing = readCatalogSession(prompt.id);
