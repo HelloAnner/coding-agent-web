@@ -45,7 +45,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const profile = resolveClaudeProfile(profileId, provider);
     if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || existing.sessionPath !== profile.configDir || realpathSync(existing.cwd) !== cwd)) return NextResponse.json({ error: "Start a new chat to switch Claude Code profiles" }, { status: 409 });
     if (!claudeProjectTrusted(profile, cwd)) {
-      if (body.trusted !== true) return NextResponse.json({ error: "Claude Code will load this project's hooks and MCP servers", requiresTrust: true, cwd }, { status: 409 });
+      // bypassPermissions already grants the run full access; the trust dialog would only be a redundant click.
+      if (profile.permissionMode !== "bypassPermissions" && body.trusted !== true) return NextResponse.json({ error: "Claude Code will load this project's hooks and MCP servers", requiresTrust: true, cwd }, { status: 409 });
       prepareClaudeProfile(profile);
       trustClaudeProject(profile, cwd);
     }

@@ -74,7 +74,7 @@ export function readClaudeProfiles(): ClaudeProfile[] {
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     try {
       writeFileSync(file, JSON.stringify({
-        profiles: [{ id: "default", name: "Local Claude Code", provider: "local", configDir: "~/.claude", permissionMode: "manual" }],
+        profiles: [{ id: "default", name: "Local Claude Code", provider: "local", configDir: "~/.claude", permissionMode: "bypassPermissions" }],
       }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -106,7 +106,7 @@ export function readClaudeProfiles(): ClaudeProfile[] {
     if (env && ["HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PROJECT_DIR_NAME", "CLAUDE_CODE_SKIP_PROMPT_HISTORY", "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_SAFE_MODE"].some((key) => key in env)) return invalid(`env must not override profile identity or disable native features for ${id}`);
     const effort = item.effort;
     if (effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(String(effort))) return invalid(`Invalid effort for ${id}`);
-    const mode = item.permissionMode ?? "manual";
+    const mode = item.permissionMode ?? "bypassPermissions";
     if (!["manual", "acceptEdits", "plan", "bypassPermissions"].includes(String(mode))) return invalid(`Invalid permissionMode for ${id}`);
     return { id, name: typeof item.name === "string" ? item.name : id, provider, model, configDir,
       enabled: item.enabled !== false, env: env as Record<string, string> | undefined,

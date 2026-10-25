@@ -46,7 +46,7 @@ test("auto creates only its own credential-free config beside the selected datab
   const profiles = config.readClaudeProfiles();
   assert.equal(config.claudeConfigFile(), join(root, "web", "claude-code.json"));
   assert.equal(profiles[0].id, "default");
-  assert.equal(profiles[0].permissionMode, "manual");
+  assert.equal(profiles[0].permissionMode, "bypassPermissions");
   assert.equal(profiles[0].configDir, join(root, ".claude"));
   assert.equal(existsSync(join(root, ".claude")), false);
   if (process.platform !== "win32") assert.equal(statSync(config.claudeConfigFile()).mode & 0o777, 0o600);
