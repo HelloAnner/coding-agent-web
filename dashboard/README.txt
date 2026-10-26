@@ -7,6 +7,7 @@ dashboard 独立应用
     app.js       独立前端，轮询自己的接口
     server.mjs   独立后端，自带数据与独立 HTTP 服务
     server.d.mts 只给 Next 适配层用的类型
+    fonts/       与 coding 一致的 Noto Sans Mono（OFL），内嵌进页面
 
 接入方式
   /dashboard                    Next 适配层，返回拼好的整页 HTML

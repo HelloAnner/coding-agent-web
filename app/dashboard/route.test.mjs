@@ -31,15 +31,18 @@ test("the dashboard's backend reports its own figures", () => {
 
 test("the page is the dashboard folder's, with its own CSS and JS inlined", async () => {
   const html = await dashboardPage();
-  assert.doesNotMatch(html, /\{\{styles\}\}|\{\{script\}\}/);
+  assert.doesNotMatch(html, /\{\{styles\}\}|\{\{script\}\}|\{\{font\}\}/);
   assert.match(html, /<title>Dashboard<\/title>/);
   assert.match(html, /class="app-switch"/);
   assert.match(html, /aria-checked="true" href="\/dashboard"/);
   assert.match(html, /aria-checked="false" href="\/">[\s\S]*?<span>Coding<\/span>/);
   assert.match(html, /\/api\/dashboard\/overview/);
-  // The styles and script are embedded, not linked.
+  // The styles and script are embedded, not linked, and so is the same mono
+  // face the coding app uses.
   assert.match(html, /--accent:/);
   assert.match(html, /function render\(data\)/);
+  assert.match(html, /font-family: "Noto Sans Mono"/);
+  assert.match(html, /src: url\("data:font\/woff2;base64,/);
 });
 
 test("the dashboard imports nothing from the coding app", async () => {

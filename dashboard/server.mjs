@@ -30,13 +30,19 @@ async function dashboardDir() {
 
 async function buildPage() {
   const dir = await dashboardDir();
-  const [html, styles, script] = await Promise.all([
+  const [html, styles, script, font] = await Promise.all([
     readFile(join(dir, "index.html"), "utf8"),
     readFile(join(dir, "styles.css"), "utf8"),
     readFile(join(dir, "app.js"), "utf8"),
+    readFile(join(dir, "fonts", "noto-sans-mono-latin.woff2")).catch(() => null),
   ]);
+  // The same mono face as the coding app, kept inside this folder and
+  // embedded so the page needs no asset route.
+  const fontUrl = font ? `data:font/woff2;base64,${font.toString("base64")}` : "";
   // Replacer functions: the CSS and JS may contain "$" sequences.
-  return html.replace("{{styles}}", () => styles).replace("{{script}}", () => script);
+  return html
+    .replace("{{styles}}", () => styles.replace("{{font}}", () => fontUrl))
+    .replace("{{script}}", () => script);
 }
 
 let productionPage = null;
