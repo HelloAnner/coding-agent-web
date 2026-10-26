@@ -2538,6 +2538,36 @@ span.token.table {
   display: none;
 }
 
+.right-panel-container {
+  display: flex;
+  flex-direction: column;
+}
+.right-panel-inner {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* The file tree, in the right panel's first column. */
+.file-browser-column {
+  width: var(--file-browser-width, 240px);
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.file-browser-column.is-resizing {
+  transition: none;
+}
+.panel-resize-handle.file-browser-resize-handle {
+  margin: 0;
+}
+
 /* Desktop sidebar: animate width */
 @media (min-width: 641px) {
   .sidebar-overlay-backdrop {
@@ -2726,6 +2756,13 @@ span.token.table {
   .right-panel-container > * {
     width: 100%;
     min-width: 0;
+  }
+  .file-browser-column.is-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    flex: 1 1 auto;
   }
   .file-panel-expand-button,
   .panel-resize-handle,

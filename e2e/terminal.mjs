@@ -89,10 +89,10 @@ try {
       const button = page.getByRole("button", { name: "Show sidebar", exact: true });
       if (await button.count()) await button.click();
     };
-    // The explorer and its terminal button are in the sidebar's files, the
-    // session rows in its sessions: one above the other on a desktop, tabs on a phone.
+    // The explorer and its terminal button are the right panel's first
+    // column; the session rows are the sidebar's.
     const showTab = (name) => (name === "Files" ? showSidebarFiles(page) : showSidebarSessions(page));
-    const filesPanel = page.locator("#session-sidebar-panel-files");
+    const filesPanel = page.locator("#file-browser");
     const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
     const hidePanel = async () => {
       const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });

@@ -16,7 +16,7 @@ import { checkCodeBackground } from "./code-background.mjs";
 import { checkModelDiscovery } from "./model-discovery.mjs";
 import { checkModelContext } from "./model-context.mjs";
 import { checkModelSelector } from "./model-selector.mjs";
-import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
+import { showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
 
@@ -503,10 +503,6 @@ try {
         await page.waitForTimeout(200);
       }
       await hideSidebar.waitFor({ state: "visible" });
-      // The files sit below the sessions on a desktop; Settings › General ›
-      // File browser brings the tabs back, and goes back.
-      await checkFilesPlacement(page);
-      console.log("PASS: files below the sessions by default, tabs from Settings and back");
       await checkModelDiscovery(page);
     }
     await checkModelContext(page);

@@ -9,6 +9,13 @@ export const RIGHT_PANEL_FALLBACK_WIDTH = 560;
 export const RIGHT_PANEL_MIN_WIDTH = 300;
 export const RIGHT_PANEL_MAX_WIDTH = 1200;
 
+/** The file tree column of the right panel, beside the viewer. */
+export const FILE_BROWSER_DEFAULT_WIDTH = 240;
+export const FILE_BROWSER_MIN_WIDTH = 160;
+export const FILE_BROWSER_MAX_WIDTH = 480;
+/** The viewer keeps at least this much of the right panel, however wide the tree gets. */
+export const FILE_VIEWER_MIN_WIDTH = 240;
+
 const COMPACT_CHAT_MIN_WIDTH = 320;
 const DESKTOP_CHAT_MIN_WIDTH = 420;
 
