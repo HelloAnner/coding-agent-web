@@ -143,6 +143,19 @@ export function TaskBoard({ active }: { active: boolean }) {
   }, [selected, active]);
 
   useEffect(() => {
+    if (!selected || !active) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || !dialog.current?.open) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      dialog.current.close();
+      setSelected(null);
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
+  }, [selected, active]);
+
+  useEffect(() => {
     if (!copyFeedback) return;
     const timer = window.setTimeout(() => setCopyFeedback(null), 3500);
     return () => window.clearTimeout(timer);

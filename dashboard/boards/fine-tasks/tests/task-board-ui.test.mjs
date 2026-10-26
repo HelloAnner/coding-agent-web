@@ -84,6 +84,10 @@ test("refresh, active-only polling and native dialog safety are wired explicitly
   assert.match(source, /if \(!active\) return;[\s\S]*window\.setInterval/);
   assert.match(source, /method: "GET"/);
   assert.ok(!source.includes('"POST"'));
+  assert.match(source, /window\.addEventListener\("keydown", closeOnEscape, true\)/);
+  assert.match(source, /window\.removeEventListener\("keydown", closeOnEscape, true\)/);
+  assert.match(source, /event\.key !== "Escape" \|\| event\.isComposing \|\| !dialog\.current\?\.open/);
+  assert.match(source, /event\.stopImmediatePropagation\(\);\s*dialog\.current\.close\(\);\s*setSelected\(null\)/);
   assert.match(source, /modal\?\.showModal\(\)/);
   assert.match(source, /onClose=\{\(\) => setSelected\(null\)\}/);
   assert.match(source, /autoFocus/);
