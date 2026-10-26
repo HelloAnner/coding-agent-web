@@ -8,6 +8,7 @@ import "./settings.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
 import "../dashboard/ui/dashboard.css";
+import "../notes/ui/notes.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],

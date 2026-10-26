@@ -22,6 +22,9 @@
 # make start
 /.run/
 
+# local data (notes, boards)
+/data/
+
 # production
 /build
 

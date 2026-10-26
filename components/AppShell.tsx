@@ -10,6 +10,7 @@ import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessio
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileBrowserPane } from "./FileBrowserPane";
 import { DashboardApp } from "@/dashboard/ui/DashboardApp";
+import { NotesApp } from "@/notes/ui/NotesApp";
 import { WEB_APPS, webAppForPath, type WebApp } from "@/lib/apps";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
@@ -156,8 +157,10 @@ export function AppShell() {
       if (activeAppIdRef.current === "coding") nextRouter.replace(href, options);
     },
   }), [nextRouter]);
-  const codingUrlRef = useRef<string | null>(null);
-  const dashboardUrlRef = useRef<string | null>(null);
+  // Each app's last URL (the coding side's session and cwd, the dashboard's
+  // board, the notes app's open file), so switching back lands where the user
+  // left. Kept in one ref: adding an app must not add another ref.
+  const appUrlRefs = useRef<Partial<Record<WebApp["id"], string>>>({});
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
   // Keep the system-theme subscription mounted for the lifetime of the app.
   useTheme();
@@ -564,14 +567,12 @@ export function AppShell() {
     setRightPanelExpanded((expanded) => !expanded);
   }, []);
 
-  // Both apps are mounted in this shell. A switch shows the other one at
-  // once and lets the shared layout's route change catch the URL up; the
-  // window never reloads and the shell never remounts.
+  // All apps are mounted in this shell. A switch shows the other one at once
+  // and lets the shared layout's route change catch the URL up; the window
+  // never reloads and the shell never remounts.
   const switchApp = useCallback((app: WebApp) => {
     if (app.id === activeAppId) return;
-    const nextUrl = app.id === "coding"
-      ? (codingUrlRef.current ?? "/")
-      : (dashboardUrlRef.current ?? "/dashboard");
+    const nextUrl = appUrlRefs.current[app.id] ?? app.href;
     // Before the navigation: the app being left must not write the URL again.
     activeAppIdRef.current = app.id;
     setActiveAppId(app.id);
@@ -588,13 +589,11 @@ export function AppShell() {
     setActiveAppId(id);
   }, [pathname]);
 
-  // Each app remembers its last URL: the coding side's session and cwd, the
-  // dashboard's board. Switching back lands where the user left.
+  // Each app remembers its last URL. Switching back lands where the user left.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const url = `${window.location.pathname}${window.location.search}`;
-    if (webAppForPath(window.location.pathname).id === "coding") codingUrlRef.current = url;
-    else dashboardUrlRef.current = url;
+    const id = webAppForPath(window.location.pathname).id;
+    appUrlRefs.current[id] = `${window.location.pathname}${window.location.search}`;
   }, [pathname, searchParams]);
 
   // The pages are empty and the shell is already here: prefetching makes the
@@ -602,6 +601,7 @@ export function AppShell() {
   useEffect(() => {
     nextRouter.prefetch("/");
     nextRouter.prefetch("/dashboard");
+    nextRouter.prefetch("/notes");
   }, [nextRouter]);
 
   useEffect(() => {
@@ -1727,9 +1727,9 @@ export function AppShell() {
   // file (or terminal) is picked; the tab bar's folder button reopens it.
   const fileBrowserShown = !isMobile || mobileFilesOpen;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeAppId === "dashboard"
-    ? "Dashboard"
-    : activeCwdName ? `${activeCwdName} - Coding` : "Coding";
+  const windowTitle = activeAppId === "coding"
+    ? (activeCwdName ? `${activeCwdName} - Coding` : "Coding")
+    : activeApp.label;
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -3035,6 +3035,11 @@ export function AppShell() {
     </div>
     <DashboardApp
       active={activeAppId === "dashboard"}
+      currentApp={activeApp}
+      onSwitchApp={switchApp}
+    />
+    <NotesApp
+      active={activeAppId === "notes"}
       currentApp={activeApp}
       onSwitchApp={switchApp}
     />
