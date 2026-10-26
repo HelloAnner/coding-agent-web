@@ -307,6 +307,11 @@ async function start() {
   if (allowedHosts) childEnv.PI_WEB_ALLOWED_HOSTS = allowedHosts;
   if (password.length > 0) childEnv.PI_WEB_PASSWORD = password;
 
+  // If `next dev` ever ran against this dist dir it left dev/types behind, and
+  // `next build` never refreshes them. A stale validator.ts then fails the
+  // production type check as soon as a route moves, so drop them before building.
+  fs.rmSync(path.join(root, distDir, "dev"), { recursive: true, force: true });
+
   console.log("building");
   const built = spawnSync(process.execPath, [nextBin, ...nextBuildArgs()], {
     cwd: root,
