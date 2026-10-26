@@ -309,7 +309,8 @@ button.notes-tree-toggle:hover {
   }
 }
 
-/* The row's delete icon: hidden until the row is hovered or focused. */
+/* A row's actions (a folder's +, any row's trash): hidden until hover/focus. */
+.notes-row-plus,
 .notes-row-delete {
   display: grid;
   flex: none;
@@ -327,9 +328,16 @@ button.notes-tree-toggle:hover {
   transition: opacity 0.12s, background 0.12s, color 0.12s;
 }
 
+.notes-tree-row:hover .notes-row-plus,
 .notes-tree-row:hover .notes-row-delete,
+.notes-tree-row:focus-within .notes-row-plus,
 .notes-tree-row:focus-within .notes-row-delete {
   opacity: 1;
+}
+
+.notes-row-plus:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .notes-row-delete:hover {
@@ -356,6 +364,7 @@ button.notes-tree-toggle:hover {
 }
 
 @media (hover: none) {
+  .notes-row-plus,
   .notes-row-delete {
     opacity: 1;
   }

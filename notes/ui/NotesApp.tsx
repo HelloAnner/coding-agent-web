@@ -91,8 +91,8 @@ export function NotesApp({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<SidebarMenuAnchor | null>(null);
-  const [creating, setCreating] = useState<CreateKind | null>(null);
+  const [menu, setMenu] = useState<{ anchor: SidebarMenuAnchor; dir: string | null; returnTo: HTMLElement | null } | null>(null);
+  const [creating, setCreating] = useState<{ kind: CreateKind; dir: string } | null>(null);
   const [draftName, setDraftName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
@@ -213,15 +213,33 @@ export function NotesApp({
     const button = plusRef.current;
     if (!button) return;
     const rect = button.getBoundingClientRect();
-    setMenuAnchor({
-      kind: "rect",
-      rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
-      align: "end",
+    setMenu({
+      dir: null,
+      returnTo: button,
+      anchor: {
+        kind: "rect",
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        align: "end",
+      },
     });
   };
 
-  const startCreate = (kind: CreateKind) => {
-    setCreating(kind);
+  // A directory row's + creates there, independent of what is selected.
+  const openFolderMenu = (dir: string, button: HTMLElement) => {
+    const rect = button.getBoundingClientRect();
+    setMenu({
+      dir,
+      returnTo: button,
+      anchor: {
+        kind: "rect",
+        rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+        align: "end",
+      },
+    });
+  };
+
+  const startCreate = (kind: CreateKind, dir: string) => {
+    setCreating({ kind, dir });
     setDraftName("");
     setCreateError(null);
   };
@@ -231,16 +249,17 @@ export function NotesApp({
     if (!creating) return;
     const name = draftName.trim();
     if (!name) return;
+    const { kind, dir } = creating;
     setCreateError(null);
     try {
       const response = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: creating === "dir" ? "mkdir" : "create",
-          dir: targetDir,
+          action: kind === "dir" ? "mkdir" : "create",
+          dir,
           name,
-          kind: creating === "dir" ? undefined : creating,
+          kind: kind === "dir" ? undefined : kind,
         }),
       });
       const body = await response.json() as { node?: NotesNode; error?: string };
@@ -249,15 +268,17 @@ export function NotesApp({
       setCreating(null);
       setDraftName("");
       await refresh();
-      if (creating === "dir") {
-        setExpanded((current) => new Set(current).add(node.path));
-        selectPath(node.path);
-        router.replace("/notes", { scroll: false });
-      } else {
-        if (targetDir) setExpanded((current) => new Set(current).add(targetDir));
-        selectPath(node.path);
-        router.replace(`/notes?path=${encodeURIComponent(node.path)}`, { scroll: false });
-      }
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (dir) next.add(dir);
+        if (kind === "dir") next.add(node.path);
+        return next;
+      });
+      selectPath(node.path);
+      router.replace(
+        kind === "dir" ? "/notes" : `/notes?path=${encodeURIComponent(node.path)}`,
+        { scroll: false },
+      );
     } catch (cause) {
       setCreateError(cause instanceof Error ? cause.message : "创建失败");
     }
@@ -489,6 +510,20 @@ export function NotesApp({
                 {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
                 <span className="session-tree-title">{label}</span>
               </button>
+              {isDir && (
+                <button
+                  type="button"
+                  className="notes-row-plus"
+                  title="在此目录新建"
+                  aria-label={`在 ${node.name} 下新建`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openFolderMenu(node.path, event.currentTarget);
+                  }}
+                >
+                  <PlusIcon size={12} />
+                </button>
+              )}
               <button
                 type="button"
                 className="notes-row-delete"
@@ -524,12 +559,12 @@ export function NotesApp({
           <button
             ref={plusRef}
             type="button"
-            className={`sidebar-search-toggle${menuAnchor ? " is-active" : ""}`}
+            className={`sidebar-search-toggle${menu ? " is-active" : ""}`}
             title="新建"
             aria-label="新建"
             aria-haspopup="menu"
-            aria-expanded={menuAnchor !== null}
-            onClick={() => (menuAnchor ? setMenuAnchor(null) : openMenu())}
+            aria-expanded={menu !== null}
+            onClick={() => (menu ? setMenu(null) : openMenu())}
           >
             <PlusIcon size={16} />
           </button>
@@ -538,14 +573,14 @@ export function NotesApp({
         {creating && (
           <form className="notes-create" onSubmit={(event) => void submitCreate(event)}>
             <div className="notes-create-head">
-              <span>{CREATE_ITEMS.find((item) => item.kind === creating)?.label}</span>
-              <span className="notes-create-target">在 {targetDir || "根目录"}</span>
+              <span>{CREATE_ITEMS.find((item) => item.kind === creating.kind)?.label}</span>
+              <span className="notes-create-target">在 {creating.dir || "根目录"}</span>
             </div>
             <input
               autoFocus
               value={draftName}
               aria-label="名称"
-              placeholder={creating === "dir" ? "目录名称" : creating === "board" ? "白板名称" : "笔记标题"}
+              placeholder={creating.kind === "dir" ? "目录名称" : creating.kind === "board" ? "白板名称" : "笔记标题"}
               onChange={(event) => setDraftName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
@@ -665,22 +700,22 @@ export function NotesApp({
       </main>
 
       <SidebarMenu
-        open={menuAnchor !== null}
-        anchor={menuAnchor}
+        open={menu !== null}
+        anchor={menu?.anchor ?? null}
         sheet={isMobile}
         ariaLabel="新建"
-        title="新建"
+        title={menu?.dir ? `在 ${menu.dir} 新建` : "新建"}
         cancelLabel="取消"
-        returnFocusTo={plusRef.current}
+        returnFocusTo={menu?.returnTo ?? plusRef.current}
         width={200}
         items={CREATE_ITEMS.map((item) => ({
           type: "item" as const,
           id: item.kind,
           label: item.label,
           note: item.hint,
-          onSelect: () => startCreate(item.kind),
+          onSelect: () => startCreate(item.kind, menu?.dir ?? targetDir),
         }))}
-        onClose={() => setMenuAnchor(null)}
+        onClose={() => setMenu(null)}
       />
     </div>
   );
