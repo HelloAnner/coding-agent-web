@@ -69,6 +69,9 @@ test("unknown timestamps, testers, version and priority stay last in either dire
 test("initial view has accessible sortable headers, named filters and no fabricated rows", () => {
   const html = renderToStaticMarkup(React.createElement(TaskBoard, { active: true }));
   assert.equal((html.match(/aria-sort=/g) ?? []).length, 8);
+  assert.match(html, /<th scope="col" class="task-board-actions">/);
+  assert.match(html, /colSpan="9"/i);
+  assert.match(source, /<td>\{task.category \|\| "—"\}<\/td>\s*<td className="task-board-actions">\s*<button[^>]*className="task-board-copy"/);
   assert.match(html, /aria-sort="descending"/);
   for (const label of ["搜索任务", "按状态筛选", "按分类筛选", "可横向滚动"]) assert.ok(html.includes(label));
   assert.match(html, /<dialog[^>]*aria-labelledby=/);

@@ -557,7 +557,7 @@ export function DashboardApp({
           </span>}
         </header>
         <div className="dashboard-content">
-          <div className="dashboard-board">
+          <div className={`dashboard-board${boardId === "fine-tasks" ? " dashboard-board-full-width" : ""}`}>
             {boardId === "fine-tasks" ? <TaskBoard active={active} /> : <BoardContent boardId={boardId} overview={overview} history={history} />}
           </div>
         </div>

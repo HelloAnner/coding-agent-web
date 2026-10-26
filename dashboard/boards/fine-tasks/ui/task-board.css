@@ -1,4 +1,10 @@
 /* Uses the coding page's surfaces, controls and table density. */
+.dashboard-board.dashboard-board-full-width {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 .task-board {
   width: 100%;
   min-width: 0;
@@ -144,7 +150,7 @@
 .task-board-title-cell { width: 30%; min-width: 260px; }
 
 .task-board-task-title {
-  max-width: calc(100% - 32px);
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: none;
@@ -159,13 +165,20 @@
 
 .task-board-task-title:hover { text-decoration: underline; text-underline-offset: 3px; }
 
+.task-board-table .task-board-actions {
+  width: 48px;
+  min-width: 48px;
+  padding: 6px;
+  text-align: center;
+}
+
 .task-board-copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin-left: 4px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 5px;

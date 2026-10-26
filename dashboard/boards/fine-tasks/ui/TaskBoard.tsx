@@ -212,16 +212,13 @@ export function TaskBoard({ active }: { active: boolean }) {
                   {label}<span aria-hidden="true">{sort.key === key ? sort.direction === "ascending" ? "↑" : "↓" : "↕"}</span>
                 </button>
               </th>
-            ))}</tr>
+            ))}<th scope="col" className="task-board-actions"><span className="task-board-sr-only">复制链接</span></th></tr>
           </thead>
           <tbody>
             {rows.map((task) => (
               <tr key={task.id}>
                 <td className="task-board-title-cell">
                   <button type="button" className="task-board-task-title" onClick={() => setSelected(task)} aria-haspopup="dialog">{task.title || "未命名任务"}</button>
-                  <button type="button" className="task-board-copy" onClick={() => void copyUrl(task)} aria-label={`复制任务链接：${task.title || task.id}`} title="复制链接" disabled={!safeTaskUrl(task.url)}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
-                  </button>
                 </td>
                 <td>{formatDate(task.createdAt)}</td>
                 <td>{task.testers.join("、") || "—"}</td>
@@ -230,9 +227,14 @@ export function TaskBoard({ active }: { active: boolean }) {
                 <td className="task-board-number">{taskDaysInHand(task, now) ?? "—"}</td>
                 <td>{task.status || "—"}</td>
                 <td>{task.category || "—"}</td>
+                <td className="task-board-actions">
+                  <button type="button" className="task-board-copy" onClick={() => void copyUrl(task)} aria-label={`复制任务链接：${task.title || task.id}`} title="复制链接" disabled={!safeTaskUrl(task.url)}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
+                  </button>
+                </td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={columns.length} className="task-board-empty">
+            {!rows.length && <tr><td colSpan={columns.length + 1} className="task-board-empty">
               {!snapshot ? pending ? "正在加载任务…" : "任务加载失败，请重试" : tasks?.length ? "没有符合筛选条件的任务" : syncing ? "正在同步任务…" : "暂无任务"}
             </td></tr>}
           </tbody>
