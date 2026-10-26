@@ -118,11 +118,6 @@ export function NotesApp({
   );
   const selectedFile = selectedNode && selectedNode.type !== "dir" ? selectedNode : null;
   const boardOpen = selectedFile?.type === "board";
-  const targetDir = selectedNode?.type === "dir"
-    ? selectedNode.path
-    : selectedNode
-      ? parentPath(selectedNode.path)
-      : "";
 
   const refresh = useCallback(async () => {
     try {
@@ -574,7 +569,11 @@ export function NotesApp({
         {creating && (
           <form className="notes-create" onSubmit={(event) => void submitCreate(event)}>
             <div className="notes-create-head">
-              <span>{CREATE_ITEMS.find((item) => item.kind === creating.kind)?.label}</span>
+              <span>
+                {creating.kind === "dir" && creating.dir
+                  ? "新建子目录"
+                  : CREATE_ITEMS.find((item) => item.kind === creating.kind)?.label}
+              </span>
               <span className="notes-create-target">在 {creating.dir || "根目录"}</span>
             </div>
             <input
@@ -634,7 +633,7 @@ export function NotesApp({
         </div>
 
         <div className="dashboard-sidebar-footer">
-          <span>新建于 {targetDir || "根目录"}</span>
+          <span>点 + 在根目录新建</span>
         </div>
       </aside>
 
@@ -694,7 +693,7 @@ export function NotesApp({
           ) : (
             <div className="dashboard-empty">
               {selectedNode?.type === "dir"
-                ? "在这个目录下新建笔记或白板"
+                ? "点目录行的 + 在这里新建笔记、白板或子目录"
                 : selectedPath === "" ? "点 + 在根目录新建，或从左侧选择" : "从左侧选择，或点 + 新建"}
             </div>
           )}
@@ -706,16 +705,16 @@ export function NotesApp({
         anchor={menu?.anchor ?? null}
         sheet={isMobile}
         ariaLabel="新建"
-        title={menu?.dir ? `在 ${menu.dir} 新建` : "新建"}
+        title={menu?.dir ? `在 ${menu.dir} 新建` : "在根目录新建"}
         cancelLabel="取消"
         returnFocusTo={menu?.returnTo ?? plusRef.current}
         width={200}
         items={CREATE_ITEMS.map((item) => ({
           type: "item" as const,
           id: item.kind,
-          label: item.label,
+          label: item.kind === "dir" && menu?.dir ? "新建子目录" : item.label,
           note: item.hint,
-          onSelect: () => startCreate(item.kind, menu?.dir ?? targetDir),
+          onSelect: () => startCreate(item.kind, menu?.dir ?? ""),
         }))}
         onClose={() => setMenu(null)}
       />
