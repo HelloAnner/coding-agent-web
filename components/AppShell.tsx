@@ -1691,7 +1691,7 @@ export function AppShell() {
   // file (or terminal) is picked; the tab bar's folder button reopens it.
   const fileBrowserShown = !isMobile || mobileFilesOpen;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? `${activeCwdName} - Coding` : "Coding";
 
   useEffect(() => {
     const syncWindowTitle = () => {

@@ -1020,37 +1020,43 @@ a.session-tree-main {
    sidebar's meta size (data-fit 2, which only they reach: "Pi Web" fits
    beside the two cells at the sidebar's 180px minimum, and at 11px so do
    the versions with a digit to spare). */
-.sidebar-brand {
+/* The app in view, and the menu of the apps the server hosts. */
+.sidebar-app-switcher {
+  display: flex;
   flex: none;
+  align-items: center;
   align-self: center;
-  min-width: 6ch;
+  gap: 3px;
   margin: 0 0 0 7px;
-  padding: 2px 4px;
+  padding: 3px 5px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 13px;
+  font-weight: 600;
   line-height: normal;
-  text-align: left;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
+  transition: background 0.12s;
 }
 
-.sidebar-brand.is-version {
-  color: var(--accent);
+.sidebar-app-switcher:hover {
+  background: var(--bg-hover);
 }
 
-.sidebar-brand:focus {
+.sidebar-app-switcher:focus {
   outline: none;
 }
 
-.sidebar-brand:focus-visible {
+.sidebar-app-switcher:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.sidebar-app-switcher-chevron {
+  flex: none;
+  color: var(--text-dim);
 }
 
 .sidebar-header-spacer {

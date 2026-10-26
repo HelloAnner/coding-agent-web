@@ -70,8 +70,8 @@ import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
 import { archiveViewState, useSidebarMotion } from "@/hooks/useSidebarMotion";
+import { AppSwitcher } from "./AppSwitcher";
 import { DirectoryPicker } from "./DirectoryPicker";
-import { PiWebTitle } from "./PiWebTitle";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
@@ -2269,7 +2269,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           versions on a click), then New and the sessions' search. The
           project's files are the right panel's, not the sidebar's. */}
       <div ref={headerRef} className="sidebar-header">
-        <PiWebTitle onWidthChange={fitHeader} />
+        <AppSwitcher onWidthChange={fitHeader} />
         <span className="sidebar-header-spacer" />
         <button
           type="button"

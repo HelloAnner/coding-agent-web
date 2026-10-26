@@ -30,6 +30,7 @@
     "!.next/cache",
     "!.next/dev",
     "!.next/**/*.js.map",
+    "dashboard",
     "public",
     "next.config.ts",
     "package.json"

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Dashboard</title>
+  <style>{{styles}}</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="app-switch" id="app-switch">
+      <button type="button" class="app-switch-button" id="app-switch-button" aria-haspopup="menu" aria-expanded="false" aria-label="Switch app">
+        <span class="app-mark" aria-hidden="true">D</span>
+        <span class="app-name">Dashboard</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      <div class="app-menu" id="app-menu" role="menu" aria-label="Switch app" hidden>
+        <a role="menuitemradio" aria-checked="false" href="/">
+          <span class="menu-mark" aria-hidden="true">C</span>
+          <span>Coding</span>
+        </a>
+        <a role="menuitemradio" aria-checked="true" href="/dashboard">
+          <span class="menu-mark" aria-hidden="true">D</span>
+          <span>Dashboard</span>
+        </a>
+      </div>
+    </div>
+    <div class="topbar-status">
+      <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+      <span id="status-text">Connecting</span>
+      <time id="clock"></time>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Dashboard</h1>
+        <p class="subtitle">System overview, served by its own backend.</p>
+      </div>
+      <p class="updated" id="updated">Waiting for data</p>
+    </div>
+
+    <section class="cards" aria-label="System metrics">
+      <article class="card">
+        <span class="card-label">Server uptime</span>
+        <strong id="server-uptime">-</strong>
+        <span class="card-note" id="started-at">-</span>
+      </article>
+      <article class="card">
+        <span class="card-label">Host uptime</span>
+        <strong id="host-uptime">-</strong>
+        <span class="card-note">since boot</span>
+      </article>
+      <article class="card">
+        <span class="card-label">Requests served</span>
+        <strong id="requests-served">-</strong>
+        <span class="card-note">by this backend</span>
+      </article>
+      <article class="card">
+        <span class="card-label">Memory in use</span>
+        <strong id="memory-card">-</strong>
+        <span class="card-note" id="memory-card-note">-</span>
+      </article>
+      <article class="card">
+        <span class="card-label">Load 1m</span>
+        <strong id="load-card">-</strong>
+        <span class="card-note" id="load-card-note">-</span>
+      </article>
+      <article class="card">
+        <span class="card-label">CPU cores</span>
+        <strong id="cpu-count">-</strong>
+        <span class="card-note" id="node-version">-</span>
+      </article>
+    </section>
+
+    <section class="panels">
+      <article class="panel">
+        <header>
+          <h2>Memory</h2>
+          <span id="memory-percent">-</span>
+        </header>
+        <div class="bar" role="img" aria-label="Memory in use">
+          <div class="bar-fill" id="memory-bar"></div>
+        </div>
+        <p class="panel-note" id="memory-note">-</p>
+        <svg class="spark" viewBox="0 0 300 60" preserveAspectRatio="none" aria-hidden="true">
+          <path id="memory-path" d="" vector-effect="non-scaling-stroke" />
+        </svg>
+      </article>
+
+      <article class="panel">
+        <header>
+          <h2>Load average</h2>
+          <span id="load-cores">-</span>
+        </header>
+        <div class="load-row">
+          <span>1m</span>
+          <div class="bar"><div class="bar-fill" id="load-1"></div></div>
+          <strong id="load-1-value">-</strong>
+        </div>
+        <div class="load-row">
+          <span>5m</span>
+          <div class="bar"><div class="bar-fill" id="load-5"></div></div>
+          <strong id="load-5-value">-</strong>
+        </div>
+        <div class="load-row">
+          <span>15m</span>
+          <div class="bar"><div class="bar-fill" id="load-15"></div></div>
+          <strong id="load-15-value">-</strong>
+        </div>
+        <p class="panel-note">Bars scale to the number of CPU cores.</p>
+      </article>
+    </section>
+
+    <section class="panel host">
+      <header>
+        <h2>Host</h2>
+        <span>read-only</span>
+      </header>
+      <dl class="host-grid" id="host-list"></dl>
+    </section>
+
+    <footer>Standalone app · frontend and backend live in <code>dashboard/</code></footer>
+  </main>
+
+  <script>{{script}}</script>
+</body>
+</html>

@@ -127,9 +127,11 @@ test("only Shift skips the session deletion confirmation", () => {
 test("the sidebar lists sessions only: the files live in the right panel", () => {
   const html = render({ selectedCwd: "/work/alpha", onOpenTerminal: noop });
   assert.match(html, /^<div class="session-sidebar">/);
-  // The brand, New, and the sessions' search. No view tabs and no files
-  // section: the project's files are the right panel's first column now.
-  assert.match(html, /<div class="sidebar-header"><button type="button" class="sidebar-brand" aria-label="Pi Web, versions: web [^",]+, pi [^",]+">Pi Web<\/button><span class="sidebar-header-spacer"><\/span><button type="button" class="sidebar-new-button"/);
+  // The app switcher (the app in view, "Coding"), New, and the sessions'
+  // search. No view tabs and no files section: the project's files are the
+  // right panel's first column now.
+  assert.match(html, /<div class="sidebar-header"><button type="button" class="sidebar-app-switcher" aria-haspopup="menu" aria-expanded="false" aria-label="Switch app"><span class="sidebar-app-switcher-label">Coding<\/span>/);
+  assert.doesNotMatch(html, /Pi Web<\/button>/);
   assert.match(html, /<span class="sidebar-new-label">New<\/span><\/button><button type="button" title="Search conversations" aria-label="Search conversations" aria-expanded="false" aria-controls="session-search-input" class="sidebar-search-toggle">/);
   assert.doesNotMatch(html, /role="tablist"|role="tab"|role="tabpanel"|sidebar-tab|sidebar-title/);
   assert.doesNotMatch(html, /session-sidebar-panel-files|sidebar-files-|role="separator"|project-picker/);
