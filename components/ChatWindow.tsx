@@ -18,7 +18,6 @@ import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
-import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
@@ -296,7 +295,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused, addNotice,
+    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused, addNotice,
     isAutoModelSelection,
     isAutoThinkingSelection,
     savedDefaultThinkingLevel,
@@ -1549,12 +1548,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         )}
         {HarnessSessionPanel && session?.id && <HarnessSessionPanel key={session.id} sessionId={session.id} active={agentRunning} />}
         {chatInputElement}
-        <ExtensionStatusBar
-          statuses={extensionStatuses}
-          widgets={extensionWidgets}
-          onCommand={handleSend}
-          commandsDisabled={sessionBusy}
-        />
+        {/* 扩展状态条和扩展 widget（rpi:v-todos、MCP、ponytail 等）不再显示；
+            运行时照常推送，只是界面不渲染。 */}
       </div>
       {isEmptyNew && <div className="min-h-0 flex-1" />}
     </div>
