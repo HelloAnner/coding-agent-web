@@ -572,13 +572,11 @@ const SessionRowView = memo(function SessionRowView({
   }
 
   const branch = root.isWorktree && root.branch ? root.branch : null;
-  // Same chip as a worktree branch, after the title. pi rows stay unmarked.
-  const harnessMark = root.harness && root.harness !== "pi" ? root.harness : null;
   // A fork named by the sidebar's Fork: the ellipsis cuts its title before
   // the suffix that tells it from its source, never the suffix.
   const forkTitle = root.name && root.relation?.kind === "fork" ? splitForkSuffix(root.name) : null;
   const details = root.detailsPending ? "…" : t("sidebar.messagesCount", { count: root.messageCount });
-  const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${harnessMark ? ` · ${harnessMark}` : ""}${branch ? ` · ⑂ ${branch}` : ""}`;
+  const tooltip = `${title}\n${details} · ${formatRelativeTime(root.modified, locale, nowDate)}${branch ? ` · ⑂ ${branch}` : ""}`;
 
   // The right column says the one thing worth knowing: awaiting input, else
   // running, else unread, else when (a pinned row names its project instead, an
@@ -624,7 +622,6 @@ const SessionRowView = memo(function SessionRowView({
       ) : (
         <span className="session-tree-title">{title}</span>
       )}
-      {harnessMark && <span className="session-tree-harness">{harnessMark}</span>}
       {branch && (
         <span className="session-tree-branch">
           <BranchIcon size={10} className="session-tree-branch-icon" />
