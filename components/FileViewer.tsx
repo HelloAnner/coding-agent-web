@@ -1504,10 +1504,7 @@ function TextFileViewer({
         className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
         language={language === "text" || !prismReady ? "plaintext" : language}
         style={isDark ? fileViewerDarkTheme : vs}
-        showLineNumbers
-        lineNumberStyle={{
-          ...FILE_PINNED_LINE_NUMBER_STYLE,
-        }}
+        showLineNumbers={false}
         customStyle={{
           margin: 0,
           padding: 0,
@@ -1544,9 +1541,6 @@ function TextFileViewer({
         key={`source-line-${lineIndex}`}
         style={{ display: "flex", minWidth: "100%" }}
       >
-        <span aria-hidden="true" style={FILE_LINE_NUMBER_STYLE}>
-          {lineIndex + 1}
-        </span>
         <span
           className="file-source-line-content"
           style={{

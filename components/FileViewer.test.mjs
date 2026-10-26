@@ -43,9 +43,9 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
     const rows = render(large, mode);
     assert.equal(rows.length, 1_001, `${mode} must retain its source fallback`);
     assert.equal(rows[0].props["data-line-number"], 1);
-    assert.equal(rows[0].props.children[1].props.children, "line");
+    assert.equal(rows[0].props.children.props.children, "line");
   }
-  assert.equal(render(large, "source", false, false, true)[0].props.children[1].props.style.whiteSpace, "pre-wrap");
+  assert.equal(render(large, "source", false, false, true)[0].props.children.props.style.whiteSpace, "pre-wrap");
 });
 
 test("partly loaded HTML previews up to the HTML cap; partly loaded markdown does not", () => {
@@ -62,11 +62,9 @@ test("partly loaded HTML previews up to the HTML cap; partly loaded markdown doe
   assert.equal(hasPreview({ ...partial, size: cap + 1 }, false, false, true, cap), true);
 });
 
-test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT_MAX_LINES rows", () => {
-  // Evaluate the module's own style constants (the numbers in the highlighted,
-  // plain and diff views all come from these), the highlighted and lightweight
-  // source elements and the Diff view's rows, instead of matching the
-  // component's text.
+test("source previews hide line numbers while diff gutters retain their sizing", () => {
+  // Evaluate the actual source elements and diff styles without mounting the
+  // file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const constants = (...names) => {
     const statements = names.map((name) => {
@@ -105,7 +103,8 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
   `, { compilerOptions: { jsx: ts.JsxEmit.React } });
   const render = new Function("React", "useMemo", "gutterStyle", "pinnedStyle", outputText)(React, (calculate) => calculate(), gutterStyle, pinnedStyle);
   const { lightweightSourceLines: rows, highlightedSource } = render({ content: "line\n".repeat(1_000), language: "text" }, "source");
-  const numberStyle = rows[0].props.children[0].props.style;
+  assert.equal(rows[0].props["data-line-number"], 1);
+  assert.equal(rows[0].props.children.props.className, "file-source-line-content");
   // The Diff view's first row number, with every row an added line.
   const diffView = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "DiffView");
   const { outputText: diffOutput } = ts.transpileModule(`return ${diffView.getText(file)}`, { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } });
@@ -123,17 +122,11 @@ test("the line-number gutter is pinned only in views of at most SOURCE_HIGHLIGHT
   assert.equal(pinnedStyle.position, "sticky");
   assert.equal(pinnedStyle.left, 0);
   assert.ok(pinnedStyle.zIndex >= 1, "the pinned gutter must stack above the scrolling text");
-  // Views of at most SOURCE_HIGHLIGHT_MAX_LINES rows pin it: the highlighted
-  // Source view (never longer) and a diff up to that many rows.
-  assert.deepEqual(highlightedSource.props.lineNumberStyle, pinnedStyle);
+  assert.equal(highlightedSource.props.showLineNumbers, false);
+  assert.equal(highlightedSource.props.lineNumberStyle, undefined);
   assert.equal(diffNumberStyle(maxRows), pinnedStyle);
   assert.equal(diffNumberStyle(maxRows + 1), gutterStyle);
-  // The plain fallback has more rows than that by definition, and the browser
-  // repositions every sticky cell on each scroll: its numbers stay unpinned.
-  assert.equal(numberStyle, gutterStyle);
-  assert.equal(numberStyle.position, undefined);
 
-  // The gutter repeats the code line's height in px, so a code-font change
-  // without it puts the numbers off the line boxes they belong to.
-  assert.equal(parseFloat(numberStyle.lineHeight), Number((codeStyle.fontSize * codeStyle.lineHeight).toFixed(1)));
+  // Diff gutters keep the same line height as the code.
+  assert.equal(parseFloat(gutterStyle.lineHeight), Number((codeStyle.fontSize * codeStyle.lineHeight).toFixed(1)));
 });
