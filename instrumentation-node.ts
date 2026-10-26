@@ -7,6 +7,9 @@ export function registerNodeInstrumentation(): void {
   // configured. Without it the built-in five minutes aborts a provider stream
   // that stays quiet for longer, which a CLI session tolerates.
   configureHttpDispatcher(readHttpIdleTimeoutMs());
+  import("@/lib/usage-refresh")
+    .then(({ startUsageRefresh }) => startUsageRefresh())
+    .catch(() => {});
   import("@/dashboard/boards/fine-tasks/sync")
     .then(({ startTaskRefresh }) => startTaskRefresh())
     .catch(() => {});
