@@ -350,7 +350,13 @@ export function UsageAnalytics() {
       </>}
       <section className={styles.tableCard} ref={tableRef} tabIndex={-1} aria-labelledby={`${id}-table`}>
         <div className={styles.cardHeading}><h3 id={`${id}-table`}>{l.table}</h3><div className={styles.segmented} role="group" aria-label={l.table}>{(["daily", "hourly", "dimensions"] as const).map((value) => <button type="button" key={value} aria-pressed={tableView === value} onClick={() => setTableView(value)}>{l[value]}</button>)}</div></div>
-        <div className={styles.tableScroll} tabIndex={0} role="region" aria-label={l.table}><table><caption>{l.tableCaption}</caption><thead><tr><th scope="col">{l.date}</th>{tableView === "hourly" && <th scope="col">{l.hour}</th>}{tableView === "dimensions" && <><th scope="col">{l.harness}</th><th scope="col">{l.model}</th><th scope="col">{l.provider}</th></>}{tableKeys.map((key) => <th scope="col" key={key}>{l[key]}</th>)}</tr></thead><tbody>{tableRows.map((row, index) => <tr key={`${row.day}-${row.hour ?? ""}-${row.harness ?? ""}-${row.model ?? ""}-${row.provider ?? ""}-${index}`}><th scope="row">{row.day}</th>{tableView === "hourly" && <td>{String(row.hour).padStart(2, "0")}:00</td>}{tableView === "dimensions" && <><td>{harnessNames[row.harness ?? ""] ?? row.harness}</td><td>{row.model ?? l.unknownModel}</td><td>{row.provider ?? l.unknownProvider}</td></>}{tableKeys.map((key) => <td key={key}>{key === "cost" ? row.cost === null ? l.unknown : usd.format(row.cost) : nf.format(row[key])}</td>)}</tr>)}</tbody></table>{tableRows.length === 0 && <p className={styles.chartEmpty}>{l.noData}</p>}</div>
+        <div className={styles.detailRows} role="region" aria-label={l.table}>
+          {tableRows.map((row, index) => <article className={styles.detailRow} key={`${row.day}-${row.hour ?? ""}-${row.harness ?? ""}-${row.model ?? ""}-${row.provider ?? ""}-${index}`}>
+            <h4 className={styles.detailTitle}><time dateTime={row.day}>{row.day}</time>{tableView === "hourly" && <span>{String(row.hour).padStart(2, "0")}:00</span>}{tableView === "dimensions" && <><span>{harnessNames[row.harness ?? ""] ?? row.harness}</span><span>{row.model ?? l.unknownModel}</span><span className={styles.muted}>{row.provider ?? l.unknownProvider}</span></>}</h4>
+            <dl className={styles.detailMetrics}>{tableKeys.map((key) => <div key={key}><dt>{l[key]}</dt><dd>{key === "cost" ? row.cost === null ? l.unknown : usd.format(row.cost) : nf.format(row[key])}</dd></div>)}</dl>
+          </article>)}
+          {tableRows.length === 0 && <p className={styles.chartEmpty}>{l.noData}</p>}
+        </div>
         <p className={styles.tableNote}>{l.sessionsNote}</p>
       </section>
     </div>}
