@@ -44,7 +44,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
     withDeferredProviderModels(services.modelRuntime),
     settings.getEnabledModels(),
   );
-  const { visible, thinkingLevelPins, warnings } = scope;
+  const { visible, thinkingLevelPins } = scope;
   modelList = orderSelectorModels(scope).map((m) => ({
     id: m.id,
     name: m.name,
@@ -96,7 +96,6 @@ async function loadModels(cwd: string): Promise<ModelsData> {
       thinkingLevels,
       thinkingLevelMaps,
       thinkingLevelPins,
-      ...(warnings.length > 0 ? { modelScopeWarnings: warnings } : {}),
     },
     modelError,
   );

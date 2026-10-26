@@ -591,8 +591,6 @@ export const enLocale: LocalePlugin = {
     "chat.followUpHint": "Queue this message after the agent finishes",
     "chat.inputHistory": "Input history",
     "chat.modelError": "Model error",
-    "chat.modelScopeWarning": "Model scope warning",
-    "chat.modelScopeWarnings": "Model scope warnings",
     "chat.send": "Send",
     "chat.askSelection": "Ask about selected text",
     "chat.askInCurrent": "Ask here",
