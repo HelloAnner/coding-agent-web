@@ -8,7 +8,7 @@ notes 独立应用
 目录
   notes/types.ts                 前后端共享的类型
   notes/files.ts                 文件树、读写、新建、重命名和路径校验
-  notes/ui/NotesApp.tsx          侧边栏树、根目录行、新建/拖动/删除、标题和保存状态
+  notes/ui/NotesApp.tsx          侧边栏树、新建/拖动/删除、标题和保存状态
   notes/ui/NoteEditor.tsx        Markdown 编辑与预览
   notes/ui/Whiteboard.tsx        白板读取与自动保存
   notes/ui/WhiteboardCanvas.tsx  Excalidraw 实例与默认元素样式
@@ -35,6 +35,7 @@ notes 独立应用
   - 只允许 .md 和 .excalidraw；隐藏文件、符号链接、.. 路径都不进入树。
   - 重命名、移动都保留扩展名，目标重名时拒绝，不覆盖。
   - 删除文件或目录前弹确认；删目录会连里面的全部内容一起删除。
-  - 笔记和白板可拖到目录行或“根目录”行；拖动前会先保存当前打开的编辑器。
+  - 笔记和白板可拖到目录行；拖到树的空白处即移到根目录；拖动前会先保存当前打开的编辑器。
+  - 点树里的空白处把新建目标切回根目录（没有单独的根目录行）。
   - 触摸屏没有 HTML5 拖拽，删除按钮仍然可用；移动可在桌面浏览器上做。
   - 拖拽排序、全文搜索暂未实现。

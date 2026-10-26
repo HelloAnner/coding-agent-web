@@ -181,9 +181,9 @@ export function NotesApp({
 
   const handleSaveState = useCallback((state: NotesSaveState) => setSaveState(state), []);
 
-  const selectRoot = () => {
+  // The tree has no root row: clicking its empty space targets the root.
+  const clearSelection = () => {
     setSelectedPath("");
-    setSidebarOpen(false);
     router.replace("/notes", { scroll: false });
   };
 
@@ -503,33 +503,14 @@ export function NotesApp({
             event.preventDefault();
             void moveFile("");
           }}
+          onClick={(event) => {
+            if (!(event.target instanceof HTMLElement)) return;
+            if (event.target.closest("[data-notes-path]")) return;
+            clearSelection();
+          }}
         >
           <div className="session-tree-scroll">
             <div className="session-tree-inner">
-              <div
-                className={`session-tree-row session-tree-session dashboard-tree-row notes-tree-row${selectedPath === "" ? " is-selected" : ""}${dragPath && dropTarget === "" ? " is-drop-target" : ""}`}
-                style={{ paddingLeft: 20 }}
-                data-notes-path=""
-                onDragOver={(event) => {
-                  if (!dragPath) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = "move";
-                  setDropTarget("");
-                }}
-                onDrop={(event) => {
-                  if (!dragPath) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void moveFile("");
-                }}
-              >
-                <span className="notes-tree-toggle" aria-hidden="true" />
-                <button type="button" className="session-tree-main" onClick={selectRoot}>
-                  <FolderIcon size={12} className="notes-tree-folder" />
-                  <span className="session-tree-title">根目录</span>
-                </button>
-              </div>
               {loading && <div className="session-tree-message">加载中…</div>}
               {!loading && loadError && <div className="session-tree-message is-error">{loadError}</div>}
               {!loading && !loadError && tree.length === 0 && (
@@ -601,7 +582,7 @@ export function NotesApp({
             <div className="dashboard-empty">
               {selectedNode?.type === "dir"
                 ? "在这个目录下新建笔记或白板"
-                : selectedPath === "" ? "根目录" : "从左侧选择，或点 + 新建"}
+                : selectedPath === "" ? "点 + 在根目录新建，或从左侧选择" : "从左侧选择，或点 + 新建"}
             </div>
           )}
         </div>
