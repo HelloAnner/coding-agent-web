@@ -6,8 +6,6 @@ import { useI18n } from "@/hooks/useI18n";
 import type { ProviderUsageResult } from "@/lib/provider-usage";
 import { TOOLBAR_QUOTA_PROVIDERS, toolbarQuotaValues } from "@/lib/toolbar-quota";
 
-const REFRESH_MS = 5 * 60 * 1000;
-
 const overlayStyle: CSSProperties = {
   position: "fixed",
   inset: 0,
@@ -62,8 +60,7 @@ export function ToolbarQuota() {
       }));
     };
     void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, REFRESH_MS);
-    return () => { controller.abort(); window.clearInterval(timer); };
+    return () => { controller.abort(); };
   }, [open]);
 
   useEffect(() => {
@@ -110,7 +107,6 @@ export function ToolbarQuota() {
           <div role="dialog" aria-modal="true" aria-label={title} style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
               <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
-              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{chinese ? "每五分钟刷新" : "Refreshed every 5 min"}</span>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
