@@ -130,7 +130,16 @@ export function TaskBoard({ active }: { active: boolean }) {
       setNow(Date.now());
       void load();
     }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
   }, [active, load]);
 
   useEffect(() => {
@@ -212,7 +221,8 @@ export function TaskBoard({ active }: { active: boolean }) {
       </div>
       <div className="task-board-meta" role="status">
         <span>{snapshot ? `${rows.length} 项任务` : pending ? "正在读取任务…" : "尚未加载任务"}</span>
-        <span>{snapshot?.lastSyncedAt != null ? `上次同步 ${formatDate(snapshot.lastSyncedAt)}` : "尚未同步"}</span>
+        <span>{snapshot?.lastSyncedAt != null ? `上次同步 ${formatDate(snapshot.lastSyncedAt)}` : "尚未同步"}{syncing ? " · 同步中…" : ""}</span>
+        <span>每 30 秒刷新页面数据 · 每 10 分钟同步 Meegle</span>
       </div>
       {error && <p className="task-board-error" role="alert">{error}</p>}
       <div className="task-board-table-wrap" tabIndex={0} role="region" aria-label="任务表，可横向滚动" aria-busy={pending || syncing}>

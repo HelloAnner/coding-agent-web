@@ -33,7 +33,8 @@ export function startTaskRefresh(): void {
       if (!snapshot.lastSyncedAt || Date.now() - snapshot.lastSyncedAt >= REFRESH_INTERVAL_MS) void refreshTasks();
     } catch { /* Routes report storage failures; startup must remain available. */ }
   };
-  state.timer = setInterval(refreshIfDue, REFRESH_INTERVAL_MS);
+  // Check often enough that CLI runtime does not skip an entire ten-minute tick.
+  state.timer = setInterval(refreshIfDue, 30_000);
   state.timer.unref();
   refreshIfDue();
 }

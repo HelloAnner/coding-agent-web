@@ -63,13 +63,13 @@ export function normalizeTask(detail: unknown, todo: unknown): FineTask {
   };
 }
 
-export async function fetchMyTasks(): Promise<FineTask[]> {
-  const currentUser = object(await meegle(["user", "me"]));
+export async function fetchMyTasks(query: typeof meegle = meegle): Promise<FineTask[]> {
+  const currentUser = object(await query(["user", "me"]));
   if (!currentUser.user_key) throw new Error("Missing current Meegle identity");
   const todos: RecordValue[] = [];
   let total: number | null = null;
   for (let page = 1; page <= 1000; page += 1) {
-    const response = object(await meegle(["mywork", "todo"], { action: "todo", "todo-scope": "all", "page-num": page }));
+    const response = object(await query(["mywork", "todo"], { action: "todo", "todo-scope": "in_progress", "page-num": page }));
     if (!("list" in response) || typeof response.total !== "number") throw new Error("Invalid Meegle todo response");
     if (total === null) total = response.total;
     const rows = list(response.list).map(object);
@@ -93,7 +93,7 @@ export async function fetchMyTasks(): Promise<FineTask[]> {
     while (cursor < input.length) {
       const todo = input[cursor++];
       const item = object(todo.work_item_info);
-      const detail = await meegle(["workitem", "get"], { "project-key": todo.project_key, "work-item-id": String(item.work_item_id), fields: EXTRA_FIELDS });
+      const detail = await query(["workitem", "get"], { "project-key": todo.project_key, "work-item-id": String(item.work_item_id), fields: EXTRA_FIELDS });
       if (!object(detail).work_item_attribute) throw new Error("Incomplete Meegle task detail");
       const owners = list(object(detail).work_item_fields).map(object).find((field) => field.key === "current_status_operator")?.value;
       if (!Array.isArray(owners)) throw new Error("Unknown current task ownership");

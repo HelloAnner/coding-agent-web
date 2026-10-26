@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-const { normalizeTask, timestamp } = await createJiti(import.meta.url).import("../meegle.ts");
+const { normalizeTask, timestamp, fetchMyTasks } = await createJiti(import.meta.url).import("../meegle.ts");
 
 test("Meegle fields map to task columns without inventing assignment dates", () => {
   const task = normalizeTask({
@@ -26,4 +26,20 @@ test("Meegle fields map to task columns without inventing assignment dates", () 
   assert.equal(task.description, "详细说明");
   assert.equal(timestamp("bad"), null);
   assert.equal(timestamp(1760000000), 1760000000000);
+});
+
+test("only current in-progress personal work is fetched and reassigned tasks are completed", async () => {
+  const tasks = await fetchMyTasks(async (command, params) => {
+    if (command[0] === "user") return { user_key: "me" };
+    if (command[0] === "mywork") {
+      assert.equal(params["todo-scope"], "in_progress");
+      return { total: 2, list: [1, 2].map(id => ({ project_key: "p", work_item_info: { work_item_id: id, work_item_type_key: "issue" } })) };
+    }
+    return {
+      work_item_attribute: { work_item_id: params["work-item-id"], owned_project: { key: "p" }, work_item_type: { key: "issue" } },
+      work_item_fields: [{ key: "current_status_operator", value: [{ key: params["work-item-id"] === "1" ? "me" : "other" }] }],
+    };
+  });
+  assert.equal(tasks.find(task => task.id === "p:issue:1").completed, false);
+  assert.equal(tasks.find(task => task.id === "p:issue:2").completed, true);
 });

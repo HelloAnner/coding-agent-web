@@ -82,6 +82,8 @@ test("initial view has accessible sortable headers, named filters and no fabrica
 test("refresh, active-only polling and native dialog safety are wired explicitly", () => {
   assert.match(source, /const POLL_INTERVAL_MS = 30_000/);
   assert.match(source, /if \(!active\) return;[\s\S]*window\.setInterval/);
+  assert.match(source, /window\.addEventListener\("focus", refreshVisible\)/);
+  assert.match(source, /document\.addEventListener\("visibilitychange", refreshVisible\)/);
   assert.match(source, /method: "GET"/);
   assert.ok(!source.includes('"POST"'));
   assert.match(source, /window\.addEventListener\("keydown", closeOnEscape, true\)/);
