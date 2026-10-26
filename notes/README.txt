@@ -8,6 +8,8 @@ notes 独立应用
 目录
   notes/types.ts                 前后端共享的类型
   notes/files.ts                 文件树、读写、新建、重命名和路径校验
+  notes/db.ts                    notes_entries / notes_meta 的 SQLite 索引
+  notes/index.ts                 扫描文件树并写入 DB；@ 菜单的 mentions 接口
   notes/ui/NotesApp.tsx          侧边栏树、新建/拖动/删除、标题和保存状态
   notes/ui/NoteEditor.tsx        Markdown 编辑与预览
   notes/ui/Whiteboard.tsx        白板读取与自动保存
@@ -16,7 +18,8 @@ notes 独立应用
 
 路由
   /notes                         页面（?path= 打开指定文件）
-  GET  /api/notes                整个目录树
+  GET  /api/notes                整个目录树，并重建 DB 索引
+  GET  /api/notes/mentions       @ 菜单用的文件列表（含系统绝对路径）
   POST /api/notes                create / mkdir / rename / move / remove
   GET  /api/notes/file?path=     读文件
   PUT  /api/notes/file?path=     写文件
@@ -24,6 +27,20 @@ notes 独立应用
 存储
   data/notes/<目录>/<标题>.md            Markdown 笔记，文件名即标题
   data/notes/<目录>/<标题>.excalidraw    Excalidraw scene JSON
+
+数据库索引
+  DB 文件：CODING_AGENT_WEB_DATA，默认 ~/.coding-agent-web/data.db
+  notes_entries：path / parent / name / type(dir|note|board) / abs_path
+  notes_meta：root（笔记库绝对路径）、synced_at
+  服务启动时同步一次；每次 GET /api/notes 或 /api/notes/mentions 再整表重建。
+  文件系统仍是唯一源数据，DB 只做索引。
+
+Coding 的 @ 联动
+  @ 菜单在项目文件下面追加“笔记”分组，数据来自 /api/notes/mentions。
+  选中后输入框只显示文件 chip（相对路径，不出现系统绝对路径），发送时把
+  @"<系统绝对路径>" 追加到消息末尾，harness 收到的是绝对路径；消息气泡里把
+  该绝对路径渲染成带文件图标的 chip（lib/notes-mention-display.ts），
+  不展示绝对路径。
 
 白板偏好（沿用 ~/Notes 里调好的设置）
   - 新元素：Cascadia 等宽字体、20px、#1b1b1f 细实线、round 圆角、round 箭头

@@ -677,6 +677,7 @@ test("locks built-in command submission until it settles", async () => {
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText).runInNewContext({
     attachedImages: [],
+    noteMentions: [],
     attachedImagesRef: { current: [] },
     builtinCommandPendingRef: { current: false },
     canClearBuiltinCommandInput,
@@ -753,6 +754,8 @@ test("while a run streams, a bare /mcp opens Settings or is queued as before", a
     const sendQueued = chatInputCallback("sendQueued", {
       value,
       attachedImages: images,
+      noteMentions: [],
+      appendNoteMentions: (message) => message,
       onAudioUnlock() {},
       clearInput() { calls.cleared += 1; },
       onBuiltinCommand: async () => ({ handled }),
@@ -786,6 +789,8 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
     const handleSend = chatInputCallback("handleSend", {
       value,
       attachedImages: [],
+      noteMentions: [],
+      appendNoteMentions: (message) => message,
       onAudioUnlock() {},
       isStreaming,
       offersBuiltinSlashCommandWhileStreaming,

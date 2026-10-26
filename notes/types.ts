@@ -18,3 +18,24 @@ export interface NotesEditorControl {
   flush: () => Promise<boolean>;
   discard: () => void;
 }
+
+/** One row of the notes database: directories and files, with absolute paths. */
+export interface NotesIndexRow {
+  /** Slash-separated path relative to the notes root. */
+  path: string;
+  /** Relative path of the containing directory; "" for the root. */
+  parent: string;
+  name: string;
+  type: "dir" | NotesFileKind;
+  /** Absolute path on this machine, as sent to a coding harness. */
+  absPath: string;
+}
+
+/** What the chat @ menu needs: files only, no directories. */
+export interface NotesMention {
+  name: string;
+  /** Slash-separated path relative to the notes root. */
+  path: string;
+  absPath: string;
+  kind: NotesFileKind;
+}

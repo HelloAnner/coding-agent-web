@@ -15,6 +15,10 @@ export interface FileIndexEntry {
   /** Path relative to the session cwd, "/"-separated, no trailing slash */
   path: string;
   isDir: boolean;
+  /** A Notes entry: the absolute path sent to the harness instead of `path`. */
+  absPath?: string;
+  /** The Notes entry kind, used for the menu's icon and group. */
+  notesKind?: "note" | "board";
 }
 
 /**
@@ -186,4 +190,13 @@ export function buildFileLineMentionText(entryPath: string, startLine: number, e
 
 export function buildFileAtMentionsText(entryPaths: string[]): string {
   return entryPaths.map((entryPath) => buildAtMentionText(entryPath, false)).join("");
+}
+
+/**
+ * Notes-mention tokens for the harness: absolute paths, always quoted so a
+ * path with spaces stays one token and the transcript can recognise it.
+ * The composer shows chips; only the sent message carries these.
+ */
+export function buildAbsoluteAtMentionsText(paths: readonly string[]): string {
+  return paths.map((entryPath) => buildAtInsertText(entryPath, false, true).text.trimEnd()).join(" ");
 }

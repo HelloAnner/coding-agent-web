@@ -1040,6 +1040,38 @@ pre, code {
 .markdown-body .katex {
   font-size: 1.05em;
 }
+/* A quoted absolute @mention in a user message: a Notes file shown as a chip. */
+.markdown-user-message a[href^="file:"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  vertical-align: -2px;
+}
+
+.markdown-user-message a[href^="file:"]::before {
+  content: "";
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background-color: var(--accent);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2.5h8.2L19.5 8v13.5H6z'/%3E%3Cpath d='M14 2.5V8h5.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.markdown-user-message a[href^="file:"]:hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+}
+
 .markdown-user-message p {
   white-space: pre-wrap;
 }

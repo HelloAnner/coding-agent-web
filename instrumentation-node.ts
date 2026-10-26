@@ -13,6 +13,10 @@ export function registerNodeInstrumentation(): void {
   import("@/dashboard/boards/fine-tasks/sync")
     .then(({ startTaskRefresh }) => startTaskRefresh())
     .catch(() => {});
+  // Build the Notes index (and its SQLite tables) before the first @ menu.
+  import("@/notes/index")
+    .then(({ syncNotesIndex }) => syncNotesIndex())
+    .catch(() => {});
 
   // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
   // for every connection to end, without a timeout. SSE streams only end when

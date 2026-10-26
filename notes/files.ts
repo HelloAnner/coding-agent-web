@@ -1,6 +1,6 @@
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { NotesFileKind, NotesNode } from "./types";
+import type { NotesFileKind, NotesIndexRow, NotesNode } from "./types";
 
 /**
  * The notes app's storage: one file per note or whiteboard under data/notes,
@@ -118,7 +118,7 @@ function fileNameFor(name: string, kind: NotesFileKind): string {
   return clean.toLowerCase().endsWith(extension) ? clean : `${clean}${extension}`;
 }
 
-function errorResponse(error: unknown): Response {
+export function notesErrorResponse(error: unknown): Response {
   const message = error instanceof NotesError
     ? error.message
     : (error as NodeJS.ErrnoException)?.code === "ENOENT"
@@ -161,6 +161,25 @@ async function readDirectory(absolute: string, relative: string): Promise<NotesN
     return a.name.localeCompare(b.name, "zh-CN", { numeric: true });
   });
   return nodes;
+}
+
+/** Flatten the sidebar tree into the rows stored in the notes database. */
+export function flattenNotesIndex(nodes: readonly NotesNode[], root: string): NotesIndexRow[] {
+  const rows: NotesIndexRow[] = [];
+  const walk = (list: readonly NotesNode[], parent: string) => {
+    for (const node of list) {
+      rows.push({
+        path: node.path,
+        parent,
+        name: node.name,
+        type: node.type,
+        absPath: path.join(root, ...node.path.split("/")),
+      });
+      if (node.children) walk(node.children, node.path);
+    }
+  };
+  walk(nodes, "");
+  return rows;
 }
 
 export async function listTree(): Promise<NotesNode[]> {
@@ -272,7 +291,7 @@ export async function listNotesTree(): Promise<Response> {
   try {
     return Response.json({ root: notesRoot(), tree: await listTree() });
   } catch (error) {
-    return errorResponse(error);
+    return notesErrorResponse(error);
   }
 }
 
@@ -307,7 +326,7 @@ export async function mutateNotes(request: Request): Promise<Response> {
     }
     return Response.json({ error: "未知的操作" }, { status: 400 });
   } catch (error) {
-    return errorResponse(error);
+    return notesErrorResponse(error);
   }
 }
 
@@ -317,7 +336,7 @@ export async function readNotesFile(request: Request): Promise<Response> {
     const relative = new URL(request.url).searchParams.get("path") ?? "";
     return Response.json(await readItem(relative));
   } catch (error) {
-    return errorResponse(error);
+    return notesErrorResponse(error);
   }
 }
 
@@ -330,6 +349,6 @@ export async function writeNotesFile(request: Request): Promise<Response> {
     await writeItem(relative, body.content);
     return Response.json({ ok: true });
   } catch (error) {
-    return errorResponse(error);
+    return notesErrorResponse(error);
   }
 }

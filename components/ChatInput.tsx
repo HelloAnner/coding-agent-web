@@ -19,7 +19,7 @@ import {
   isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 import {
-  buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
+  buildEntriesFromFiles, buildAtInsertText, buildAbsoluteAtMentionsText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
@@ -42,6 +42,20 @@ export interface AttachedImage {
   data: string;   // base64, no prefix
   mimeType: string;
   previewUrl: string; // object URL for display
+}
+
+/** A Notes file picked from the @ menu; shown as a chip, sent as an absolute path. */
+interface NoteMention {
+  name: string;
+  path: string;
+  absPath: string;
+  kind: "note" | "board";
+}
+
+function appendNoteMentions(message: string, mentions: readonly NoteMention[]): string {
+  if (!mentions.length) return message;
+  const tokens = buildAbsoluteAtMentionsText(mentions.map((mention) => mention.absPath));
+  return message ? `${message}\n${tokens}` : tokens;
 }
 
 interface Props {
@@ -692,6 +706,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
+  const [noteMentions, setNoteMentions] = useState<NoteMention[]>([]);
   const trimmedValue = value.trimStart();
   const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
@@ -717,6 +732,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const builtinCommandPendingRef = useRef(false);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
+  const [notesIndex, setNotesIndex] = useState<FileIndexEntry[] | null>(null);
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
   const [skillDormancyState, setSkillDormancyState] = useState<{
     cwd: string;
@@ -743,6 +759,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const historyItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fileIndexMetaRef = useRef<{ cwd: string; fetchedAt: number } | null>(null);
   const fileIndexFetchingRef = useRef<string | null>(null);
+  const notesIndexMetaRef = useRef<number | null>(null);
+  const notesIndexFetchingRef = useRef(false);
   const draftKeyRef = useRef(draftKey);
   const valueRef = useRef(value);
   const attachedImagesRef = useRef(attachedImages);
@@ -991,6 +1009,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    setNoteMentions([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -1024,6 +1043,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     setValue(nextValue);
     setAtQuery(null);
     setHistoryMenuOpen(false);
+    setNoteMentions([]);
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
       return nextImages;
@@ -1079,7 +1099,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, []);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
-    if (attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
+    if (attachedImages.length || noteMentions.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
@@ -1092,18 +1112,19 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
-  }, [attachedImages.length, clearInput, onBuiltinCommand]);
+  }, [attachedImages.length, noteMentions.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    if (!msg && !attachedImages.length && !noteMentions.length) return;
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     if (isStreaming) return;
+    const outgoing = appendNoteMentions(msg, noteMentions);
     clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+    onSend(outgoing, attachedImages.length ? attachedImages : undefined);
+  }, [value, attachedImages, noteMentions, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1138,7 +1159,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
-  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0;
+  const canQueueStreamingMessage = hasInputText || attachedImages.length > 0 || noteMentions.length > 0;
   const stackedComposer = stacksComposerLayout(compact, isMobile, isStreaming);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
@@ -1198,7 +1219,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     && atServerResult !== null
     && atServerResult.cwd === cwd
     && atServerResult.query === atQueryText;
-  const atMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
+  const atFileMatches: FileIndexEntry[] = serverResultInUse ? atServerResult.matches : atLocalMatches;
+  const atNoteMatches: FileIndexEntry[] = React.useMemo(() => (
+    atQueryText !== null && notesIndex ? filterFileEntries(notesIndex, atQueryText, 8) : []
+  ), [atQueryText, notesIndex]);
+  const atMatches: FileIndexEntry[] = React.useMemo(
+    () => [...atFileMatches, ...atNoteMatches],
+    [atFileMatches, atNoteMatches],
+  );
+  const atNoteStart = atFileMatches.length;
 
   // Open/reset the menu whenever the @token appears or changes (mirrors the
   // slash menu: Escape closes it, the next keystroke re-opens it).
@@ -1243,6 +1272,36 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       });
   }, [atTokenActive, cwd]);
 
+  // Notes are indexed in the app database with their absolute paths. Fetch
+  // them alongside the project files; the section is appended to the menu.
+  useEffect(() => {
+    if (!atTokenActive || !cwd) return;
+    if (notesIndexMetaRef.current && Date.now() - notesIndexMetaRef.current < 5_000) return;
+    if (notesIndexFetchingRef.current) return;
+    notesIndexFetchingRef.current = true;
+    fetch("/api/notes/mentions")
+      .then((res) => {
+        if (!res.ok) throw new Error(`notes index failed: ${res.status}`);
+        return res.json() as Promise<{ notes?: Array<{ name: string; path: string; absPath: string; kind: "note" | "board" }> }>;
+      })
+      .then((data) => {
+        setNotesIndex((data.notes ?? []).map((note) => ({
+          path: `Notes/${note.path}`,
+          isDir: false,
+          absPath: note.absPath,
+          notesKind: note.kind,
+        })));
+        notesIndexMetaRef.current = Date.now();
+      })
+      .catch(() => {
+        // Keep a previously loaded index; the next open retries.
+        notesIndexMetaRef.current = null;
+      })
+      .finally(() => {
+        notesIndexFetchingRef.current = false;
+      });
+  }, [atTokenActive, cwd]);
+
   const applyAtCompletion = useCallback((entry: FileIndexEntry) => {
     if (!atQuery) return;
     const ta = textareaRef.current;
@@ -1251,6 +1310,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     // Completing inside a quoted token (@"my dir/… with the caret before the
     // closing quote): replace that old quote too, since the insertion has one.
     const replaceEnd = cursor + (atQuery.quoted && ta.value[cursor] === '"' ? 1 : 0);
+    if (entry.notesKind && entry.absPath) {
+      const relative = entry.path.replace(/^Notes\//, "");
+      const mention: NoteMention = {
+        name: relative.split("/").pop() ?? relative,
+        path: relative,
+        absPath: entry.absPath,
+        kind: entry.notesKind,
+      };
+      setNoteMentions((previous) => (
+        previous.some((item) => item.absPath === mention.absPath) ? previous : [...previous, mention]
+      ));
+      // The @query was only a search: take it out, the chip carries the file.
+      replaceTextareaRange(ta, atQuery.start, replaceEnd, "", 0);
+      setAtQuery(null);
+      setAtMenuOpen(false);
+      requestAnimationFrame(() => ta.focus());
+      return;
+    }
     const insert = buildAtInsertText(entry.path, entry.isDir, atQuery.quoted);
     const newPos = atQuery.start + insert.cursorOffset;
     replaceTextareaRange(ta, atQuery.start, replaceEnd, insert.text, insert.cursorOffset);
@@ -1321,21 +1398,22 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const sendQueued = useCallback((mode: "steer" | "followup") => {
     const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    if (!msg && !attachedImages.length && !noteMentions.length) return;
     onAudioUnlock?.();
     const images = attachedImages.length ? attachedImages : undefined;
+    const outgoing = appendNoteMentions(msg, noteMentions);
     const queue = () => {
       const streamingBehavior = mode === "steer" ? "steer" : "followUp";
       if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
         clearInput();
-        onPromptWithStreamingBehavior(msg, streamingBehavior, images);
+        onPromptWithStreamingBehavior(outgoing, streamingBehavior, images);
         return;
       }
       clearInput();
       if (mode === "steer" && onSteer) {
-        onSteer(msg, images);
+        onSteer(outgoing, images);
       } else if (mode === "followup" && onFollowUp) {
-        onFollowUp(msg, images);
+        onFollowUp(outgoing, images);
       }
     };
     if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
@@ -1351,7 +1429,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       return;
     }
     queue();
-  }, [value, attachedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, noteMentions, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1979,6 +2057,61 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onDismissCompactError && <DismissButton onClick={onDismissCompactError} title={t("chat.dismissCompactError")} />}
           </div>
         )}
+        {/* Notes picked from @: chips in the composer, absolute paths on send. */}
+        {noteMentions.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+            {noteMentions.map((note) => (
+              <div
+                key={note.absPath}
+                title={note.path}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  maxWidth: 320,
+                  height: 26,
+                  padding: "0 3px 0 7px",
+                  border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border))",
+                  borderRadius: 7,
+                  background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
+                  color: "var(--text)",
+                  fontSize: 11.5,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                <span style={{ display: "flex", flexShrink: 0, color: "var(--accent)" }}>
+                  {getFileIcon(note.name, 12)}
+                </span>
+                <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {note.path}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`${t("i18n.remove")} ${note.path}`}
+                  onClick={() => setNoteMentions((previous) => previous.filter((item) => item.absPath !== note.absPath))}
+                  style={{
+                    flexShrink: 0,
+                    width: 16,
+                    height: 16,
+                    padding: 0,
+                    border: "none",
+                    borderRadius: "50%",
+                    background: "none",
+                    color: "var(--text-dim)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Image previews */}
         {attachedImages.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -2298,57 +2431,79 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   <span>
                     {indexLoading
                        ? t("chat.loadingFiles")
-                       : t("chat.files", { label: matchCountLabel, hint: truncatedHint })}
+                       : notesIndex && notesIndex.length > 0
+                         ? t("chat.filesAndNotes", { label: matchCountLabel, hint: truncatedHint })
+                         : t("chat.files", { label: matchCountLabel, hint: truncatedHint })}
                   </span>
                    <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
                 </div>
                 <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 4 }}>
                   {!indexLoading && atMatches.length === 0 ? (
                     <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
-                       {needsServerSearch && !serverResultInUse ? t("chat.searching") : t("chat.noMatchingFiles")}
+                       {needsServerSearch && !serverResultInUse
+                         ? t("chat.searching")
+                         : notesIndex !== null ? t("chat.noMatchingFilesOrNotes") : t("chat.noMatchingFiles")}
                     </div>
                   ) : (
                     atMatches.map((entry, index) => {
                       const active = index === atActiveIndex;
-                      const name = entry.path.split("/").pop() ?? entry.path;
-                      const dirPrefix = entry.path.slice(0, entry.path.length - name.length);
+                      const displayPath = entry.notesKind ? entry.path.replace(/^Notes\//, "") : entry.path;
+                      const name = displayPath.split("/").pop() ?? displayPath;
+                      const dirPrefix = displayPath.slice(0, displayPath.length - name.length);
+                      const noteGroup = index === atNoteStart && atNoteMatches.length > 0;
                       return (
-                        <button
-                          key={`${entry.isDir ? "d" : "f"}:${entry.path}`}
-                          ref={(node) => {
-                            atItemRefs.current[index] = node;
-                          }}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            applyAtCompletion(entry);
-                          }}
-                          onMouseEnter={() => setAtActiveIndex(index)}
-                          style={{
-                            width: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "6px 8px",
-                            border: "none",
-                            borderRadius: 6,
-                            background: active ? "var(--bg-selected)" : "none",
-                            color: "var(--text)",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            fontSize: 12.5,
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
-                            {entry.isDir ? <FolderIcon size={14} /> : getFileIcon(name, 14)}
-                          </span>
-                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {dirPrefix && <span style={{ color: "var(--text-dim)" }}>{dirPrefix}</span>}
-                            {name}
-                            {entry.isDir && <span style={{ color: "var(--text-dim)" }}>/</span>}
-                          </span>
-                        </button>
+                        <React.Fragment key={`${entry.isDir ? "d" : entry.notesKind ?? "f"}:${entry.path}`}>
+                          {noteGroup && (
+                            <div
+                              style={{
+                                padding: "7px 8px 3px",
+                                color: "var(--text-dim)",
+                                fontSize: 10,
+                                fontWeight: 600,
+                                letterSpacing: "0.06em",
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              {t("chat.notes")}
+                            </div>
+                          )}
+                          <button
+                            ref={(node) => {
+                              atItemRefs.current[index] = node;
+                            }}
+                            type="button"
+                            title={entry.notesKind ? entry.path.replace(/^Notes\//, "") : entry.path}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              applyAtCompletion(entry);
+                            }}
+                            onMouseEnter={() => setAtActiveIndex(index)}
+                            style={{
+                              width: "100%",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 8px",
+                              border: "none",
+                              borderRadius: 6,
+                              background: active ? "var(--bg-selected)" : "none",
+                              color: "var(--text)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                              fontSize: 12.5,
+                              fontFamily: "var(--font-mono)",
+                            }}
+                          >
+                            <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+                              {entry.isDir ? <FolderIcon size={14} /> : getFileIcon(name, 14)}
+                            </span>
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {dirPrefix && <span style={{ color: "var(--text-dim)" }}>{dirPrefix}</span>}
+                              {name}
+                              {entry.isDir && <span style={{ color: "var(--text-dim)" }}>/</span>}
+                            </span>
+                          </button>
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -2479,7 +2634,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           ) : (
             <button
               onClick={handleSend}
-              disabled={!value.trim() && !attachedImages.length}
+              disabled={!value.trim() && !attachedImages.length && !noteMentions.length}
               title={t("chat.send")}
               aria-label={t("chat.send")}
               style={{
@@ -2488,10 +2643,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                 // Mobile: icon-only so the placeholder and draft keep the width.
                 ...(isMobile ? { width: 36, height: 36, padding: 0 } : { padding: "7px 14px" }),
-                background: (value.trim() || attachedImages.length) ? "var(--accent)" : "var(--bg-panel)",
+                background: (value.trim() || attachedImages.length || noteMentions.length) ? "var(--accent)" : "var(--bg-panel)",
                 border: "none",
                 borderRadius: 8,
-                color: (value.trim() || attachedImages.length) ? "var(--accent-contrast)" : "var(--text-dim)",
+                color: (value.trim() || attachedImages.length || noteMentions.length) ? "var(--accent-contrast)" : "var(--text-dim)",
                 cursor: (value.trim() || attachedImages.length) ? "pointer" : "not-allowed",
                 fontSize: 13,
                 fontWeight: 600,
