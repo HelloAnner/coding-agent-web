@@ -275,14 +275,15 @@ class ClaudeRun {
     this.publish({ type: "agent_start" });
   }
   writeUserMessage(message: ClaudeQueuedMessage, announce: boolean): void {
+    const imageBlocks = message.images.map((image) => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mimeType, data: image.data } }));
     this.write({ type: "user", uuid: message.promptId, session_id: this.id, parent_tool_use_id: null, message: { role: "user", content: [
       ...(message.text.trim() ? [{ type: "text", text: message.text }] : []),
-      ...message.images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } })),
+      ...imageBlocks,
     ] } });
     // Queued prompts have no optimistic bubble: publish the delivery so the
     // message shows up when its own turn starts, not at the end of the queue.
     if (!announce) return;
-    this.publish({ type: "message_end", message: { role: "user", nativeId: message.promptId, content: message.text, timestamp: Date.now() } });
+    this.publish({ type: "message_end", message: { role: "user", nativeId: message.promptId, content: imageBlocks.length ? [...(message.text.trim() ? [{ type: "text", text: message.text }] : []), ...imageBlocks] : message.text, timestamp: Date.now() } });
   }
   /** Write the next queued prompt and keep the run alive. At most one per turn. */
   private drainQueue(): boolean {
