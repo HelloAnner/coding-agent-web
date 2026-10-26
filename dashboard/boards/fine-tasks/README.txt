@@ -1,7 +1,7 @@
 任务看板
 
 入口
-  Dashboard -> 工作 -> Fine -> 任务看板
+  Dashboard -> Fine -> 任务看板
   /dashboard?board=fine-tasks
 
 数据流
