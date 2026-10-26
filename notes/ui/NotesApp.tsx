@@ -96,8 +96,13 @@ export function NotesApp({
   const [draftName, setDraftName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameCancelled = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<NotesSaveState>("saved");
+  // Every selection goes through selectPath, which updates this ref at once.
+  const selectedPathRef = useRef<string | null>(selectedPath);
   const plusRef = useRef<HTMLButtonElement>(null);
   const initialPath = useRef(searchParams.get("path"));
   // The open editor registers its flush; a rename waits for it so the file
@@ -148,9 +153,7 @@ export function NotesApp({
     if (!wanted) return;
     initialPath.current = null;
     const node = findNode(tree, wanted);
-    if (node && node.type !== "dir") {
-      setSelectedPath((current) => current === node.path ? current : node.path);
-    }
+    if (node && node.type !== "dir") selectPath(node.path);
   }, [loading, tree]);
 
   // Expand the folders a newly opened file lives in.
@@ -181,21 +184,27 @@ export function NotesApp({
 
   const handleSaveState = useCallback((state: NotesSaveState) => setSaveState(state), []);
 
+  // Update the ref with the state: an in-flight rename must see the newest
+  // selection even before React has rendered it.
+  const selectPath = (path: string) => {
+    selectedPathRef.current = path;
+    setSelectedPath(path);
+  };
+
   // The tree has no root row: clicking its empty space targets the root.
   const clearSelection = () => {
-    setSelectedPath("");
+    selectPath("");
     router.replace("/notes", { scroll: false });
   };
 
   const selectFile = (node: NotesNode) => {
+    selectPath(node.path);
     if (node.type === "dir") {
-      setSelectedPath(node.path);
       setExpanded((current) => new Set(current).add(node.path));
       setSidebarOpen(false);
       router.replace("/notes", { scroll: false });
       return;
     }
-    setSelectedPath(node.path);
     setSidebarOpen(false);
     router.replace(`/notes?path=${encodeURIComponent(node.path)}`, { scroll: false });
   };
@@ -242,15 +251,50 @@ export function NotesApp({
       await refresh();
       if (creating === "dir") {
         setExpanded((current) => new Set(current).add(node.path));
-        setSelectedPath(node.path);
+        selectPath(node.path);
         router.replace("/notes", { scroll: false });
       } else {
         if (targetDir) setExpanded((current) => new Set(current).add(targetDir));
-        setSelectedPath(node.path);
+        selectPath(node.path);
         router.replace(`/notes?path=${encodeURIComponent(node.path)}`, { scroll: false });
       }
     } catch (cause) {
       setCreateError(cause instanceof Error ? cause.message : "创建失败");
+    }
+  };
+
+  const renameNode = async (node: NotesNode, name: string): Promise<boolean> => {
+    if (node.type === "dir") return false;
+    const next = name.trim();
+    if (!next || next === titleOf(node.name)) return true;
+    setActionError(null);
+    const wasOpen = selectedFile?.path === node.path;
+    try {
+      // Only the open file can have pending edits.
+      if (wasOpen) {
+        const saved = await editorRef.current?.flush();
+        if (saved === false) return false;
+      }
+      const response = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", path: node.path, name: next }),
+      });
+      const body = await response.json() as { path?: string; error?: string };
+      if (!response.ok || !body.path) throw new Error(body.error || "重命名失败");
+      const nextPath = body.path;
+      // The user may have clicked another file while the request was in
+      // flight; their newer selection wins over the renamed one.
+      if (wasOpen && selectedPathRef.current === node.path) {
+        selectPath(nextPath);
+        setTitleDraft(titleOf(baseName(nextPath)));
+        router.replace(`/notes?path=${encodeURIComponent(nextPath)}`, { scroll: false });
+      }
+      await refresh();
+      return true;
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "重命名失败");
+      return false;
     }
   };
 
@@ -261,25 +305,21 @@ export function NotesApp({
       setTitleDraft(titleOf(selectedFile.name));
       return;
     }
+    const renamed = await renameNode(selectedFile, next);
+    if (!renamed) setTitleDraft(titleOf(selectedFile.name));
+  };
+
+  const startRename = (node: NotesNode) => {
+    if (node.type === "dir") return;
+    setRenamingPath(node.path);
+    setRenameDraft(titleOf(node.name));
     setActionError(null);
-    try {
-      const saved = await editorRef.current?.flush();
-      if (saved === false) return;
-      const response = await fetch("/api/notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rename", path: selectedFile.path, name: next }),
-      });
-      const body = await response.json() as { path?: string; error?: string };
-      if (!response.ok || !body.path) throw new Error(body.error || "重命名失败");
-      setSelectedPath(body.path);
-      setTitleDraft(titleOf(baseName(body.path)));
-      await refresh();
-      router.replace(`/notes?path=${encodeURIComponent(body.path)}`, { scroll: false });
-    } catch (cause) {
-      setTitleDraft(titleOf(selectedFile.name));
-      setActionError(cause instanceof Error ? cause.message : "重命名失败");
-    }
+  };
+
+  const finishInlineRename = async (node: NotesNode) => {
+    if (renamingPath !== node.path) return;
+    setRenamingPath(null);
+    await renameNode(node, renameDraft);
   };
 
   const moveFile = async (targetDir: string) => {
@@ -310,7 +350,7 @@ export function NotesApp({
         return next;
       });
       if (selectedPath === source.path) {
-        setSelectedPath(body.path);
+        selectPath(body.path);
         router.replace(`/notes?path=${encodeURIComponent(body.path)}`, { scroll: false });
       }
     } catch (cause) {
@@ -341,7 +381,7 @@ export function NotesApp({
       if (removed) editorRef.current?.discard();
       await refresh();
       if (removed) {
-        setSelectedPath("");
+        selectPath("");
         router.replace("/notes", { scroll: false });
       }
     } catch (cause) {
@@ -361,7 +401,7 @@ export function NotesApp({
           className={`session-tree-row session-tree-session dashboard-tree-row notes-tree-row${selected ? " is-selected" : ""}${dragPath === node.path ? " is-dragging" : ""}${isDir && dropTarget === node.path ? " is-drop-target" : ""}`}
           style={{ paddingLeft: 20 + depth * 14 }}
           data-notes-path={node.path}
-          draggable={!isDir}
+          draggable={!isDir && renamingPath !== node.path}
           onDragStart={!isDir ? (event) => {
             setDragPath(node.path);
             event.dataTransfer.effectAllowed = "move";
@@ -405,27 +445,64 @@ export function NotesApp({
           ) : (
             <span className="notes-tree-toggle" aria-hidden="true">{node.type === "board" ? <BoardIcon /> : <NoteIcon />}</span>
           )}
-          <button
-            type="button"
-            className="session-tree-main"
-            title={node.path}
-            onClick={() => selectFile(node)}
-          >
-            {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
-            <span className="session-tree-title">{label}</span>
-          </button>
-          <button
-            type="button"
-            className="notes-row-delete"
-            title="删除"
-            aria-label={`删除 ${label}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              void removeNode(node);
-            }}
-          >
-            <TrashIcon size={12} />
-          </button>
+          {renamingPath === node.path ? (
+            <input
+              className="notes-rename-input"
+              autoFocus
+              value={renameDraft}
+              aria-label="重命名"
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onBlur={() => {
+                const cancelled = renameCancelled.current;
+                renameCancelled.current = false;
+                if (cancelled) {
+                  setRenamingPath(null);
+                  setRenameDraft("");
+                  return;
+                }
+                void finishInlineRename(node);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  renameCancelled.current = true;
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          ) : (
+            <>
+              <button
+                type="button"
+                className="session-tree-main"
+                title={isDir ? node.path : `${node.path}（双击重命名）`}
+                onClick={() => selectFile(node)}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  startRename(node);
+                }}
+              >
+                {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
+                <span className="session-tree-title">{label}</span>
+              </button>
+              <button
+                type="button"
+                className="notes-row-delete"
+                title="删除"
+                aria-label={`删除 ${label}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void removeNode(node);
+                }}
+              >
+                <TrashIcon size={12} />
+              </button>
+            </>
+          )}
         </div>
         {isDir && open && children.map((child) => renderNode(child, depth + 1))}
       </div>

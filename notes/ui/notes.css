@@ -360,3 +360,17 @@ button.notes-tree-toggle:hover {
     opacity: 1;
   }
 }
+
+.notes-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: 0;
+}
