@@ -18,6 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     if (body.type === "abort") return NextResponse.json({ success: true, data: { aborted: getClaudeRun(id).abort() } });
     if (body.type === "get_state") return NextResponse.json({ success: true, data: claudeState(id).state });
+    if (body.type === "clear_queue") return NextResponse.json({ success: true, data: getClaudeRun(id).clearQueue() });
     if (body.type === "extension_ui_response") {
       if (typeof body.id !== "string" || (body.value !== undefined && (typeof body.value !== "string" || body.value.length > 1024 * 1024))) return NextResponse.json({ error: "Invalid Claude Code response" }, { status: 400 });
       getClaudeRun(id).respond(body.id, body);
@@ -39,6 +40,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
     if (!message.trim() && !images.length) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
+    if (body.streamingBehavior !== undefined && body.streamingBehavior !== "steer" && body.streamingBehavior !== "followUp") return NextResponse.json({ error: "Invalid streaming behavior" }, { status: 400 });
     const existing = readCatalogSession(id);
     const profileId = typeof body.model === "string" ? body.model : existing?.model;
     const provider = typeof body.provider === "string" ? body.provider : existing?.provider;
@@ -51,7 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       trustClaudeProject(profile, cwd);
     }
     if (body.promptId !== undefined && (typeof body.promptId !== "string" || !CLAUDE_UUID.test(body.promptId))) return NextResponse.json({ error: "Invalid prompt id" }, { status: 400 });
-    const data = await sendClaudePrompt({ id, cwd, profileId: profile.id, provider: profile.provider, promptId: body.promptId as string | undefined, text: message, images });
+    const data = await sendClaudePrompt({ id, cwd, profileId: profile.id, provider: profile.provider, promptId: body.promptId as string | undefined, text: message, images, streamingBehavior: body.streamingBehavior as "steer" | "followUp" | undefined });
     return NextResponse.json({ success: true, data: { ...data, cwd, sessionId: id, accepted: true } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Claude Code request failed" }, { status: 400 });

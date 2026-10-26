@@ -168,9 +168,10 @@ export function readClaudeSubagentTranscript(profileDir: string, id: string, age
   return parseClaudeTranscript(readFileSync(realFile, "utf8"), true);
 }
 
-export function readClaudeTitle(profileDir: string, id: string): string {
+/** The native title the CLI maintains itself, when it wrote one. */
+export function readClaudeNativeTitle(profileDir: string, id: string): string | undefined {
   const file = claudeTranscriptFile(profileDir, id);
-  if (!file) throw new Error("Claude Code session history is missing");
+  if (!file) return undefined;
   const text = readFileSync(file, "utf8");
   let custom = "";
   let generated = "";
@@ -181,9 +182,18 @@ export function readClaudeTitle(profileDir: string, id: string): string {
       if (record.type === "ai-title" && typeof record.aiTitle === "string") generated = record.aiTitle;
     } catch { /* partial trailing record */ }
   }
-  const first = parseClaudeTranscript(text).find((message) => message.role === "user");
+  const title = (custom || generated).trim().split("\n")[0].slice(0, 100);
+  return title || undefined;
+}
+
+export function readClaudeTitle(profileDir: string, id: string): string {
+  const native = readClaudeNativeTitle(profileDir, id);
+  if (native) return native;
+  const file = claudeTranscriptFile(profileDir, id);
+  if (!file) throw new Error("Claude Code session history is missing");
+  const first = parseClaudeTranscript(readFileSync(file, "utf8")).find((message) => message.role === "user");
   const prompt = first?.role === "user" ? typeof first.content === "string" ? first.content : first.content.filter((block) => block.type === "text").map((block) => block.text).join(" ") : "";
-  const title = (custom || generated || prompt).trim().split("\n")[0].slice(0, 100);
+  const title = prompt.trim().split("\n")[0].slice(0, 100);
   if (!title) throw new Error("The session has no usable title");
   return title;
 }

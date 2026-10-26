@@ -1876,7 +1876,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             />
           );
         })()}
-        {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
+        {/* Queued steering / follow-up messages (delivered by the harness on upcoming turns) */}
         {((queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)) > 0 && (
           <div style={{
             marginBottom: 8,

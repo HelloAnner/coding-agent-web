@@ -29,7 +29,7 @@ after(() => {
 });
 const context = (id) => ({ params: Promise.resolve({ id }) });
 const request = (id, body) => new Request(`http://localhost/api/claude-code/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-const p = { id: "model-one", name: "One", provider: "example", model: "actual-model", configDir: join(root, "one"), env: { ANTHROPIC_AUTH_TOKEN: "never-return-this-key" } };
+const p = { id: "model-one", name: "One", provider: "example", model: "actual-model", configDir: join(root, "one"), env: { ANTHROPIC_AUTH_TOKEN: "never-return-this-key" }, permissionMode: "manual" };
 const p2 = { ...p, id: "model-two", name: "Two", configDir: join(root, "two") };
 
 test("models endpoint creates the project-owned file then returns safe profile metadata", async () => {
@@ -56,6 +56,11 @@ test("native sessions require validated identity, attachments and explicit works
   assert.equal(existsSync(p.configDir), false);
   const invalid = await route.POST(request(id, { ...prompt, images: [{ data: "not base64!", mimeType: "image/png" }] }), context(id));
   assert.equal(invalid.status, 400);
+  const invalidBehavior = await route.POST(request(id, { ...prompt, streamingBehavior: "interrupt" }), context(id));
+  assert.equal(invalidBehavior.status, 400);
+  const cleared = await route.POST(request(id, { type: "clear_queue" }), context(id));
+  assert.equal(cleared.status, 200);
+  assert.deepEqual((await cleared.json()).data, { steering: [], followUp: [] });
   const stale = await route.POST(request(id, { type: "extension_ui_response", id: "not-pending", confirmed: true }), context(id));
   assert.equal(stale.status, 400);
   assert.match((await stale.json()).error, /no longer pending/);

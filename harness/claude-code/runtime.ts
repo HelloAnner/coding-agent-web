@@ -13,6 +13,8 @@ import { ClaudeTasks, type ClaudeTaskSnapshot } from "./tasks";
 type Listener = (event: AgentEventLike) => void;
 interface PendingInput { request: Record<string, unknown>; ui: ExtensionUiRequest }
 interface ControlWaiter { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }
+export interface ClaudeQueuedMessage { text: string; images: Array<{ data: string; mimeType: string }>; promptId: string }
+export type ClaudeStreamingBehavior = "steer" | "followUp";
 const IDLE_MS = 10 * 60_000;
 
 class ClaudeRun {
@@ -33,6 +35,9 @@ class ClaudeRun {
   private secrets: string[] = [];
   private ready: Promise<void> | null = null;
   private invalidSession = false;
+  /** Prompts accepted while a turn runs; written to the CLI one turn at a time. */
+  private queued: { steering: ClaudeQueuedMessage[]; followUp: ClaudeQueuedMessage[] } = { steering: [], followUp: [] };
+  private steerInterrupting = false;
 
   constructor(readonly id: string) {}
   get streamingMessage() { return this.mapper?.message ?? null; }
@@ -41,10 +46,40 @@ class ClaudeRun {
     this.subscribers.add(listener);
     for (const id of this.mapper?.runningTools ?? []) listener({ type: "tool_execution_start", toolCallId: id, toolName: this.mapper?.toolNames.get(id) });
     for (const pending of this.inputs.values()) listener(pending.ui);
+    // A reconnect must see the queue as it is now, including an empty one that
+    // replaces rows left from before the page was hidden.
+    listener(this.queueUpdate());
     return () => {
       this.subscribers.delete(listener);
       if (!this.child && !this.isStreaming && !this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
     };
+  }
+  queuedMessages(): { steering: string[]; followUp: string[] } {
+    return { steering: this.queued.steering.map((message) => message.text), followUp: this.queued.followUp.map((message) => message.text) };
+  }
+  private queueUpdate(): AgentEventLike {
+    const queued = this.queuedMessages();
+    return { type: "queue_update", steering: queued.steering, followUp: queued.followUp };
+  }
+  private publishQueue(): void { this.publish(this.queueUpdate()); }
+  enqueue(behavior: ClaudeStreamingBehavior, message: ClaudeQueuedMessage): void {
+    if (behavior === "steer") this.queued.steering.push(message);
+    else this.queued.followUp.push(message);
+    this.publishQueue();
+    // Steering is the only behavior that preempts work: the CLI's own interrupt
+    // ends the turn, and the queue is written right after its result.
+    if (behavior === "steer" && this.isStreaming && this.child) this.interruptForSteer();
+  }
+  clearQueue(): { steering: string[]; followUp: string[] } {
+    const cleared = this.queuedMessages();
+    this.queued = { steering: [], followUp: [] };
+    this.publishQueue();
+    return cleared;
+  }
+  private interruptForSteer(): void {
+    if (this.steerInterrupting) return;
+    this.steerInterrupting = true;
+    void this.request({ subtype: "interrupt" }).catch(() => { this.steerInterrupting = false; });
   }
   publish(event: AgentEventLike): void {
     for (const listener of this.subscribers) { try { listener(event); } catch { /* a broken browser must not stop the CLI */ } }
@@ -232,15 +267,58 @@ class ClaudeRun {
     this.write({ type: "control_response", response: { subtype: "success", request_id: id, response: answer } });
     this.removeInput(id);
   }
+  /** Start a model turn: a fresh mapper and the same agent_start the first turn emits. */
+  beginTurn(): void {
+    this.isStreaming = true;
+    this.aborted = false;
+    this.mapper = new ClaudeEventMapper((event) => this.publish(event));
+    this.publish({ type: "agent_start" });
+  }
+  writeUserMessage(message: ClaudeQueuedMessage, announce: boolean): void {
+    this.write({ type: "user", uuid: message.promptId, session_id: this.id, parent_tool_use_id: null, message: { role: "user", content: [
+      ...(message.text.trim() ? [{ type: "text", text: message.text }] : []),
+      ...message.images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } })),
+    ] } });
+    // Queued prompts have no optimistic bubble: publish the delivery so the
+    // message shows up when its own turn starts, not at the end of the queue.
+    if (!announce) return;
+    this.publish({ type: "message_end", message: { role: "user", nativeId: message.promptId, content: message.text, timestamp: Date.now() } });
+  }
+  /** Write the next queued prompt and keep the run alive. At most one per turn. */
+  private drainQueue(): boolean {
+    const next = this.queued.steering.shift() ?? this.queued.followUp.shift();
+    if (!next) return false;
+    this.publishQueue();
+    this.beginTurn();
+    try {
+      this.writeUserMessage(next, true);
+    } catch (error) {
+      this.isStreaming = false;
+      this.mapper?.finish(true);
+      this.mapper = null;
+      this.publish({ type: "prompt_error", errorMessage: error instanceof Error ? error.message : String(error) });
+      this.publish({ type: "agent_end" });
+      this.publish({ type: "agent_settled", aborted: false });
+      this.scheduleIdle();
+    }
+    return true;
+  }
   settle(error?: string): void {
     if (!this.isStreaming) return;
     if (this.stopTimer) clearTimeout(this.stopTimer);
     this.stopTimer = null;
     this.mapper?.finish(this.aborted);
     this.isStreaming = false;
+    // A steer interrupt ends the native turn with an error subtype on purpose;
+    // the user asked for that boundary, so it is not a prompt failure.
+    const steered = this.steerInterrupting;
+    this.steerInterrupting = false;
     // A background subagent may still be awaiting input after the main turn ends.
     // Only native cancellation or process exit closes those requests.
-    if (error) this.publish({ type: "prompt_error", errorMessage: error });
+    if (error && !steered) this.publish({ type: "prompt_error", errorMessage: error });
+    // Follow-up and steering prompts continue the same run, so the browser keeps
+    // its active stage instead of flashing a completed run between turns.
+    if (!this.aborted && this.drainQueue()) return;
     this.publish({ type: "agent_end" });
     this.publish({ type: "agent_settled", aborted: this.aborted });
     this.scheduleIdle();
@@ -255,7 +333,11 @@ class ClaudeRun {
     this.idleTimer.unref();
   }
   abort(): boolean {
-    if (!this.isStreaming) return false;
+    // Stop means stop: a queued follow-up must not start after the current turn
+    // is interrupted. The browser clears the rows with the same update.
+    const hadQueued = this.queued.steering.length + this.queued.followUp.length > 0;
+    if (hadQueued) this.clearQueue();
+    if (!this.isStreaming) return hadQueued;
     this.aborted = true;
     if (!this.child) return true;
     // The native host interrupt ends the current turn without discarding its session.
@@ -271,6 +353,7 @@ class ClaudeRun {
   close(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.stopTimer) clearTimeout(this.stopTimer);
+    if (this.queued.steering.length + this.queued.followUp.length) this.clearQueue();
     const child = this.child;
     if (!child) return;
     if (this.isStreaming) { this.aborted = true; child.kill("SIGINT"); }
@@ -303,14 +386,17 @@ export function claudeRunningIds(): string[] { return [...registry().runs.values
 export function claudeAwaitingInputIds(): string[] { return [...registry().runs.values()].filter((run) => run.inputs.size).map((run) => run.id); }
 export function claudeState(id: string) {
   const run = registry().runs.get(id);
-  return { running: Boolean(run?.isStreaming || run?.tasks.hasActivity || run?.inputs.size), state: { isStreaming: Boolean(run?.isStreaming), isPromptRunning: false } };
+  const queued = run?.queuedMessages();
+  return {
+    running: Boolean(run?.isStreaming || run?.tasks.hasActivity || run?.inputs.size || queued?.steering.length || queued?.followUp.length),
+    state: { isStreaming: Boolean(run?.isStreaming), isPromptRunning: false, queuedMessages: queued ?? { steering: [], followUp: [] } },
+  };
 }
 export function stopClaudeRuns(): void { for (const run of registry().runs.values()) run.close(); }
 
-export async function sendClaudePrompt(prompt: { id: string; cwd: string; profileId?: string; provider?: string; promptId?: string; text: string; images?: Array<{ data: string; mimeType: string }> }): Promise<{ sessionPath: string; provider: string; model: string }> {
+export async function sendClaudePrompt(prompt: { id: string; cwd: string; profileId?: string; provider?: string; promptId?: string; text: string; images?: Array<{ data: string; mimeType: string }>; streamingBehavior?: ClaudeStreamingBehavior }): Promise<{ sessionPath: string; provider: string; model: string; queued?: boolean }> {
   const run = getClaudeRun(prompt.id);
   if (!prompt.text.trim() && !prompt.images?.length) throw new Error("Message is empty");
-  if (run.isStreaming) throw new Error("Claude Code is already answering in this session");
   if (/^\/model(?:\s|$)/i.test(prompt.text.trimStart())) throw new Error("Claude Code model is fixed by its profile. Start a new chat to switch models.");
   if (/^\/(?:clear|reset|new|resume|fork)(?:\s|$)/i.test(prompt.text.trimStart())) throw new Error("Start a new chat to change Claude Code conversations. This session keeps its native UUID.");
   const profile = resolveClaudeProfile(prompt.profileId, prompt.provider);
@@ -319,18 +405,21 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || realpathSync(existing.cwd) !== cwd || existing.sessionPath !== profile.configDir)) throw new Error("This Claude Code session keeps its original profile and directory. Start a new chat to switch models.");
   if (existing && !claudeTranscriptFile(profile.configDir, prompt.id) && !run.child) throw new Error("Claude Code session history is missing. Start a new chat instead of resetting this conversation.");
   if (run.child && (run.cwd !== cwd || run.profile?.id !== profile.id)) throw new Error("Claude Code session profile mismatch");
-  run.isStreaming = true; run.aborted = false;
-  const turn = new ClaudeEventMapper((event) => run.publish(event));
-  run.mapper = turn;
-  run.publish({ type: "agent_start" });
+  const message: ClaudeQueuedMessage = { text: prompt.text, images: prompt.images ?? [], promptId: prompt.promptId ?? randomUUID() };
+  // A steer or follow-up that races the end of a turn is simply the next turn:
+  // the CLI is already idle, so there is nothing to queue against.
+  if (run.isStreaming) {
+    if (!prompt.streamingBehavior) throw new Error("Claude Code is already answering in this session");
+    run.enqueue(prompt.streamingBehavior, message);
+    return { sessionPath: profile.configDir, provider: profile.provider, model: profile.id, queued: true };
+  }
+  run.beginTurn();
+  const turn = run.mapper;
   try {
     await run.start(profile, cwd, Boolean(existing));
     if (run.aborted || run.mapper !== turn) throw new Error("Claude Code was stopped before sending this message");
     upsertCatalogSession({ id: prompt.id, cwd, harness: "claude-code", provider: profile.provider, model: profile.id, title: existing?.title || prompt.text.trim().slice(0, 100) || profile.name, sessionPath: profile.configDir });
-    run.write({ type: "user", uuid: prompt.promptId ?? randomUUID(), session_id: prompt.id, parent_tool_use_id: null, message: { role: "user", content: [
-      ...(prompt.text.trim() ? [{ type: "text", text: prompt.text }] : []),
-      ...(prompt.images ?? []).map((image) => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } })),
-    ] } });
+    run.writeUserMessage(message, false);
     return { sessionPath: profile.configDir, provider: profile.provider, model: profile.id };
   } catch (error) {
     if (run.mapper === turn) run.settle();

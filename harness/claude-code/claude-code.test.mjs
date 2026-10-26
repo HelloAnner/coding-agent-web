@@ -12,6 +12,7 @@ const config = await jiti.import("./index.ts");
 const { ClaudeEventMapper } = await jiti.import("./events.ts");
 const { parseClaudeTranscript, readClaudeTranscript } = await jiti.import("./transcript.ts");
 const runtime = await jiti.import("./runtime.ts");
+const titleModule = await jiti.import("./title.ts");
 const db = await jiti.import("../../lib/catalog-db.ts");
 
 function setup(t) {
@@ -227,6 +228,146 @@ test("missing CLI fails once without losing or inventing a native session", asyn
   assert.equal(db.readCatalogSession(id), null);
 });
 
+test("steer interrupts the running turn and follow-ups drain in order", { skip: process.platform === "win32" }, async (t) => {
+  const root = setup(t);
+  const p = profile(root);
+  writeProfiles([p]);
+  const log = join(root, "protocol.log");
+  const binary = join(root, "queue-claude.mjs");
+  writeFileSync(binary, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
+const log = ${JSON.stringify(log)};
+const send = (r) => process.stdout.write(JSON.stringify(r)+'\\n');
+let first = true;
+createInterface({input:process.stdin}).on('line', line => {
+  const r = JSON.parse(line);
+  if (r.type === 'control_request') {
+    send({type:'control_response',response:{subtype:'success',request_id:r.request_id,response:{}}});
+    if (r.request.subtype === 'interrupt') {
+      appendFileSync(log, 'interrupt\\n');
+      setTimeout(() => send({type:'result',subtype:'error_during_execution',is_error:true,result:'interrupted'}), 10);
+    }
+    return;
+  }
+  if (r.type !== 'user') return;
+  const text = r.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+  appendFileSync(log, 'user:' + text + '\\n');
+  const delay = first ? 2000 : 30;
+  first = false;
+  setTimeout(() => send({type:'result',subtype:'success',is_error:false,result:'done'}), delay);
+});
+`, { mode: 0o700 });
+  process.env.PI_WEB_CLAUDE_BIN = binary;
+  const id = randomUUID();
+  const run = runtime.getClaudeRun(id);
+  const events = [];
+  t.after(run.onEvent((event) => events.push(event)));
+  const settled = waitFor(run, (event) => event.type === "agent_settled");
+
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "first", promptId: randomUUID() });
+  const steer = await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "steer now", promptId: randomUUID(), streamingBehavior: "steer" });
+  const follow = await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "then this", promptId: randomUUID(), streamingBehavior: "followUp" });
+  assert.equal(steer.queued, true);
+  assert.equal(follow.queued, true);
+  assert.deepEqual(run.queuedMessages(), { steering: ["steer now"], followUp: ["then this"] });
+  assert.equal(runtime.claudeState(id).state.queuedMessages.steering[0], "steer now");
+  await assert.rejects(
+    runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "no behavior" }),
+    /already answering/,
+  );
+
+  await settled;
+  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
+    "user:first",
+    "interrupt",
+    "user:steer now",
+    "user:then this",
+  ]);
+  // One run from the browser's point of view: no completed-run flash between
+  // the queued turns, and the stop button never turns into a finished run.
+  assert.equal(events.filter((event) => event.type === "agent_end").length, 1);
+  assert.equal(events.filter((event) => event.type === "agent_settled").length, 1);
+  assert.equal(events.filter((event) => event.type === "agent_start").length, 3);
+  assert.equal(events.filter((event) => event.type === "prompt_error").length, 0);
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
+  // Delivered queued prompts surface as user messages when their turn starts.
+  const delivered = events.filter((event) => event.type === "message_end" && event.message.role === "user").map((event) => event.message.content);
+  assert.deepEqual(delivered, ["steer now", "then this"]);
+});
+
+test("recalling or stopping clears queued prompts before they are sent", { skip: process.platform === "win32" }, async (t) => {
+  const root = setup(t);
+  const p = profile(root);
+  writeProfiles([p]);
+  const log = join(root, "recall.log");
+  const binary = join(root, "recall-claude.mjs");
+  writeFileSync(binary, `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
+const log = ${JSON.stringify(log)};
+const send = (r) => process.stdout.write(JSON.stringify(r)+'\\n');
+let first = true;
+createInterface({input:process.stdin}).on('line', line => {
+  const r = JSON.parse(line);
+  if (r.type === 'control_request') {
+    send({type:'control_response',response:{subtype:'success',request_id:r.request_id,response:{}}});
+    if (r.request.subtype === 'interrupt') appendFileSync(log, 'interrupt\\n');
+    return;
+  }
+  if (r.type !== 'user') return;
+  const text = r.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+  appendFileSync(log, 'user:' + text + '\\n');
+  const delay = first ? 500 : 20;
+  first = false;
+  setTimeout(() => send({type:'result',subtype:'success',is_error:false,result:'done'}), delay);
+});
+`, { mode: 0o700 });
+  process.env.PI_WEB_CLAUDE_BIN = binary;
+  const id = randomUUID();
+  const run = runtime.getClaudeRun(id);
+  t.after(run.onEvent(() => {}));
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "first" });
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "recalled", streamingBehavior: "followUp" });
+  assert.deepEqual(run.clearQueue(), { steering: [], followUp: ["recalled"] });
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "stopped too", streamingBehavior: "followUp" });
+  assert.equal(run.abort(), true);
+  await waitFor(run, (event) => event.type === "agent_settled");
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
+  assert.equal(readFileSync(log, "utf8").trim().split("\n").filter((line) => line.startsWith("user:")).join(","), "user:first");
+});
+
+test("titles run one throwaway headless session and remove its transcript", { skip: process.platform === "win32" }, async (t) => {
+  const root = setup(t);
+  const p = profile(root);
+  writeProfiles([p]);
+  const idFile = join(root, "title-session-id");
+  const argsFile = join(root, "title-args.json");
+  const binary = join(root, "title-claude.mjs");
+  writeFileSync(binary, `#!/usr/bin/env node
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+const args = process.argv.slice(2);
+const id = args[args.indexOf('--session-id') + 1];
+writeFileSync(${JSON.stringify(idFile)}, id);
+writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));
+const dir = path.join(${JSON.stringify(p.configDir)}, 'projects', '-tmp');
+mkdirSync(dir, { recursive: true });
+writeFileSync(path.join(dir, id + '.jsonl'), '');
+process.stdout.write('修复标题生成\\n');
+`, { mode: 0o700 });
+  process.env.PI_WEB_CLAUDE_BIN = binary;
+  const generated = await titleModule.generateClaudeTitle({ cwd: root, profileId: p.id, provider: p.provider, prompt: "name this session" });
+  assert.equal(generated.trim(), "修复标题生成");
+  const args = JSON.parse(readFileSync(argsFile, "utf8"));
+  assert.equal(args[args.indexOf("--tools") + 1], "");
+  assert.equal(args[args.indexOf("--output-format") + 1], "text");
+  assert.equal(args[args.indexOf("--model") + 1], p.model);
+  const id = readFileSync(idFile, "utf8");
+  assert.equal(existsSync(join(p.configDir, "projects", "-tmp", `${id}.jsonl`)), false);
+});
+
 test("stopping during CLI initialization never sends the queued prompt", { skip: process.platform === "win32" }, async (t) => {
   const root = setup(t);
   const p = profile(root);
@@ -348,5 +489,22 @@ test("installed Claude CLI codes, asks, resumes and stops through its native pro
   await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "Continue after stop" });
   await afterStop;
   assert.equal(events.filter((event) => event.type === "prompt_error").length, 0);
+  // Steering is an interrupt plus the next native turn: the held response ends
+  // with an error subtype, but the queued user message must survive and run.
+  hold = true;
+  const steerHeld = new Promise((resolve) => { held = resolve; });
+  const steered = waitFor(run, (event) => event.type === "agent_settled");
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "Wait for steering" });
+  await steerHeld;
+  hold = false;
+  const queued = await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "steer mid-run", promptId: randomUUID(), streamingBehavior: "steer" });
+  assert.equal(queued.queued, true);
+  await steered;
+  assert.match(JSON.stringify(lastMessages), /steer mid-run/);
+  assert.equal(events.filter((event) => event.type === "prompt_error").length, 0);
+  assert.equal(run.queuedMessages().steering.length, 0);
+  // Naming runs the same CLI with tools off and cleans up its own transcript.
+  const generated = await titleModule.generateClaudeTitle({ cwd: root, profileId: p.id, provider: p.provider, prompt: "name this session" });
+  assert.match(generated.trim(), /^native-cli-done-\d+$/);
   run.close();
 });

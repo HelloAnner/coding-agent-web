@@ -965,6 +965,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     : null;
 
   const foreignHarness = composerHarness !== "pi";
+  // Claude Code accepts prompts while a turn runs (steer / follow-up); grok and
+  // dsh still take one prompt per run.
+  const supportsStreamingPrompts = !foreignHarness || composerHarness === "claude-code";
   // The pi file's model is the one this chat will send. A catalog pair left
   // over from another harness must not stay on the row.
   useEffect(() => {
@@ -977,9 +980,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       ref={chatInputRef}
       onSend={handleSend}
       onAbort={handleAbort}
-      onSteer={!foreignHarness && agentRunning ? handleSteer : undefined}
-      onFollowUp={!foreignHarness && agentRunning ? handleFollowUp : undefined}
-      onPromptWithStreamingBehavior={!foreignHarness && agentRunning ? handlePromptWithStreamingBehavior : undefined}
+      onSteer={supportsStreamingPrompts && agentRunning ? handleSteer : undefined}
+      onFollowUp={supportsStreamingPrompts && agentRunning ? handleFollowUp : undefined}
+      onPromptWithStreamingBehavior={supportsStreamingPrompts && agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
       harness={composerHarness}
       harnessLocked={Boolean(session) || sessionBusy}

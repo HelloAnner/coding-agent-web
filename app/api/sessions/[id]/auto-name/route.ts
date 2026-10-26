@@ -6,7 +6,8 @@ import { generateDshTitle } from "@/harness/dsh/title";
 import { readDshTranscript } from "@/harness/dsh/transcript";
 import { generateGrokTitle } from "@/harness/grok/title";
 import { readGrokTranscript } from "@/harness/grok/transcript";
-import { readClaudeTitle } from "@/harness/claude-code/transcript";
+import { generateClaudeTitle } from "@/harness/claude-code/title";
+import { readClaudeNativeTitle, readClaudeTranscript } from "@/harness/claude-code/transcript";
 import { resolveClaudeProfile } from "@/harness/claude-code";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
@@ -15,8 +16,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * A harness chat names itself through its own runtime: dsh on the kernel that
- * is already up, grok in one headless run. The transcript comes from the log
- * the harness writes, so nothing is read back into pi's session format.
+ * is already up, grok and Claude Code in one headless run. The transcript comes
+ * from the log the harness writes, so nothing is read back into pi's format.
  */
 async function askHarness(row: CatalogSession, prompt: string): Promise<string> {
   if (row.harness === "dsh") {
@@ -25,11 +26,21 @@ async function askHarness(row: CatalogSession, prompt: string): Promise<string> 
   if (row.harness === "grok") {
     return generateGrokTitle({ cwd: row.cwd, model: row.model, prompt });
   }
+  if (row.harness === "claude-code") {
+    return generateClaudeTitle({ cwd: row.cwd, profileId: row.model, provider: row.provider, prompt });
+  }
   throw new Error(`Title generation is not wired for the ${row.harness} harness`);
 }
 
 /** The harness transcript as the title prompt, or an error when there is none. */
 function harnessTitlePrompt(row: CatalogSession): string {
+  if (row.harness === "claude-code") {
+    const profile = resolveClaudeProfile(row.model, row.provider, true);
+    if (profile.configDir !== row.sessionPath) throw new Error("Claude Code profile directory has changed");
+    const transcript = buildTitleTranscript(readClaudeTranscript(profile.configDir, row.id).messages);
+    if (!transcript.trim()) throw new Error("The session has no usable text to name");
+    return buildTitlePrompt(transcript);
+  }
   const messages = row.harness === "dsh"
     ? readDshTranscript(row.sessionPath).messages
     : readGrokTranscript(row.cwd, row.id).messages;
@@ -46,12 +57,19 @@ export async function POST(
 
   try {
     const indexed = readCatalogSession(id);
-    // Claude Code writes its own title into the transcript; there is no second
-    // turn to ask, so it is read as it stands.
     if (indexed?.harness === "claude-code") {
       const profile = resolveClaudeProfile(indexed.model, indexed.provider, true);
       if (profile.configDir !== indexed.sessionPath) throw new Error("Claude Code profile directory has changed");
-      const title = parseGeneratedSessionTitle(readClaudeTitle(profile.configDir, indexed.id));
+      // A title written by the CLI itself is authoritative. Headless runs do
+      // not write one, so name the chat with the profile's own model instead
+      // of leaving the first prompt as the title forever.
+      const native = readClaudeNativeTitle(profile.configDir, indexed.id);
+      const title = native
+        ? parseGeneratedSessionTitle(native)
+        : await fitTitleInLimit(
+          await askHarness(indexed, harnessTitlePrompt(indexed)),
+          (instruction) => askHarness(indexed, instruction),
+        );
       updateCatalogSession(id, { title });
       return NextResponse.json({ title, usage: null });
     }

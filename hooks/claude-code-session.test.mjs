@@ -83,3 +83,34 @@ test("native questions answer through the native route and a rejected answer sta
   assert.equal(answers.at(-1).command.id, "question");
   assert.equal(answers.at(-1).command.value, '{"Pick":"A"}');
 });
+
+test("steering and follow-ups ride the native prompt route", async (t) => {
+  const state = setup(t);
+  const sending = state.hook.result.handleSend("first");
+  await settle(); state.connect(); await sending; await settle(); state.hook.flush();
+  state.sources.at(-1).emit({ type: "agent_start" });
+  state.hook.flush();
+
+  await state.hook.result.handleSteer("steer now");
+  await state.hook.result.handleFollowUp("later");
+  await settle();
+  const queued = state.requests.filter((request) => request.command?.streamingBehavior);
+  assert.deepEqual(
+    queued.map((request) => [request.command.streamingBehavior, request.command.message]),
+    [["steer", "steer now"], ["followUp", "later"]],
+  );
+  assert.equal(queued[0].command.cwd, "/project");
+  assert.equal(queued[0].command.provider, "example");
+  assert.equal(queued[0].command.model, "profile-one");
+  assert.match(queued[0].command.promptId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+  state.sources.at(-1).emit({ type: "queue_update", steering: ["steer now"], followUp: ["later"] });
+  state.hook.flush();
+  assert.deepEqual(state.hook.result.queuedMessages, { steering: ["steer now"], followUp: ["later"] });
+
+  await state.hook.result.handleRecallQueue();
+  await settle();
+  assert.equal(state.requests.at(-1).command.type, "clear_queue");
+  state.hook.flush();
+  assert.deepEqual(state.hook.result.queuedMessages, { steering: [], followUp: [] });
+});
