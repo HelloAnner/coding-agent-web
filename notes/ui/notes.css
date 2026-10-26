@@ -383,3 +383,14 @@ button.notes-tree-toggle:hover {
   font-size: 12px;
   outline: 0;
 }
+
+/* The board's topbar is mobile-only: it holds the sidebar button, nothing else. */
+.notes-board-topbar {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .notes-board-topbar {
+    display: flex;
+  }
+}

@@ -117,6 +117,7 @@ export function NotesApp({
     [selectedPath, tree],
   );
   const selectedFile = selectedNode && selectedNode.type !== "dir" ? selectedNode : null;
+  const boardOpen = selectedFile?.type === "board";
   const targetDir = selectedNode?.type === "dir"
     ? selectedNode.path
     : selectedNode
@@ -452,7 +453,7 @@ export function NotesApp({
             <button
               type="button"
               className="notes-tree-toggle"
-              aria-label={open ? "收起目录" : "展开目录"}
+              aria-label={open ? "收起子目录" : "展开子目录"}
               aria-expanded={open}
               onClick={() => setExpanded((current) => {
                 const next = new Set(current);
@@ -647,7 +648,8 @@ export function NotesApp({
       )}
 
       <main className="dashboard-main">
-        <header className="dashboard-topbar">
+        {/* A whiteboard is the canvas: no name, no save status, no bar on desktop. */}
+        <header className={`dashboard-topbar${boardOpen ? " notes-board-topbar" : ""}`}>
           <button
             type="button"
             className="dashboard-menu-button"
@@ -658,7 +660,7 @@ export function NotesApp({
               <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          {selectedFile ? (
+          {!boardOpen && (selectedFile ? (
             <>
               <span className="notes-crumb">{parentPath(selectedFile.path) || "根目录"}</span>
               <input
@@ -679,8 +681,8 @@ export function NotesApp({
             </>
           ) : (
             <span className="dashboard-board-title">Notes</span>
-          )}
-          {actionError && <span className="notes-action-error">{actionError}</span>}
+          ))}
+          {!boardOpen && actionError && <span className="notes-action-error">{actionError}</span>}
         </header>
         <div className="notes-content">
           {selectedFile ? (
