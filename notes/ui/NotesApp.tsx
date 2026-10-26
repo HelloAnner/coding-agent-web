@@ -413,7 +413,6 @@ export function NotesApp({
           >
             {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
             <span className="session-tree-title">{label}</span>
-            {node.type === "board" && <span className="notes-row-meta">白板</span>}
           </button>
           <button
             type="button"

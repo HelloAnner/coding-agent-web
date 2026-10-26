@@ -35,15 +35,6 @@ button.notes-tree-toggle:hover {
   color: var(--text-dim);
 }
 
-.notes-row-meta {
-  flex: none;
-  margin-left: auto;
-  padding-right: 2px;
-  color: var(--text-dim);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
 .notes-create {
   display: flex;
   flex: none;
