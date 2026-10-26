@@ -556,10 +556,19 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
+/** A queued preview: absolute notes mentions show as file names, not paths. */
+function hideAbsoluteAtMentions(text: string): string {
+  return text.replace(
+    /@"((?:\/|[A-Za-z]:[\\/])[^"\n]+)"/g,
+    (match, filePath: string) => filePath.split(/[\\/]/).pop() ?? filePath,
+  );
+}
+
 function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
+  const displayText = hideAbsoluteAtMentions(text);
   return (
     <div
-      title={text}
+      title={displayText}
       style={{
         display: "flex",
         alignItems: "center",
@@ -583,7 +592,7 @@ function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: s
       >
         {kind}
       </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayText}</span>
     </div>
   );
 }
