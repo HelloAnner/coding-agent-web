@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   accessNamesFrom,
+  discoverAccessNames,
   isLoopbackBind,
   mergeHostList,
   nextBuildArgs,
@@ -9,6 +10,7 @@ import {
   parseEnvAssignmentFile,
   probeHost,
   resolveWebPassword,
+  tailscaleStatusJson,
 } from "./serve.mjs";
 
 test("builds with webpack and serves that build", () => {
@@ -63,6 +65,45 @@ test("allows this machine's tailscale name and its short label", () => {
       "mac-mini-1002",
     ],
   );
+});
+
+test("finds a tailscale CLI that is not on PATH", () => {
+  const tried = [];
+  const raw = tailscaleStatusJson((command) => {
+    tried.push(command);
+    return command === "/usr/local/sbin/tailscale"
+      ? JSON.stringify({ Self: { DNSName: "mac-mini-1003.tail2eda7.ts.net." } })
+      : "";
+  });
+  assert.match(raw, /mac-mini-1003/);
+  assert.deepEqual(tried.slice(0, 4), [
+    "tailscale",
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/sbin/tailscale",
+  ]);
+  assert.equal(tried.at(-1), "/usr/local/sbin/tailscale");
+});
+
+test("stops at the first tailscale CLI that answers", () => {
+  let calls = 0;
+  const raw = tailscaleStatusJson(() => {
+    calls += 1;
+    return JSON.stringify({ Self: { DNSName: "mac-mini-1002.example.ts.net." } });
+  });
+  assert.equal(calls, 1);
+  assert.match(raw, /mac-mini-1002/);
+});
+
+test("trusts this machine's tailnet name from an out-of-PATH CLI", () => {
+  const names = discoverAccessNames((command) => {
+    if (command.endsWith("/tailscale")) {
+      return JSON.stringify({ Self: { DNSName: "mac-mini-1003.tail2eda7.ts.net." } });
+    }
+    return "";
+  });
+  assert.ok(names.includes("mac-mini-1003.tail2eda7.ts.net"));
+  assert.ok(names.includes("mac-mini-1003"));
 });
 
 test("drops names that are not a hostname and keeps an operator list", () => {

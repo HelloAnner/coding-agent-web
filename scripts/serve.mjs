@@ -115,9 +115,32 @@ function commandOutput(command, args) {
   }
 }
 
-function discoverAccessNames() {
+// The Tailscale CLI is not always on the shell's PATH: the standalone macOS
+// build puts it in /usr/local/sbin, the App Store build inside the bundle, and
+// Homebrew in /opt/homebrew/bin. A missing CLI used to cost the machine its own
+// tailnet name (mac-mini-1003:20169 answered "Untrusted request"), so try the
+// known locations too.
+export function tailscaleCommands() {
+  return [
+    "tailscale",
+    "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
+    "/usr/local/sbin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+  ];
+}
+
+export function tailscaleStatusJson(run = commandOutput, commands = tailscaleCommands()) {
+  for (const command of commands) {
+    const raw = run(command, ["status", "--json"]);
+    if (raw) return raw;
+  }
+  return "";
+}
+
+export function discoverAccessNames(run = commandOutput) {
   let tailscaleDnsName = "";
-  const raw = commandOutput("tailscale", ["status", "--json"]);
+  const raw = tailscaleStatusJson(run);
   if (raw) {
     try {
       tailscaleDnsName = String(JSON.parse(raw)?.Self?.DNSName ?? "");
@@ -126,7 +149,7 @@ function discoverAccessNames() {
     }
   }
   const localHostName = process.platform === "darwin"
-    ? commandOutput("scutil", ["--get", "LocalHostName"])
+    ? run("scutil", ["--get", "LocalHostName"])
     : "";
   return accessNamesFrom({
     hostname: os.hostname(),
