@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
+import { ToolbarQuota } from "./ToolbarQuota";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
@@ -284,7 +285,6 @@ export function AppShell() {
   const [systemInfoLoading, setSystemInfoLoading] = useState(false);
   const systemInfoLoaderRef = useRef<(() => Promise<void>) | null>(null);
   const systemInfoLoadIdRef = useRef(0);
-  const systemBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt);
@@ -361,27 +361,6 @@ export function AppShell() {
     setActiveTopPanel((cur) => cur === panel ? null : panel);
     if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
   }, [isMobile, isNarrowMobile]);
-
-  const handleSystemInfoToggle = useCallback((
-    panel: "system" | "tools",
-    keepMobileToolbarOpen = false,
-  ) => {
-    const opening = activeTopPanel !== panel;
-    toggleTopPanel(panel, keepMobileToolbarOpen);
-    if (!opening || systemInfoLoading) return;
-
-    const load = systemInfoLoaderRef.current;
-    if (!load) return;
-    const loadId = ++systemInfoLoadIdRef.current;
-    setSystemInfoLoading(true);
-    void load().catch((error) => {
-      console.error("Failed to load system information:", error);
-    }).finally(() => {
-      if (systemInfoLoadIdRef.current === loadId) {
-        setSystemInfoLoading(false);
-      }
-    });
-  }, [activeTopPanel, systemInfoLoading, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -1130,12 +1109,6 @@ export function AppShell() {
     });
   }, [fileTabs, terminalTabs]);
 
-  const handleViewFullHistory = useCallback(() => {
-    if (!selectedSession) return;
-    // Demo: there is no export route, so render the transcript in the browser.
-    openDemoHistory(selectedSession.id);
-  }, [selectedSession]);
-
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const newSessionDraftKey = selectedSession === null && effectiveNewSessionCwd
@@ -1339,68 +1312,7 @@ export function AppShell() {
   const renderChatToolbarActions = (mobile: boolean) => {
     if (!mobile && !showChat) return null;
     return (
-      <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-        <button
-          type="button"
-          onClick={() => {
-            handleViewFullHistory();
-            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-          }}
-          disabled={!selectedSession}
-          title={selectedSession ? translate("history.full") : translate("history.unsaved")}
-          aria-label={translate("history.full")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%",
-            padding: mobile ? 0 : "0 12px",
-            background: "none",
-            border: "none",
-            borderTop: "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-            cursor: selectedSession ? "pointer" : "not-allowed",
-            opacity: selectedSession ? 1 : 0.45,
-            flexShrink: 0,
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s, opacity 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (!selectedSession) return;
-            event.currentTarget.style.color = "var(--text)";
-            event.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-            event.currentTarget.style.background = "none";
-          }}
-          data-mobile-toolbar-action={mobile ? "history" : undefined}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-          {!mobile && <span>{translate("history.label")}</span>}
-        </button>
+      <div style={{ display: "flex", alignItems: "stretch", height: "100%", minWidth: 0 }}>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -1479,6 +1391,7 @@ export function AppShell() {
             </button>
           );
         })()}
+        <ToolbarQuota />
         {hasSubagentSessions && agentsBadge && (
           <button
             type="button"
@@ -1571,78 +1484,6 @@ export function AppShell() {
             hasSession
           />
         ))}
-        <button
-          ref={systemBtnRef}
-          type="button"
-          onClick={() => handleSystemInfoToggle("system", mobile)}
-          disabled={mobile && !showChat}
-          title={translate("system.prompt")}
-          aria-label={translate("system.prompt")}
-          aria-pressed={activeTopPanel === "system"}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
-            border: "none",
-            borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-            opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)";
-          }}
-          data-mobile-toolbar-action={mobile ? "system" : undefined}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="8" y1="13" x2="16" y2="13" />
-            <line x1="8" y1="17" x2="13" y2="17" />
-          </svg>
-          {!mobile && <span>{translate("system.label")}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => handleSystemInfoToggle("tools", mobile)}
-          disabled={mobile && !showChat}
-          title={translate("tools.title")}
-          aria-label={translate("tools.title")}
-          aria-pressed={activeTopPanel === "tools"}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "tools" ? "var(--bg-selected)" : "none",
-            border: "none",
-            borderTop: activeTopPanel === "tools" ? "2px solid var(--accent)" : "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "tools" ? "var(--text)" : "var(--text-muted)",
-            opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "tools" ? "var(--text)" : "var(--text-muted)";
-          }}
-          data-mobile-toolbar-action={mobile ? "tools" : undefined}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemTools?.some((tool) => tool.active) ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z" />
-          </svg>
-          {!mobile && <span>{translate("tools.label")}</span>}
-        </button>
       </div>
     );
   };
