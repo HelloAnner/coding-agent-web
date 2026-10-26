@@ -7,6 +7,7 @@ import {
   mergeHostList,
   nextBuildArgs,
   nextStartArgs,
+  otherDistDir,
   parseEnvAssignmentFile,
   probeHost,
   resolveWebPassword,
@@ -16,6 +17,12 @@ import {
 test("builds with webpack and serves that build", () => {
   assert.deepEqual(nextBuildArgs(), ["build", "--webpack"]);
   assert.deepEqual(nextStartArgs("0.0.0.0", "20169"), ["start", "-H", "0.0.0.0", "-p", "20169"]);
+});
+
+test("moves a restart to the build dir the running server is not serving", () => {
+  assert.equal(otherDistDir(".next-common"), ".next-common-b");
+  assert.equal(otherDistDir(".next-common-b"), ".next-common");
+  assert.equal(otherDistDir("gone"), ".next-common");
 });
 
 test("probes loopback when the bind address is every interface", () => {

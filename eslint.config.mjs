@@ -3,7 +3,7 @@ import typescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
   // The demo has its own config; production output is not source code.
-  { ignores: ["demo/**", ".next-common/**"] },
+  { ignores: ["demo/**", ".next-common*/**"] },
   ...coreWebVitals,
   ...typescript,
   {

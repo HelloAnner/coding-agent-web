@@ -9,7 +9,12 @@ const runDir = path.join(root, ".run");
 const pidFile = path.join(runDir, "server.pid");
 const logFile = path.join(runDir, "server.log");
 const envFile = path.join(root, ".env.local");
-const distDir = ".next-common";
+// Two build dirs, alternating. A restart compiles into the one the running
+// server is not serving from, so the live app is untouched while webpack runs
+// and the swap costs one stop plus one start. Keeping both keeps each one's
+// webpack cache warm for its next turn.
+const distDirs = [".next-common", ".next-common-b"];
+const distStateFile = path.join(runDir, "dist");
 const host = process.env.PI_WEB_HOST || "0.0.0.0";
 const port = process.env.PI_WEB_PORT || "20169";
 const openHost = probeHost(host);
@@ -162,6 +167,24 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function seconds(since) {
+  return `${((Date.now() - since) / 1000).toFixed(1)}s`;
+}
+
+function readDistDir() {
+  try {
+    const value = fs.readFileSync(distStateFile, "utf8").trim();
+    if (distDirs.includes(value)) return value;
+  } catch {
+    // first run, or the state file was removed
+  }
+  return distDirs[0];
+}
+
+export function otherDistDir(value) {
+  return value === distDirs[0] ? distDirs[1] : distDirs[0];
+}
+
 function readPid() {
   try {
     const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
@@ -262,25 +285,11 @@ async function waitUntilReady(pid) {
   process.exit(1);
 }
 
-async function start() {
-  fs.mkdirSync(runDir, { recursive: true });
-  const existing = readPid();
-  if (existing && pidAlive(existing)) {
-    console.log("already running");
-    await waitUntilReady(existing);
-    return;
-  }
-  if (existing) fs.rmSync(pidFile, { force: true });
-
+function prepareEnv() {
   const password = loadPassword();
   if (!isLoopbackBind(host) && password.length === 0) {
     console.error("refusing to listen outside loopback without PI_WEB_PASSWORD");
     console.error("put it in the environment or in .env.local");
-    process.exit(1);
-  }
-
-  if (await listening()) {
-    console.error(`${probeUrl} is already in use`);
     process.exit(1);
   }
   if (!fs.existsSync(nextBin)) {
@@ -301,33 +310,37 @@ async function start() {
   const childEnv = {
     ...process.env,
     NODE_ENV: "production",
-    PI_WEB_DIST_DIR: distDir,
     PI_WEB_HOSTNAME: host,
   };
   if (allowedHosts) childEnv.PI_WEB_ALLOWED_HOSTS = allowedHosts;
   if (password.length > 0) childEnv.PI_WEB_PASSWORD = password;
+  return childEnv;
+}
 
+function buildInto(distDir, baseEnv) {
   // If `next dev` ever ran against this dist dir it left dev/types behind, and
   // `next build` never refreshes them. A stale validator.ts then fails the
   // production type check as soon as a route moves, so drop them before building.
   fs.rmSync(path.join(root, distDir, "dev"), { recursive: true, force: true });
 
-  console.log("building");
+  console.log(`building ${distDir}`);
+  const startedAt = Date.now();
   const built = spawnSync(process.execPath, [nextBin, ...nextBuildArgs()], {
     cwd: root,
-    env: childEnv,
+    env: { ...baseEnv, PI_WEB_DIST_DIR: distDir },
     stdio: "inherit",
   });
-  if (!built || built.status !== 0) {
-    console.error("build failed");
-    process.exit(built?.status || 1);
-  }
+  if (!built || built.status !== 0) return false;
+  console.log(`built ${distDir} in ${seconds(startedAt)}`);
+  return true;
+}
 
+async function launch(distDir, baseEnv) {
   const logFd = fs.openSync(logFile, "w");
   const child = spawn(process.execPath, [nextBin, ...nextStartArgs(host, port)], {
     cwd: root,
     detached: true,
-    env: childEnv,
+    env: { ...baseEnv, PI_WEB_DIST_DIR: distDir },
     stdio: ["ignore", logFd, logFd],
   });
   fs.closeSync(logFd);
@@ -338,6 +351,53 @@ async function start() {
   }
   fs.writeFileSync(pidFile, `${child.pid}\n`);
   await waitUntilReady(child.pid);
+  fs.writeFileSync(distStateFile, `${distDir}\n`);
+}
+
+async function start() {
+  fs.mkdirSync(runDir, { recursive: true });
+  const existing = readPid();
+  if (existing && pidAlive(existing)) {
+    console.log("already running");
+    await waitUntilReady(existing);
+    return;
+  }
+  if (existing) fs.rmSync(pidFile, { force: true });
+
+  const childEnv = prepareEnv();
+  if (await listening()) {
+    console.error(`${probeUrl} is already in use`);
+    process.exit(1);
+  }
+
+  const distDir = readDistDir();
+  if (!buildInto(distDir, childEnv)) {
+    console.error("build failed");
+    process.exit(1);
+  }
+  await launch(distDir, childEnv);
+}
+
+// Build first, swap second. The running server keeps serving its own build
+// while the new one compiles into the other dist dir, so a failed build leaves
+// production alone and the downtime is one stop plus one start.
+async function restart() {
+  fs.mkdirSync(runDir, { recursive: true });
+  const childEnv = prepareEnv();
+  const pid = readPid();
+  const running = Boolean(pid && pidAlive(pid)) || (await listening());
+  const distDir = running ? otherDistDir(readDistDir()) : readDistDir();
+
+  if (!buildInto(distDir, childEnv)) {
+    console.error("build failed");
+    if (running) console.error("the running server was left alone on its old build");
+    process.exit(1);
+  }
+
+  const swappingAt = Date.now();
+  if (running) await stop();
+  await launch(distDir, childEnv);
+  console.log(`downtime ${seconds(swappingAt)}`);
 }
 
 async function stop() {
@@ -371,8 +431,7 @@ if (invokedDirectly) {
   } else if (command === "stop") {
     await stop();
   } else if (command === "restart") {
-    await stop();
-    await start();
+    await restart();
   } else {
     console.error("usage: node scripts/serve.mjs start|stop|restart");
     process.exit(1);
