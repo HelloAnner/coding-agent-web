@@ -8,7 +8,7 @@ import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { splitNoticeText } from "@/lib/notice-text";
 import { EXTENSION_DIALOG_BASE_WIDTH, fitExtensionDialogWidth } from "@/lib/extension-dialog-fit";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { collapsesProcessDetails, countToolCallBlocks, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { collapsesProcessDetails, countToolCallBlocks, endsAssistantResponse, findMessageGroupEnd, getDisplayableAssistantBlocks, hasAssistantAnswer, isHiddenCustomMessage, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/lib/turn-views";
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
@@ -1228,7 +1228,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 const hasAnchor = isMessageGroupAnchor(msg);
-                if (!hasAnchor && idx !== 0) {
+                if (!hasAnchor && idx !== 0 && !endsAssistantResponse(messages[idx - 1])) {
                   rendered.push(renderMessage(idx));
                   idx += 1;
                   continue;
@@ -1237,10 +1237,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // The first history page starts at a fixed entry count, so a turn
                 // longer than that page begins without its anchor. Group the
                 // leading segment anyway instead of flattening the whole turn.
-                const userIdx = hasAnchor ? idx : -1;
-                const groupStartIdx = hasAnchor ? idx : 0;
-                let endIdx = idx + 1;
-                while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
+                const userIdx = hasAnchor ? idx : idx - 1;
+                const groupStartIdx = idx;
+                const endIdx = findMessageGroupEnd(messages, idx);
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
 
@@ -1252,7 +1251,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx >= lastAnchorIdx;
                 if (isLiveTail) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));

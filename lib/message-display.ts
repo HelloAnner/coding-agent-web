@@ -138,6 +138,21 @@ export function splitFinalAssistantBlocks(
   };
 }
 
+export function endsAssistantResponse(message: AgentMessage | undefined): boolean {
+  return message?.role === "assistant"
+    && message.provider === "claude-code"
+    && message.stopReason === "end_turn"
+    && splitFinalAssistantBlocks(message).answerBlocks.some((block) => (
+      block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
+    ));
+}
+
+export function findMessageGroupEnd(messages: AgentMessage[], start: number): number {
+  let end = start + 1;
+  while (end < messages.length && !isMessageGroupAnchor(messages[end]) && !endsAssistantResponse(messages[end - 1])) end += 1;
+  return end;
+}
+
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
 }

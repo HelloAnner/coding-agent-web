@@ -50,6 +50,10 @@ export function claudeResultContent(raw: unknown): ToolResultMessage["content"] 
   });
 }
 
+export function claudeStopReason(raw: unknown): string | undefined {
+  return typeof raw === "string" ? raw === "max_tokens" ? "length" : raw : undefined;
+}
+
 export function claudeUsage(raw: unknown): AssistantMessage["usage"] {
   const usage = object(raw);
   if (!Object.keys(usage).length) return undefined;
@@ -78,7 +82,7 @@ export function claudeRecordMessages(record: Record<string, unknown>, toolNames:
     const content = claudeAssistantContent(message.content);
     for (const block of content) if (block.type === "toolCall") toolNames.set(block.toolCallId, block.toolName);
     if (!content.length) return [];
-    return [{ role: "assistant", content, nativeId: String(message.id ?? nativeId), model: String(message.model ?? "claude-code"), provider: "claude-code", usage: claudeUsage(message.usage), timestamp }];
+    return [{ role: "assistant", content, nativeId: String(message.id ?? nativeId), model: String(message.model ?? "claude-code"), provider: "claude-code", stopReason: claudeStopReason(message.stop_reason), usage: claudeUsage(message.usage), timestamp }];
   }
   if (record.type !== "user") return [];
   const results = Array.isArray(message.content) ? message.content.filter((block) => object(block).type === "tool_result") : [];
@@ -133,6 +137,7 @@ export function parseClaudeTranscript(text: string, includeSidechain = false): C
         if (typeof index === "number") previous.content.splice(index, message.content.length, ...message.content);
         else previous.content.push(...message.content);
         if (message.usage) previous.usage = message.usage;
+        if (message.stopReason) previous.stopReason = message.stopReason;
       } else messages.push(message);
     }
   }

@@ -1,7 +1,7 @@
 import type { AgentEventLike } from "../../lib/agent-event-wire";
 import type { AssistantMessage } from "../../lib/types";
 import { object } from "./index";
-import { claudeAssistantContent, claudeRecordMessages, claudeUsage, type ClaudeMessage } from "./transcript";
+import { claudeAssistantContent, claudeRecordMessages, claudeStopReason, claudeUsage, type ClaudeMessage } from "./transcript";
 
 /** Native CLI events projected onto the chat's existing wire vocabulary. */
 export class ClaudeEventMapper {
@@ -37,12 +37,13 @@ export class ClaudeEventMapper {
         const prior = id === this.lastAssistantId ? this.lastAssistant : null;
         const combined = prior ? [...prior.content] : [];
         for (const block of content) if (!combined.some((existing) => JSON.stringify(existing) === JSON.stringify(block))) combined.push(block);
-        this.message = { role: "assistant", nativeId: id, content: combined, model: String(raw.model ?? "claude-code"), provider: "claude-code", timestamp: Date.now(), usage: claudeUsage(raw.usage) };
+        this.message = { role: "assistant", nativeId: id, content: combined, model: String(raw.model ?? "claude-code"), provider: "claude-code", timestamp: Date.now(), stopReason: claudeStopReason(raw.stop_reason) ?? prior?.stopReason, usage: claudeUsage(raw.usage) };
         this.emit({ type: "message_start", message: this.message });
         this.endAssistant();
       } else {
         if (content.length > 1) this.message.content = content;
         else if (content.length) this.message.content[this.blockIndex] = content[0];
+        this.message.stopReason = claudeStopReason(raw.stop_reason) ?? this.message.stopReason;
         this.message.usage = claudeUsage(raw.usage) ?? this.message.usage;
         this.startTools();
       }
@@ -118,7 +119,8 @@ export class ClaudeEventMapper {
       }
     } else if (event.type === "message_delta") {
       const delta = object(event.delta);
-      if (typeof delta.stop_reason === "string") this.message.stopReason = delta.stop_reason === "max_tokens" ? "length" : delta.stop_reason;
+      const stopReason = claudeStopReason(delta.stop_reason);
+      if (stopReason) this.message.stopReason = stopReason;
       if (event.usage && this.message.usage) this.message.usage.output = Number(object(event.usage).output_tokens ?? this.message.usage.output);
     } else if (event.type === "message_stop") this.endAssistant();
   }
