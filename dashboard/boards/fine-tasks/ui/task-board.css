@@ -1,0 +1,237 @@
+/* Uses the coding page's surfaces, controls and table density. */
+.task-board {
+  width: 100%;
+  min-width: 0;
+  padding: 20px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.task-board[hidden] { display: none; }
+
+.task-board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-board-search { flex: 1 1 220px; }
+
+.task-board-toolbar input,
+.task-board-toolbar select {
+  height: 32px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.task-board-toolbar input { width: 100%; }
+.task-board-toolbar input::placeholder { color: var(--text-dim); }
+.task-board-toolbar select { max-width: 200px; }
+
+.task-board-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.task-board-button:not(:disabled):hover,
+.task-board-copy:not(:disabled):hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.task-board button:disabled { cursor: default; opacity: 0.5; }
+
+.task-board :is(button, input, select, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-board-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin: 12px 0 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-board-error {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.task-board-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.task-board-table {
+  width: 100%;
+  min-width: 1020px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-board-table :is(th, td) {
+  max-width: 240px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.task-board-table th {
+  padding: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.task-board-table th button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-board-table th button:hover { background: var(--bg-hover); }
+.task-board-table th button span { color: var(--text-dim); font-weight: 400; }
+.task-board-table tbody tr:last-child td { border-bottom: 0; }
+.task-board-table tbody tr:nth-child(even) td { background: var(--bg-subtle); }
+.task-board-table tbody tr:hover td { background: var(--bg-hover); }
+.task-board-title-cell { width: 30%; min-width: 260px; }
+
+.task-board-task-title {
+  max-width: calc(100% - 32px);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.task-board-task-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.task-board-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.task-board-table .task-board-number { text-align: right; }
+.task-board-table .task-board-empty { padding: 40px 16px; color: var(--text-dim); text-align: center; }
+.task-board-copy-feedback { min-height: 18px; margin: 8px 0 0; color: var(--text-muted); }
+
+.task-board-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+}
+
+.task-board-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+.task-board-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.task-board-dialog h2 { margin: 4px 0 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.task-board-dialog h3 { margin: 20px 0 8px; font-size: 12px; font-weight: 600; }
+.task-board-dialog-body { padding: 16px 20px; }
+.task-board-fields { margin: 0; }
+.task-board-fields > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 6px 0; }
+.task-board-fields dt { color: var(--text-muted); overflow-wrap: anywhere; }
+.task-board-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-board-description { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-board-dialog-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border); color: var(--text-muted); }
+
+.task-board-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 640px) {
+  .task-board { padding: 12px; }
+  .task-board-search { flex-basis: 100%; }
+  .task-board-toolbar > label:not(.task-board-search) { flex: 1 1 100px; min-width: 0; }
+  .task-board-toolbar select { width: 100%; max-width: 100%; }
+  .task-board-dialog-header, .task-board-dialog-body, .task-board-dialog-footer { padding-left: 14px; padding-right: 14px; }
+  .task-board-fields > div { grid-template-columns: 80px minmax(0, 1fr); }
+}

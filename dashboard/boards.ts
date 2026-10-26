@@ -2,7 +2,7 @@
  * The dashboard's boards, hardcoded here: there is no way to create one at
  * runtime. The sidebar renders this tree; the main area picks its board by id.
  */
-export type DashboardBoardId = "overview" | "memory" | "load" | "host" | "requests";
+export type DashboardBoardId = "overview" | "memory" | "load" | "host" | "requests" | "fine-tasks";
 
 export interface DashboardBoard {
   id: DashboardBoardId;
@@ -13,9 +13,16 @@ export interface DashboardGroup {
   id: string;
   label: string;
   boards: readonly DashboardBoard[];
+  parentLabel?: string;
 }
 
 export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
+  {
+    id: "fine",
+    label: "Fine",
+    parentLabel: "工作",
+    boards: [{ id: "fine-tasks", label: "任务看板" }],
+  },
   {
     id: "system",
     label: "System",

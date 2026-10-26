@@ -7,6 +7,9 @@ export function registerNodeInstrumentation(): void {
   // configured. Without it the built-in five minutes aborts a provider stream
   // that stays quiet for longer, which a CLI session tolerates.
   configureHttpDispatcher(readHttpIdleTimeoutMs());
+  import("@/dashboard/boards/fine-tasks/sync")
+    .then(({ startTaskRefresh }) => startTaskRefresh())
+    .catch(() => {});
 
   // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
   // for every connection to end, without a timeout. SSE streams only end when

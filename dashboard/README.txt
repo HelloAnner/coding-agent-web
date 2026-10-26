@@ -7,7 +7,8 @@ dashboard 独立应用
 
   dashboard/
     boards.ts                左侧树：分组与看板，全部硬编码
-    server.mjs               自己的后端，只依赖 Node 内置模块
+    boards/fine-tasks/        任务看板：CLI、同步、独立表、接口、UI、测试
+    server.mjs               系统看板的后端，只依赖 Node 内置模块
     server.d.mts             只给 Next 接口层用的类型
     ui/DashboardApp.tsx      看板视图：左侧树 + 右侧内容
     ui/dashboard.css         只放 dashboard 自己的布局，颜色与字体沿用 shell

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppSwitcher } from "@/components/AppSwitcher";
+import { TaskBoard } from "../boards/fine-tasks/ui/TaskBoard";
 import type { WebApp } from "@/lib/apps";
 import {
   DASHBOARD_BOARDS,
@@ -407,13 +408,14 @@ export function DashboardApp({
     () => DASHBOARD_GROUPS
       .map((group) => ({
         ...group,
-        boards: group.boards.filter((item) => !normalizedQuery || item.label.toLowerCase().includes(normalizedQuery)),
+        boards: group.boards.filter((item) => !normalizedQuery || `${group.parentLabel ?? ""} ${group.label} ${item.label}`.toLowerCase().includes(normalizedQuery)),
       }))
       .filter((group) => group.boards.length > 0),
     [normalizedQuery],
   );
 
   const metaFor = (item: DashboardBoard): string => {
+    if (item.id === "fine-tasks") return "Meegle";
     if (!overview) return "—";
     if (item.id === "memory") return `${overview.memory.percent.toFixed(1)}%`;
     if (item.id === "load") return overview.load[0].toFixed(2);
@@ -481,6 +483,7 @@ export function DashboardApp({
                 const expanded = normalizedQuery.length > 0 || openGroups[group.id] !== false;
                 return (
                   <div key={group.id}>
+                    {group.parentLabel && <div className="session-tree-row session-tree-group dashboard-tree-row"><span className="session-tree-group-name">{group.parentLabel}</span></div>}
                     <div className="session-tree-row session-tree-group dashboard-tree-row">
                       <button
                         type="button"
@@ -547,15 +550,15 @@ export function DashboardApp({
             <MenuIcon />
           </button>
           <span className="dashboard-board-title">{board.label}</span>
-          <span className="dashboard-status" title={overview ? new Date(overview.generatedAt).toLocaleString() : undefined}>
+          {boardId !== "fine-tasks" && <span className="dashboard-status" title={overview ? new Date(overview.generatedAt).toLocaleString() : undefined}>
             <span className={`dashboard-status-dot${status === "live" ? " is-live" : status === "offline" ? " is-offline" : ""}`} />
             {statusText}
             {overview ? ` · ${formatClock(overview.generatedAt)}` : ""}
-          </span>
+          </span>}
         </header>
         <div className="dashboard-content">
           <div className="dashboard-board">
-            <BoardContent boardId={boardId} overview={overview} history={history} />
+            {boardId === "fine-tasks" ? <TaskBoard active={active} /> : <BoardContent boardId={boardId} overview={overview} history={history} />}
           </div>
         </div>
       </main>
