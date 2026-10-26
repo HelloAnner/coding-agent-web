@@ -2616,10 +2616,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      maxWidth: 96,
                       height: 32,
                       padding: isMobile ? "8px 10px" : "8px 12px",
-                      overflow: "hidden",
                       border: "none",
                       borderRadius: 9,
                       background: harnessMenuOpen ? "var(--bg-hover)" : "none",
@@ -2644,7 +2642,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       event.currentTarget.style.color = "var(--text-muted)";
                     }}
                   >
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shownHarnessLabel}</span>
+                    <span style={{ whiteSpace: "nowrap" }}>{shownHarnessLabel}</span>
                   </button>
                   {harnessMenuOpen && !harnessLocked && (
                     <div

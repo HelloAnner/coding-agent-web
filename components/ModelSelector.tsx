@@ -155,10 +155,10 @@ export function ModelSelector({
         justifyContent: isMobile ? "flex-start" : undefined,
         gap: 6,
         width: isMobile ? "100%" : undefined,
-        maxWidth: isMobile ? "100%" : 220,
+        maxWidth: isMobile ? "100%" : undefined,
         height: 32,
         padding: isMobile ? "8px 10px" : "8px 12px",
-        overflow: "hidden",
+        overflow: isMobile ? "hidden" : "visible",
         border: "none",
         borderRadius: 9,
         background: open ? "var(--bg-hover)" : "none",
@@ -242,7 +242,15 @@ export function ModelSelector({
             <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
           </svg>
         )}
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentName}</span>
+        <span style={{
+          flex: 1,
+          minWidth: 0,
+          // The toolbar grows with its name on desktop; a phone keeps the
+          // ellipsis so the composer row still fits.
+          overflow: variant === "field" || isMobile ? "hidden" : "visible",
+          textOverflow: variant === "field" || isMobile ? "ellipsis" : "clip",
+          whiteSpace: "nowrap",
+        }}>{currentName}</span>
         {variant === "field" && (
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
             <polyline points="6 9 12 15 18 9" />
