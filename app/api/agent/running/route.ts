@@ -7,6 +7,7 @@ import {
 } from "@/lib/rpc-manager";
 import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 import { catalogListVersion } from "@/lib/catalog-db";
+import { dshRunningIds } from "@/harness/dsh/runtime";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function GET() {
     {
       sessionListVersion: getSessionListVersion(),
       catalogListVersion: readCatalogListVersion(),
-      runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds()],
+      runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds(), ...dshRunningIds()],
       awaitingInputSessionIds: [...getAwaitingInputRpcSessionIds(), ...claudeAwaitingInputIds()],
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       sessionUiStateRevision: getSessionUiStateRevision(),

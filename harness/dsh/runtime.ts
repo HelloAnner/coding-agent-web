@@ -121,6 +121,10 @@ export function isDshRunning(sessionId: string): boolean {
   return registry().get(sessionId)?.isStreaming === true;
 }
 
+export function dshRunningIds(): string[] {
+  return [...registry().values()].filter((run) => run.isStreaming).map((run) => run.sessionId);
+}
+
 /** The ACP model option is the route, encoded as `[provider, model]`. */
 function modelValue(provider: string, model: string): string {
   return JSON.stringify([provider, model]);
@@ -152,7 +156,9 @@ async function openAcpSession(run: DshSession, prompt: DshPrompt): Promise<void>
   let state: AcpSessionState;
   if (resumeId) {
     try {
-      state = await client.request<AcpSessionState>("session/resume", { sessionId: resumeId, ...params });
+      // ACP resume returns config options, not a new session identity.
+      const resumed = await client.request<Omit<AcpSessionState, "sessionId">>("session/resume", { sessionId: resumeId, ...params });
+      state = { ...resumed, sessionId: resumeId };
       run.sessionPath = prompt.sessionPath ?? null;
     } catch (error) {
       throw new Error(
@@ -185,12 +191,19 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
   if (run.isStreaming) throw new Error("dsh is already answering in this chat");
   if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
 
-  const client = dshKernel();
-  await client.ready();
-  await openAcpSession(run, prompt);
-
   run.isStreaming = true;
   run.aborted = false;
+  run.replay.length = 0;
+  const client = dshKernel();
+  try {
+    await client.ready();
+    await openAcpSession(run, prompt);
+    if (run.aborted) throw new Error("dsh prompt was cancelled before it started");
+  } catch (error) {
+    run.isStreaming = false;
+    throw error;
+  }
+
   run.model = prompt.model ?? "";
   run.publish({ type: "agent_start" });
 
@@ -232,9 +245,9 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
 
 export function abortDshPrompt(sessionId: string): boolean {
   const run = registry().get(sessionId);
-  if (!run?.isStreaming || !run.acpSessionId) return false;
+  if (!run?.isStreaming) return false;
   run.aborted = true;
-  dshKernel().notify("session/cancel", { sessionId: run.acpSessionId });
+  if (run.acpSessionId) dshKernel().notify("session/cancel", { sessionId: run.acpSessionId });
   return true;
 }
 

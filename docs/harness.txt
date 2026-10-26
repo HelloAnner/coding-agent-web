@@ -3,6 +3,7 @@
 
 本文件记录本项目的 harness 定位、实际接入能力和经验。新增 harness 先补这里，
 不要只登记一个名字或接通一个模型 API。Claude Code 的配置细节见 docs/claude-code.txt。
+新增接入的逐项自检、生命周期与验收矩阵见 docs/harness-checklist.txt。
 
 代码按 harness 纵向隔离
 ----------------------

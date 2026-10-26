@@ -120,9 +120,13 @@ class AcpClient {
     const pending = this.pending.get(id);
     if (!pending) return;
     this.pending.delete(id);
-    const error = message.error as { message?: string } | undefined;
-    if (error) pending.reject(new Error(error.message || "dsh refused the request"));
-    else pending.resolve(message.result);
+    const error = message.error as { message?: string; data?: unknown } | undefined;
+    if (error) {
+      const detail = typeof error.data === "string"
+        ? error.data
+        : error.data == null ? "" : JSON.stringify(error.data);
+      pending.reject(new Error([error.message || "dsh refused the request", detail].filter(Boolean).join(": ")));
+    } else pending.resolve(message.result);
   }
 
   /** The kernel's only client request is a tool permission; the web allows once. */
