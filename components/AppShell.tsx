@@ -93,6 +93,8 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
+// A new chat names itself once its first message has had time to land.
+const AUTO_NAME_AFTER_FIRST_MESSAGE_MS = 10_000;
 const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
@@ -465,6 +467,7 @@ export function AppShell() {
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoNameOnFirstMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
   activeSessionIdRef.current = selectedSession?.id ?? null;
   const handleSessionStatsChange = useCallback((stats: SessionStatsInfo | null) => {
@@ -484,6 +487,7 @@ export function AppShell() {
     return () => {
       if (sessionCopyTimerRef.current) clearTimeout(sessionCopyTimerRef.current);
       if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
+      if (autoNameOnFirstMessageTimerRef.current) clearTimeout(autoNameOnFirstMessageTimerRef.current);
     };
   }, []);
 
@@ -1167,6 +1171,13 @@ export function AppShell() {
       } catch {
         // The chat stays open. The next list load shows the row once the write lands.
       }
+      // A brand new chat names itself after its first message. Same request as
+      // the toolbar button, just fired without a click.
+      if (autoNameOnFirstMessageTimerRef.current) clearTimeout(autoNameOnFirstMessageTimerRef.current);
+      autoNameOnFirstMessageTimerRef.current = setTimeout(() => {
+        autoNameOnFirstMessageTimerRef.current = null;
+        void requestAutoNameRef.current(session.id);
+      }, AUTO_NAME_AFTER_FIRST_MESSAGE_MS);
       if (activeNewSessionDraftKeyRef.current !== sourceDraftKey) return;
       invalidateWorkspaceRestore();
       activeNewSessionDraftKeyRef.current = null;
@@ -1297,12 +1308,12 @@ export function AppShell() {
     });
   }, [deliverSessionNotification, selectedSession, translate]);
 
-  const handleAutoName = useCallback(async () => {
-    const sessionId = selectedSession?.id;
-    if (!sessionId || autoNameStatus.kind === "naming") return;
+  // One title request for one session, from the toolbar or from a new chat's
+  // own first message. The status only shows on the chat that is on screen.
+  const requestAutoName = useCallback(async (sessionId: string) => {
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
-    setActiveTopPanel(null);
-    setAutoNameStatus({ kind: "naming" });
+    const isActive = () => activeSessionIdRef.current === sessionId;
+    if (isActive()) setAutoNameStatus({ kind: "naming" });
 
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/auto-name`, {
@@ -1315,18 +1326,27 @@ export function AppShell() {
 
       const title = body.title.trim();
       setRefreshKey((key) => key + 1);
-      if (activeSessionIdRef.current !== sessionId) return;
+      if (!isActive()) return;
       setSelectedSession((current) => current?.id === sessionId ? { ...current, name: title } : current);
       setSessionStats((current) => current?.sessionId === sessionId ? { ...current, sessionName: title } : current);
       setAutoNameStatus({ kind: "success" });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 1800);
     } catch (error) {
-      if (activeSessionIdRef.current !== sessionId) return;
+      if (!isActive()) return;
       const message = error instanceof Error ? error.message : String(error);
       setAutoNameStatus({ kind: "error", message });
       autoNameTimerRef.current = setTimeout(() => setAutoNameStatus({ kind: "idle" }), 5000);
     }
-  }, [autoNameStatus.kind, selectedSession?.id]);
+  }, []);
+  const requestAutoNameRef = useRef(requestAutoName);
+  requestAutoNameRef.current = requestAutoName;
+
+  const handleAutoName = useCallback(async () => {
+    const sessionId = selectedSession?.id;
+    if (!sessionId || autoNameStatus.kind === "naming") return;
+    setActiveTopPanel(null);
+    await requestAutoName(sessionId);
+  }, [autoNameStatus.kind, requestAutoName, selectedSession?.id]);
 
   useEffect(() => {
     if (autoNameTimerRef.current) clearTimeout(autoNameTimerRef.current);
