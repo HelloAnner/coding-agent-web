@@ -1,21 +1,26 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
-import { webAppForPath, WEB_APPS } from "@/lib/apps";
+import { WEB_APPS, type WebApp } from "@/lib/apps";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { SidebarMenu, type SidebarMenuAnchor } from "./SidebarMenu";
 import { ChevronIcon } from "./SidebarIcons";
 
 /**
- * The sidebar's brand: the app in view, with a menu of the apps this server
- * hosts. Choosing one opens its page (a full navigation: each app is its own
- * frontend).
+ * The brands' shared control: the app in view, with a menu of the apps this
+ * server hosts. Switching is the shell's (no navigation: the other app is a
+ * view beside this one).
  */
-export function AppSwitcher({ onWidthChange }: { onWidthChange?: () => void }) {
+export function AppSwitcher({
+  current,
+  onSwitch,
+  onWidthChange,
+}: {
+  current: WebApp;
+  onSwitch: (app: WebApp) => void;
+  onWidthChange?: () => void;
+}) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
-  const pathname = usePathname();
-  const current = webAppForPath(pathname ?? "/");
   const [anchor, setAnchor] = useState<SidebarMenuAnchor | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -63,8 +68,7 @@ export function AppSwitcher({ onWidthChange }: { onWidthChange?: () => void }) {
           label: app.label,
           checked: app.id === current.id,
           onSelect: () => {
-            if (app.id === current.id) return;
-            window.location.assign(app.href);
+            if (app.id !== current.id) onSwitch(app);
           },
         }))}
         onClose={() => setAnchor(null)}

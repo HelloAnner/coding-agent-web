@@ -1,27 +1,30 @@
 dashboard 独立应用
 
-结构
+机制
+  Coding 与 Dashboard 共用 app/(apps)/layout.tsx 里的同一个 AppShell。
+  切换只改显示与 URL，不刷新、不卸载另一个应用；两个页面本身是空的。
+  侧边栏树与看板内容都由本目录提供。
+
   dashboard/
-    index.html   页面骨架，{{styles}} 与 {{script}} 是注入位置
-    styles.css   独立样式，不引用主项目 CSS
-    app.js       独立前端，轮询自己的接口
-    server.mjs   独立后端，自带数据与独立 HTTP 服务
-    server.d.mts 只给 Next 适配层用的类型
-    fonts/       与 coding 一致的 Noto Sans Mono（OFL），内嵌进页面
+    boards.ts                左侧树：分组与看板，全部硬编码
+    server.mjs               自己的后端，只依赖 Node 内置模块
+    server.d.mts             只给 Next 接口层用的类型
+    ui/DashboardApp.tsx      看板视图：左侧树 + 右侧内容
+    ui/dashboard.css         只放 dashboard 自己的布局，颜色与字体沿用 shell
 
-接入方式
-  /dashboard                    Next 适配层，返回拼好的整页 HTML
-  /api/dashboard/overview       Next 适配层，调用 server.mjs 的 dashboardOverview()
+  左侧树直接复用 coding 侧边栏的 .session-tree 样式，所以行高、字号、
+  缩进、选中态和右侧 meta 的密度与 coding 一致。
 
-  Next 的接入文件只有下面两个，各自几行：
-    app/dashboard/route.ts
-    app/api/dashboard/overview/route.ts
+路由
+  /                                     Coding
+  /dashboard                            概览
+  /dashboard?board=memory|load|host|requests
 
-独立运行
-  node dashboard/server.mjs
-  打开 http://127.0.0.1:4310/dashboard
+接入
+  页面    app/(apps)/layout.tsx               AppShell 与两个应用
+          app/(apps)/dashboard/page.tsx       看板路由与标题
+  接口    app/api/dashboard/overview          调用 server.mjs 的 dashboardOverview()
 
 边界
-  不 import 主项目的 components / lib / hooks。
-  前端只用原生 HTML + CSS + JS。
-  后端只依赖 Node 内置模块。
+  UI 不 import coding 的组件与业务代码，只复用 shell 的 AppSwitcher 和
+  全局样式类；看板内容与数据都来自 dashboard/ 自己。

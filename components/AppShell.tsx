@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileBrowserPane } from "./FileBrowserPane";
+import { DashboardApp } from "@/dashboard/ui/DashboardApp";
+import { WEB_APPS, webAppForPath, type WebApp } from "@/lib/apps";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
@@ -135,8 +137,26 @@ function lastAgentTabId(tabs: readonly { sessionId: string }[]): string | null {
 }
 
 export function AppShell() {
-  const router = useRouter();
+  const nextRouter = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  // The app in view is a view of this shell, not another page: both stay
+  // mounted, so switching loses no chat, file or dashboard state.
+  const [activeAppId, setActiveAppId] = useState<WebApp["id"]>(() => webAppForPath(pathname ?? "/").id);
+  const activeApp = WEB_APPS.find((app) => app.id === activeAppId) ?? WEB_APPS[0];
+  const activeAppIdRef = useRef<WebApp["id"]>(activeAppId);
+  activeAppIdRef.current = activeAppId;
+  // The coding app writes its session and cwd into the query as it goes.
+  // Those writes belong to the coding route: while the dashboard is the app
+  // in view, the hidden coding side must not touch the dashboard's URL.
+  const router = useMemo(() => ({
+    ...nextRouter,
+    replace: (href: string, options?: { scroll?: boolean }) => {
+      if (activeAppIdRef.current === "coding") nextRouter.replace(href, options);
+    },
+  }), [nextRouter]);
+  const codingUrlRef = useRef<string | null>(null);
+  const dashboardUrlRef = useRef<string | null>(null);
   const [initialNavigation, setInitialNavigation] = useState(() => getInitialNavigation(searchParams));
   // Keep the system-theme subscription mounted for the lifetime of the app.
   useTheme();
@@ -564,6 +584,52 @@ export function AppShell() {
     setActiveTopPanel(null);
     setRightPanelExpanded((expanded) => !expanded);
   }, []);
+
+  // Both apps are mounted in this shell. A switch shows the other one at
+  // once and lets the shared layout's route change catch the URL up; the
+  // window never reloads and the shell never remounts.
+  const switchApp = useCallback((app: WebApp) => {
+    if (app.id === activeAppId) return;
+    const nextUrl = app.id === "coding"
+      ? (codingUrlRef.current ?? "/")
+      : (dashboardUrlRef.current ?? "/dashboard");
+    // Before the navigation: the app being left must not write the URL again.
+    activeAppIdRef.current = app.id;
+    setActiveAppId(app.id);
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+    nextRouter.push(nextUrl, { scroll: false });
+  }, [activeAppId, nextRouter]);
+
+  // The route and the view follow each other: a soft navigation (the
+  // switcher, Back/Forward) updates the pathname, and with it the app shown.
+  useEffect(() => {
+    const id = webAppForPath(pathname ?? "/").id;
+    activeAppIdRef.current = id;
+    setActiveAppId(id);
+  }, [pathname]);
+
+  // Each app remembers its last URL: the coding side's session and cwd, the
+  // dashboard's board. Switching back lands where the user left.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = `${window.location.pathname}${window.location.search}`;
+    if (webAppForPath(window.location.pathname).id === "coding") codingUrlRef.current = url;
+    else dashboardUrlRef.current = url;
+  }, [pathname, searchParams]);
+
+  // The pages are empty and the shell is already here: prefetching makes the
+  // switcher's soft navigation immediate.
+  useEffect(() => {
+    nextRouter.prefetch("/");
+    nextRouter.prefetch("/dashboard");
+  }, [nextRouter]);
+
+  useEffect(() => {
+    if (activeAppId === "coding") return;
+    // Nothing under the dashboard overlay should keep a stray focus.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [activeAppId]);
 
   useEffect(() => {
     if (!mobileToolbarMoreOpen) return;
@@ -1691,7 +1757,9 @@ export function AppShell() {
   // file (or terminal) is picked; the tab bar's folder button reopens it.
   const fileBrowserShown = !isMobile || mobileFilesOpen;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Coding` : "Coding";
+  const windowTitle = activeAppId === "dashboard"
+    ? "Dashboard"
+    : activeCwdName ? `${activeCwdName} - Coding` : "Coding";
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -1724,6 +1792,8 @@ export function AppShell() {
           setRightPanelOpen(true);
           if (isMobile) setSidebarOpen(false);
         }}
+        currentApp={activeApp}
+        onSwitchApp={switchApp}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
@@ -2421,15 +2491,18 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
-      display: "flex",
-      width: "100%",
-      height: "var(--app-viewport-height, 100dvh)",
-      paddingLeft: "env(safe-area-inset-left)",
-      paddingRight: "env(safe-area-inset-right)",
-      overflow: "hidden",
-      background: "var(--bg)",
-    }}>
+    <div
+      inert={activeAppId !== "coding"}
+      style={{
+        display: "flex",
+        width: "100%",
+        height: "var(--app-viewport-height, 100dvh)",
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+        overflow: "hidden",
+        background: "var(--bg)",
+      }}
+    >
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -3121,6 +3194,11 @@ export function AppShell() {
         </div>
       </div>
     </div>
+    <DashboardApp
+      active={activeAppId === "dashboard"}
+      currentApp={activeApp}
+      onSwitchApp={switchApp}
+    />
     {settingsSection && (
       <SettingsPanel
         cwd={projectTrustCwd}

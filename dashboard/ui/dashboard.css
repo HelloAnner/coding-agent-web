@@ -1,0 +1,428 @@
+/*
+ * The dashboard view inside the coding app's shell. Colors, fonts and the
+ * tree's metrics come from the shell's tokens (app/globals.css and
+ * app/sidebar.css); this file adds only the dashboard's own layout.
+ */
+
+.dashboard-app {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.dashboard-app[hidden] {
+  display: none;
+}
+
+.dashboard-sidebar {
+  display: flex;
+  flex: 0 0 260px;
+  flex-direction: column;
+  width: 260px;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.dashboard-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The coding tree's rows are virtualized (absolute, with an inline height).
+   These are a handful of hardcoded rows: same shapes, normal flow. */
+.dashboard-tree-row {
+  position: relative;
+  right: auto;
+  left: auto;
+  height: 28px;
+  margin: 0 var(--session-tree-inset-right) 0 var(--session-tree-inset-left);
+}
+
+.dashboard-group-meta {
+  flex: none;
+  padding-right: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-row-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dashboard-sidebar-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dashboard-sidebar-footer span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-sidebar-backdrop {
+  display: none;
+}
+
+.dashboard-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+.dashboard-topbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.dashboard-menu-button {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.dashboard-menu-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.dashboard-board-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dashboard-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.dashboard-status-dot.is-live {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+}
+
+.dashboard-status-dot.is-offline {
+  background: #dc2626;
+}
+
+.dashboard-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dashboard-board {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 28px 20px 44px;
+}
+
+.dashboard-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.dashboard-card-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dashboard-card strong {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card-note {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dashboard-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.dashboard-panel header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dashboard-panel h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dashboard-panel header span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dashboard-bar {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-selected);
+}
+
+.dashboard-bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.35s ease, background 0.35s ease;
+}
+
+.dashboard-bar-fill.is-warn {
+  background: #d97706;
+}
+
+.dashboard-bar-fill.is-bad {
+  background: #dc2626;
+}
+
+.dashboard-panel-note {
+  margin: 9px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.dashboard-spark {
+  display: block;
+  width: 100%;
+  height: 62px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.dashboard-spark path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-load-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.dashboard-load-row span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dashboard-load-row strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dashboard-host-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 24px;
+  margin: 0;
+}
+
+.dashboard-host-grid div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-host-grid dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dashboard-host-grid dd {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .dashboard-cards,
+  .dashboard-host-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-sidebar {
+    position: fixed;
+    top: env(safe-area-inset-top);
+    bottom: env(safe-area-inset-bottom);
+    left: env(safe-area-inset-left);
+    z-index: 3;
+    width: 280px;
+    max-width: 85vw;
+    transform: translateX(calc(-100% - env(safe-area-inset-left)));
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .dashboard-sidebar.is-open {
+    transform: none;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .dashboard-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  .dashboard-menu-button {
+    display: flex;
+  }
+
+  .dashboard-tree-row {
+    height: 44px;
+  }
+
+  .dashboard-tree .session-tree-title,
+  .dashboard-tree .session-tree-group-toggle {
+    font-size: 13px;
+  }
+
+  .dashboard-tree .session-tree-session.is-selected::before {
+    top: 12px;
+    bottom: 12px;
+  }
+
+  .dashboard-board {
+    padding: 20px 14px 36px;
+  }
+
+  .dashboard-cards,
+  .dashboard-host-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,6 +1,4 @@
-// Types for the Next adapters only. The dashboard itself does not import them.
-
-import type { Server } from "node:http";
+// Types for the Next adapter only. The dashboard UI does not import them.
 
 export interface DashboardOverview {
   app: "dashboard";
@@ -26,11 +24,4 @@ export interface DashboardOverview {
   };
 }
 
-export interface DashboardServerOptions {
-  port?: number;
-  host?: string;
-}
-
 export function dashboardOverview(): DashboardOverview;
-export function dashboardPage(): Promise<string>;
-export function startDashboardServer(options?: DashboardServerOptions): Server;

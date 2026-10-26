@@ -1055,6 +1055,7 @@ a.session-tree-main {
 .sidebar-app-switcher-chevron {
   flex: none;
   color: var(--text-dim);
+  transform: rotate(90deg);
 }
 
 .sidebar-header-spacer {

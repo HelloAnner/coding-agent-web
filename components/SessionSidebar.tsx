@@ -66,6 +66,7 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
+import { WEB_APPS, type WebApp } from "@/lib/apps";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSessionUiState } from "@/hooks/useSessionUiState";
@@ -128,6 +129,9 @@ interface Props {
   ) => void;
   /** The files live in the right panel: bring it up (a session's "Open in files"). */
   onRevealFiles?: () => void;
+  /** The app the shell shows, for the brand's switcher. */
+  currentApp?: WebApp;
+  onSwitchApp?: (app: WebApp) => void;
   /** Fired when a session that is not currently selected finishes running.
    *  Lets the app play a cross-workspace completion tone. */
   onBackgroundTaskDone?: () => void;
@@ -387,7 +391,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onRevealFiles, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onRevealFiles, currentApp: currentAppProp, onSwitchApp, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -2269,7 +2273,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           versions on a click), then New and the sessions' search. The
           project's files are the right panel's, not the sidebar's. */}
       <div ref={headerRef} className="sidebar-header">
-        <AppSwitcher onWidthChange={fitHeader} />
+        <AppSwitcher
+          current={currentAppProp ?? WEB_APPS[0]}
+          onSwitch={onSwitchApp ?? (() => {})}
+          onWidthChange={fitHeader}
+        />
         <span className="sidebar-header-spacer" />
         <button
           type="button"
