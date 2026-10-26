@@ -70,6 +70,7 @@ function ToolbarIconButton({
 
 interface Props {
   cwd: string | null;
+  activeFilePath?: string | null;
   refreshKey?: number;
   onOpenFile: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
   onOpenTerminal?: (cwd: string) => void;
@@ -86,7 +87,7 @@ interface Props {
  * the actions on it, and the tree. A click on a file opens it in the panel's
  * viewer column.
  */
-export function FileBrowserPane({ cwd, refreshKey, onOpenFile, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack }: Props) {
+export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack }: Props) {
   const { t } = useI18n();
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
@@ -285,6 +286,7 @@ export function FileBrowserPane({ cwd, refreshKey, onOpenFile, onOpenTerminal, o
       <div className="sidebar-files-scroll scrollbar-subtle" style={{ flex: 1, minHeight: 0 }}>
         {cwd && (
           <FileExplorer
+            activeFilePath={activeFilePath}
             ref={fileExplorerRef}
             cwd={cwd}
             onOpenFile={onOpenFile}

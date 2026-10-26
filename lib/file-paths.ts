@@ -31,6 +31,20 @@ export function getFileDirectory(filePath: string): string {
   return normalized.slice(0, lastSlash);
 }
 
+export function getFileAncestorPaths(cwd: string, filePath?: string | null): string[] {
+  if (!filePath) return [];
+  const root = normalizeFilePathSlashes(cwd).replace(/\/+$/, "");
+  const file = normalizeFilePathSlashes(filePath);
+  if (!file.startsWith(`${root}/`)) return [];
+  const paths: string[] = [];
+  let directory = getFileDirectory(file);
+  while (directory !== (root || "/") && directory.startsWith(`${root}/`)) {
+    paths.unshift(directory);
+    directory = getFileDirectory(directory);
+  }
+  return paths;
+}
+
 export function getRelativeFilePath(filePath: string, cwd?: string): string {
   if (!cwd) return filePath;
 

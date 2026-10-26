@@ -3040,6 +3040,7 @@ export function AppShell() {
                 style={{ "--file-browser-width": `${fileBrowserResizer.width}px` } as React.CSSProperties}
               >
                 <FileBrowserPane
+                  activeFilePath={activeFileTab?.filePath}
                   cwd={activeCwd}
                   refreshKey={explorerRefreshKey}
                   onOpenFile={handleOpenFile}

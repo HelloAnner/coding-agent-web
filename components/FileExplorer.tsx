@@ -5,6 +5,7 @@ import { getFileIcon, FolderIcon } from "./FileIcons";
 import { DismissButton } from "./DismissButton";
 import {
   encodeFilePathForApi,
+  getFileAncestorPaths,
   getFileDirectory,
   getFileName,
   getRelativeFilePath,
@@ -50,6 +51,7 @@ interface FileNode {
 
 interface Props {
   cwd: string;
+  activeFilePath?: string | null;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
@@ -206,6 +208,7 @@ export function TreeNode({
   node,
   depth,
   cwd,
+  activeFilePath,
   onOpenFile,
   onAtMention,
   expandedPaths,
@@ -224,6 +227,7 @@ export function TreeNode({
   node: FileNode;
   depth: number;
   cwd: string;
+  activeFilePath?: string | null;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   expandedPaths: Set<string>;
@@ -245,6 +249,11 @@ export function TreeNode({
   const isDropTarget = node.isDir && dropTargetPath === node.fullPath;
   const highlighted = highlightedPaths.has(node.fullPath);
   const normalizedPath = normalizeFilePathSlashes(node.fullPath);
+  const active = !node.isDir && normalizedPath === (activeFilePath ? normalizeFilePathSlashes(activeFilePath) : null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) rowRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active]);
   const gitStatus = gitStatusByPath.get(normalizedPath);
   const containsGitChanges = node.isDir && (
     gitStatus !== undefined || changedDirectoryPaths.has(normalizedPath)
@@ -297,12 +306,10 @@ export function TreeNode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
 
-  // A hidden directory left expanded mounts open again when the switch comes
-  // back on, before anything listed it.
+  // Load both restored directories and ancestors opened by the active file.
   useEffect(() => {
     if (node.isDir && open && !loaded && !pendingLinkTarget) loadChildren();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [node.isDir, open, loaded, pendingLinkTarget, loadChildren]);
 
   // Re-fetch children when the tree refreshes: an open directory now, a
   // collapsed one when it next opens (a file dropped onto its row).
@@ -317,11 +324,10 @@ export function TreeNode({
     if (node.isDir) {
       const next = !open;
       onToggleExpanded(node.fullPath, next);
-      if (next && !loaded && !pendingLinkTarget) loadChildren();
     } else {
       onOpenFile(node.fullPath, node.name);
     }
-  }, [node.isDir, node.fullPath, node.name, loaded, open, pendingLinkTarget, loadChildren, onOpenFile, onToggleExpanded]);
+  }, [node.isDir, node.fullPath, node.name, open, onOpenFile, onToggleExpanded]);
 
   const handleAllowLink = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -347,6 +353,9 @@ export function TreeNode({
   return (
     <div>
       <div
+        ref={rowRef}
+        aria-current={active ? "true" : undefined}
+        data-active-file={active || undefined}
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -375,9 +384,11 @@ export function TreeNode({
           cursor: "pointer",
           background: isDropTarget
             ? "color-mix(in srgb, var(--accent) 16%, transparent)"
-            : hovered
-              ? "var(--bg-hover)"
-              : "transparent",
+            : active
+              ? "color-mix(in srgb, var(--accent) 16%, transparent)"
+              : hovered
+                ? "var(--bg-hover)"
+                : "transparent",
           outline: isDropTarget ? "1px dashed var(--accent)" : "none",
           outlineOffset: -1,
           borderRadius: 4,
@@ -575,6 +586,7 @@ export function TreeNode({
               node={child}
               depth={depth + 1}
               cwd={cwd}
+              activeFilePath={activeFilePath}
               onOpenFile={onOpenFile}
               onAtMention={onAtMention}
               expandedPaths={expandedPaths}
@@ -730,6 +742,7 @@ function ChangeRow({
 
 export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileExplorer({
   cwd,
+  activeFilePath,
   onOpenFile,
   refreshKey,
   onAtMention,
@@ -1065,6 +1078,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     return () => { cancelled = true; };
   }, [cwd, refreshKey, treeRefreshKey, showHidden]);
 
+  useEffect(() => {
+    const ancestors = getFileAncestorPaths(cwd, activeFilePath);
+    setExpandedPaths((previous) => {
+      if (ancestors.every((path) => previous.has(path))) return previous;
+      return new Set([...previous, ...ancestors]);
+    });
+  }, [cwd, activeFilePath]);
+
   // Files changed outside pi-web (an editor, a terminal) show up once the
   // window is back in front (#1144).
   useEffect(() => {
@@ -1278,6 +1299,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     node={node}
                     depth={0}
                     cwd={cwd}
+                    activeFilePath={activeFilePath}
                     onOpenFile={onOpenFile}
                     onAtMention={onAtMention}
                     expandedPaths={searchExpanded}
@@ -1346,6 +1368,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 node={node}
                 depth={0}
                 cwd={cwd}
+                activeFilePath={activeFilePath}
                 onOpenFile={onOpenFile}
                 onAtMention={onAtMention}
                 expandedPaths={expandedPaths}
