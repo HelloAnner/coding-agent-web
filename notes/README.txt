@@ -69,6 +69,11 @@ Agent 内核（pi）
     notes/agent/index.ts         两个接口的处理
     notes/skills/<名字>/SKILL.md 技能（frontmatter 里写 name、description）
 
+  内置技能
+    note-writing          笔记结构：结论先行、删掉空小节
+    whiteboard-style      白板风格：3~8 个节点、留白、手绘感、只画核心关系
+    whiteboard-drawing    notes_board 的字段、坐标、追加和重画规则
+
   流程
     浏览器 NotesAgentPanel
         |  POST /api/notes/agent  {message}      NDJSON 逐行回事件
@@ -101,3 +106,5 @@ Agent 内核（pi）
 白板偏好（可配置的部分）
   设置 -> 白板：字体（Excalidraw 内置 8 种）、字号（10~64）。
   不配时是 Cascadia、20px；描边 #1b1b1f、细实线、round 圆角、白底是固定默认。
+  想要截图那种手写感：字体选 Excalifont 或 Virgil，字号 16~18，画法按 whiteboard-style。
+  notes_board 的形状：rectangle / ellipse / diamond / text / arrow / line。

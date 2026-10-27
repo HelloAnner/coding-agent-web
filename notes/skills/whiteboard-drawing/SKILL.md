@@ -1,47 +1,50 @@
 ---
 name: whiteboard-drawing
-description: 用 notes_board 画 Excalidraw 白板：架构图、流程图、时序图、思维导图、对比图。用户要画图、要把方案画出来、做白板时使用。
+description: 用 notes_board 工具的规则：形状字段、坐标、追加和重画。画架构图、流程图、概念图之前用，风格按 whiteboard-style 执行。
 ---
 
-# 画白板
+# 画白板：工具规则
 
-`notes_board` 接收形状列表，工具负责生成合法的 Excalidraw scene。**不要手写 scene JSON。**
+`notes_board` 接收形状列表，工具生成合法的 Excalidraw scene。**不要手写 scene JSON。**
+
+风格（几个节点、多大字、怎么留白）不在这里，先读 `whiteboard-style`。
 
 ## 形状
 
 | type | 用途 | 默认尺寸 |
 | --- | --- | --- |
-| `rectangle` | 服务、模块、步骤 | 200×100 |
+| `ellipse` | 概念、角色、外部系统 | 160×100 |
+| `rectangle` | 容器、模块、界面 | 200×100 |
 | `diamond` | 判断 | 160×120 |
-| `ellipse` | 起点、终点、外部角色 | 160×100 |
-| `text` | 标题、注释 | 按内容 |
-| `arrow` | 流向，用 `to` 给终点 | — |
+| `text` | 说明、标签、旁注 | 按内容 |
+| `arrow` | 有方向的流向，用 `to` 给终点 | — |
+| `line` | 分隔线、无方向的连接，用 `to` 给终点 | — |
 
-`label` 是形状里的字，`\n` 换行。`strokeColor`、`backgroundColor`、`fontSize` 可覆盖默认值，默认描边 `#1b1b1f`、填充透明。
+`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16~18，说明和旁注 13~14）。描边默认 `#1b1b1f`、细实线、无填充；不要给 `backgroundColor`，除非确实要分区底色。
 
-## 排版
+## 坐标
 
-- 网格：节点宽 200，横向间距 60，纵向间距 160，从 `x=0, y=0` 开始。
-- 一屏放得下 5~7 个节点；再多就分块，用大矩形做分区（填充 `#f8f9fa`）。
-- 箭头从右边界中点到左边界中点：`from (x+200, y+50)` → `to (x+260, y+50)`。
-- 标题用 `text`，字号比正文大 4~8px，放在内容上方 60px。
+- 场景坐标，从 `x=0, y=0` 起；说明文字可以放在负 y。
+- 节点间距 ≥160；长箭头 120~240，横平竖直。
+- 箭头从边界到边界：`{ "type": "arrow", "x": 240, "y": 50, "to": { "x": 400, "y": 50 } }`。
+- 容器分格：先画 `rectangle`，再用 `line` 横切或竖切，最后把 `text` 放在格子里。
 - 不要重叠；箭头不要穿过方框。
 
 ## 例子
 
 ```json
 { "path": "架构/请求链路.excalidraw", "replace": true, "elements": [
-  { "type": "text", "x": 0, "y": -60, "label": "请求链路", "fontSize": 28 },
-  { "type": "rectangle", "x": 0, "y": 0, "label": "浏览器" },
-  { "type": "rectangle", "x": 260, "y": 0, "label": "pi-web\nNext.js 路由" },
-  { "type": "rectangle", "x": 520, "y": 0, "label": "harness\npi / claude / dsh" },
-  { "type": "arrow", "x": 200, "y": 50, "to": { "x": 260, "y": 50 } },
-  { "type": "arrow", "x": 460, "y": 50, "to": { "x": 520, "y": 50 } },
-  { "type": "text", "x": 0, "y": 140, "label": "笔记面板走同一条路由，只是 harness 换成 notes agent", "fontSize": 16 }
+  { "type": "ellipse", "x": 0, "y": 0, "label": "浏览器", "fontSize": 16 },
+  { "type": "rectangle", "x": 280, "y": 0, "label": "pi-web\nNext.js 路由", "fontSize": 16 },
+  { "type": "rectangle", "x": 560, "y": 0, "label": "harness\npi / claude / dsh", "fontSize": 16 },
+  { "type": "text", "x": 300, "y": -30, "label": "POST", "fontSize": 14 },
+  { "type": "arrow", "x": 160, "y": 50, "to": { "x": 280, "y": 50 } },
+  { "type": "arrow", "x": 480, "y": 50, "to": { "x": 560, "y": 50 } },
+  { "type": "text", "x": 0, "y": 150, "label": "笔记面板走同一条路由，只是 harness 换成 notes agent", "fontSize": 14 }
 ] }
 ```
 
 ## 边界
 
 - 同一块白板重复画时，`replace: true` 重画，否则会追加到已有内容后面。
-- 白板是给人看的：少写句子，多写名词。节点的字超过 12 个字就拆行或换短词。
+- 一次画完一整张图，不要分几次补：改一次 `replace` 重画，避免新旧元素叠在一起。

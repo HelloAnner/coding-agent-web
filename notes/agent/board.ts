@@ -9,7 +9,7 @@ import type { NotesBoardSettings } from "../types";
  * tidy without any layout engine.
  */
 
-export type BoardShapeType = "rectangle" | "ellipse" | "diamond" | "text" | "arrow";
+export type BoardShapeType = "rectangle" | "ellipse" | "diamond" | "text" | "arrow" | "line";
 
 export interface BoardShape {
   type: BoardShapeType;
@@ -19,7 +19,7 @@ export interface BoardShape {
   height?: number;
   /** Text inside a shape, or the text of a `text` shape. */
   label?: string;
-  /** The arrow's end point, relative to its own x/y. */
+  /** The arrow's or line's end point, in scene coordinates. */
   to?: { x: number; y: number };
   strokeColor?: string;
   backgroundColor?: string;
@@ -128,17 +128,19 @@ function shapeElement(shape: BoardShape, board: NotesBoardSettings) {
     return [textElement(x, y, size.width, size.height, label ?? "", fontSize, board, null)];
   }
 
-  if (shape.type === "arrow") {
+  if (shape.type === "arrow" || shape.type === "line") {
     const dx = Math.round((shape.to?.x ?? x + width) - x);
     const dy = Math.round((shape.to?.y ?? y) - y);
+    // A line is the same element without heads: dividers inside a container,
+    // and relations that have no direction.
     return [{
-      ...baseElement("arrow", x, y, Math.abs(dx), Math.abs(dy)),
+      ...baseElement(shape.type, x, y, Math.abs(dx), Math.abs(dy)),
       points: [[0, 0], [dx, dy]],
       lastCommittedPoint: null,
       startBinding: null,
       endBinding: null,
       startArrowhead: null,
-      endArrowhead: "arrow",
+      endArrowhead: shape.type === "arrow" ? "arrow" : null,
       elbowed: false,
       roundness: { type: 2 },
       strokeColor: shape.strokeColor ?? STROKE,

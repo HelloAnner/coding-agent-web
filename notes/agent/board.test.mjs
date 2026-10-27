@@ -36,6 +36,15 @@ test("arrows keep their own point list and end at `to`", () => {
   assert.deepEqual(arrow.points, [[0, 0], [60, 0]]);
 });
 
+test("a line is a connector without arrowheads", () => {
+  const scene = JSON.parse(buildBoardScene([{ type: "line", x: 40, y: 220, to: { x: 280, y: 220 } }], board));
+  const [line] = scene.elements;
+  assert.equal(line.type, "line");
+  assert.equal(line.endArrowhead, null);
+  assert.equal(line.startArrowhead, null);
+  assert.deepEqual(line.points, [[0, 0], [240, 0]]);
+});
+
 test("drawing again appends, replace clears, and broken JSON does not throw", () => {
   const first = buildBoardScene([{ type: "text", x: 0, y: 0, label: "标题" }], board);
   const appended = buildBoardScene([{ type: "text", x: 0, y: 100, label: "副标题" }], board, { existing: first });
