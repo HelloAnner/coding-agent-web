@@ -60,6 +60,11 @@ function titleOf(name: string): string {
   return name.replace(/\.(md|excalidraw)$/i, "");
 }
 
+/** The name as the user edits it: folders verbatim, files without extension. */
+function renameLabel(node: NotesNode): string {
+  return node.type === "dir" ? node.name : titleOf(node.name);
+}
+
 function findNode(nodes: readonly NotesNode[], path: string): NotesNode | null {
   for (const node of nodes) {
     if (node.path === path) return node;
@@ -326,9 +331,9 @@ export function NotesApp({
   };
 
   const renameNode = async (node: NotesNode, name: string): Promise<boolean> => {
-    if (node.type === "dir") return false;
+    const isDir = node.type === "dir";
     const next = name.trim();
-    if (!next || next === titleOf(node.name)) return true;
+    if (!next || next === renameLabel(node)) return true;
     setActionError(null);
     const wasOpen = selectedFile?.path === node.path;
     try {
@@ -345,12 +350,27 @@ export function NotesApp({
       const body = await response.json() as { path?: string; error?: string };
       if (!response.ok || !body.path) throw new Error(body.error || "重命名失败");
       const nextPath = body.path;
+      const selected = selectedPathRef.current;
       // The user may have clicked another file while the request was in
       // flight; their newer selection wins over the renamed one.
-      if (wasOpen && selectedPathRef.current === node.path) {
+      if (wasOpen && selected === node.path) {
         selectPath(nextPath);
         setTitleDraft(titleOf(baseName(nextPath)));
         router.replace(`/notes?path=${encodeURIComponent(nextPath)}`, { scroll: false });
+      } else if (isDir && selected?.startsWith(`${node.path}/`)) {
+        // The open note now lives under the new folder path.
+        selectPath(nextPath + selected.slice(node.path.length));
+        router.replace(
+          `/notes?path=${encodeURIComponent(nextPath + selected.slice(node.path.length))}`,
+          { scroll: false },
+        );
+      }
+      if (isDir) {
+        setExpanded((current) => new Set([...current].map((p) => (
+          p === node.path || p.startsWith(`${node.path}/`)
+            ? nextPath + p.slice(node.path.length)
+            : p
+        ))));
       }
       await refresh();
       return true;
@@ -372,9 +392,8 @@ export function NotesApp({
   };
 
   const startRename = (node: NotesNode) => {
-    if (node.type === "dir") return;
     setRenamingPath(node.path);
-    setRenameDraft(titleOf(node.name));
+    setRenameDraft(renameLabel(node));
     setActionError(null);
   };
 
@@ -549,7 +568,7 @@ export function NotesApp({
               <button
                 type="button"
                 className="session-tree-main"
-                title={isDir ? node.path : `${node.path}（双击重命名）`}
+                title={`${node.path}（双击重命名）`}
                 onClick={() => selectFile(node)}
                 onDoubleClick={(event) => {
                   event.preventDefault();

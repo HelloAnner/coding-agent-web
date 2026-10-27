@@ -217,9 +217,10 @@ export async function createItem(dir: string, name: string, kind: NotesFileKind)
 }
 
 export async function renameItem(relative: string, name: string): Promise<string> {
-  const kind = kindForPath(relative);
   const source = await resolveExisting(relative);
-  const fileName = fileNameFor(name, kind);
+  const isDir = (await stat(source)).isDirectory();
+  // Folders keep the name as typed; files get their extension back.
+  const fileName = isDir ? cleanName(name) : fileNameFor(name, kindForPath(relative));
   const target = path.join(path.dirname(source), fileName);
   if (target === source) return normalizeRelative(relative);
   try {

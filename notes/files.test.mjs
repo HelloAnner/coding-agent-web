@@ -53,6 +53,15 @@ test("rename keeps the extension and never overwrites a sibling", async () => {
   await assert.rejects(() => notes.renameItem("新标题.md", "占位"), /已存在/);
 });
 
+test("folders rename without an extension and take their contents along", async () => {
+  await notes.createDirectory("", "旧目录");
+  await notes.createItem("旧目录", "笔记", "note");
+  const renamed = await notes.renameItem("旧目录", "新目录");
+  assert.equal(renamed, "新目录");
+  assert.equal((await notes.readItem("新目录/笔记.md")).kind, "note");
+  await assert.rejects(() => notes.renameItem("新目录", "a/b"), /名称/);
+});
+
 test("a board must stay valid JSON", async () => {
   await notes.createItem("", "坏了", "board");
   await assert.rejects(() => notes.writeItem("坏了.excalidraw", "{not json"), /JSON/);
