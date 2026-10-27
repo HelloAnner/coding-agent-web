@@ -17,6 +17,11 @@ export function registerNodeInstrumentation(): void {
   import("@/notes/index")
     .then(({ syncNotesIndex }) => syncNotesIndex())
     .catch(() => {});
+  // Make the catalogue complete: every harness's existing sessions get a row
+  // that names the file a reader can open, not just the chats this web started.
+  import("@/lib/catalog-sync")
+    .then(({ syncCatalogSessions }) => syncCatalogSessions())
+    .catch(() => {});
   // Timed notes jobs: the interval lives in the process, so it starts with the
   // server rather than on the first page view.
   import("@/notes/agent/scheduler")

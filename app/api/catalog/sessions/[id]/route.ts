@@ -14,6 +14,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     model?: unknown;
     title?: unknown;
     sessionPath?: unknown;
+    profilePath?: unknown;
   } | null;
   const harness = typeof body?.harness === "string" ? body.harness.trim() : undefined;
   if (harness && !findHarness(harness)) return NextResponse.json({ error: "Unknown harness" }, { status: 400 });
@@ -23,6 +24,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     model: typeof body?.model === "string" ? body.model : undefined,
     title: typeof body?.title === "string" ? body.title : undefined,
     sessionPath: typeof body?.sessionPath === "string" ? body.sessionPath : undefined,
+    profilePath: typeof body?.profilePath === "string" ? body.profilePath : undefined,
     cwd: typeof body?.cwd === "string" ? body.cwd : undefined,
   };
   try {
@@ -43,6 +45,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       model: patch.model,
       title: patch.title,
       sessionPath: patch.sessionPath,
+      profilePath: patch.profilePath,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -129,6 +129,35 @@ function logFile(sessionDir: string): string | null {
   return path.join(sessionDir, logs[0].name);
 }
 
+export interface DshSessionHeader {
+  id: string;
+  /** Absolute cwd the kernel recorded when it created the session. */
+  cwd: string;
+  createdAt: number | null;
+}
+
+/** The session record at the top of a kernel log, for indexing sessions the web did not start. */
+export function readDshSessionHeader(sessionDir: string): DshSessionHeader | null {
+  const file = logFile(sessionDir);
+  if (!file) return null;
+  try {
+    const raw = readFileSync(file);
+    const text = (file.endsWith(".zstd") ? decompressFrames(raw) : raw).toString("utf8");
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      const record = JSON.parse(line) as Record<string, unknown>;
+      if (record.type !== "session") continue;
+      const id = typeof record.id === "string" ? record.id : "";
+      const cwd = typeof record.cwd === "string" && path.isAbsolute(record.cwd) ? record.cwd : "";
+      if (!id || !cwd) return null;
+      return { id, cwd, createdAt: typeof record.createdAt === "number" ? record.createdAt : null };
+    }
+  } catch {
+    // Unreadable or mid-write log; the session is indexed on a later sync.
+  }
+  return null;
+}
+
 export interface DshTranscript {
   messages: AgentMessage[];
   /** True when the kernel has a log for this session directory. */

@@ -16,7 +16,7 @@ function scope(id: string) {
   const run = findClaudeRun(id);
   // Stopping an existing native process must remain possible after its profile is disabled.
   const profile = run?.profile ?? resolveClaudeProfile(session.model, session.provider, true);
-  if (profile.id !== session.model || profile.provider !== session.provider || profile.configDir !== session.sessionPath) return reply({ error: "This session keeps its original Claude Code profile" }, 409);
+  if (profile.id !== session.model || profile.provider !== session.provider || profile.configDir !== (session.profilePath || session.sessionPath)) return reply({ error: "This session keeps its original Claude Code profile" }, 409);
   return { profile, run };
 }
 

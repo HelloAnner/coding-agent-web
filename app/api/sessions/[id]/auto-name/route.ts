@@ -36,7 +36,7 @@ async function askHarness(row: CatalogSession, prompt: string): Promise<string> 
 function harnessTitlePrompt(row: CatalogSession): string {
   if (row.harness === "claude-code") {
     const profile = resolveClaudeProfile(row.model, row.provider, true);
-    if (profile.configDir !== row.sessionPath) throw new Error("Claude Code profile directory has changed");
+    if (profile.configDir !== (row.profilePath || row.sessionPath)) throw new Error("Claude Code profile directory has changed");
     const transcript = buildTitleTranscript(readClaudeTranscript(profile.configDir, row.id).messages);
     if (!transcript.trim()) throw new Error("The session has no usable text to name");
     return buildTitlePrompt(transcript);
@@ -59,7 +59,7 @@ export async function POST(
     const indexed = readCatalogSession(id);
     if (indexed?.harness === "claude-code") {
       const profile = resolveClaudeProfile(indexed.model, indexed.provider, true);
-      if (profile.configDir !== indexed.sessionPath) throw new Error("Claude Code profile directory has changed");
+      if (profile.configDir !== (indexed.profilePath || indexed.sessionPath)) throw new Error("Claude Code profile directory has changed");
       // A title written by the CLI itself is authoritative. Headless runs do
       // not write one, so name the chat with the profile's own model instead
       // of leaving the first prompt as the title forever.

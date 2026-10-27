@@ -203,6 +203,24 @@ export function readClaudeTitle(profileDir: string, id: string): string {
   return title;
 }
 
+/**
+ * The cwd a Claude Code transcript recorded. Used to index a session the web
+ * did not start: the `projects/<encoded>` directory name is lossy, the record's
+ * own `cwd` is not.
+ */
+export function claudeSessionCwd(profileDir: string, id: string): string | null {
+  const file = claudeTranscriptFile(profileDir, id);
+  if (!file) return null;
+  try {
+    for (const record of claudeNativeRecords(readFileSync(file, "utf8"))) {
+      if (typeof record.cwd === "string" && path.isAbsolute(record.cwd)) return record.cwd;
+    }
+  } catch {
+    // Mid-write transcript; the next sync indexes it.
+  }
+  return null;
+}
+
 export function readClaudeTranscript(profileDir: string, id: string): { path: string | null; messages: ClaudeMessage[]; stats: SessionFileStats } {
   const file = claudeTranscriptFile(profileDir, id);
   // ponytail: one full native transcript per read; add paged streaming reads if long chats stall requests.

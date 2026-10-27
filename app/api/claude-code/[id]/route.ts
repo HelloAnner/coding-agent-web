@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const profileId = typeof body.model === "string" ? body.model : existing?.model;
     const provider = typeof body.provider === "string" ? body.provider : existing?.provider;
     const profile = resolveClaudeProfile(profileId, provider);
-    if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || existing.sessionPath !== profile.configDir || realpathSync(existing.cwd) !== cwd)) return NextResponse.json({ error: "Start a new chat to switch Claude Code profiles" }, { status: 409 });
+    if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || (existing.profilePath || existing.sessionPath) !== profile.configDir || realpathSync(existing.cwd) !== cwd)) return NextResponse.json({ error: "Start a new chat to switch Claude Code profiles" }, { status: 409 });
     if (!claudeProjectTrusted(profile, cwd)) {
       // bypassPermissions already grants the run full access; the trust dialog would only be a redundant click.
       if (profile.permissionMode !== "bypassPermissions" && body.trusted !== true) return NextResponse.json({ error: "Claude Code will load this project's hooks and MCP servers", requiresTrust: true, cwd }, { status: 409 });
@@ -68,7 +68,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!session || session.harness !== "claude-code") return NextResponse.json({ error: "Session not found" }, { status: 404 });
   try {
     const profile = resolveClaudeProfile(session.model, session.provider, true);
-    if (session.sessionPath !== profile.configDir) throw new Error("This session's profile directory has changed. Restore its configured directory to resume it.");
+    if ((session.profilePath || session.sessionPath) !== profile.configDir) throw new Error("This session's profile directory has changed. Restore its configured directory to resume it.");
     const transcript = readClaudeTranscript(profile.configDir, id);
     return NextResponse.json({ sessionId: id, filePath: transcript.path ?? "", totalActiveMs: 0, stats: transcript.stats, tree: [], leafId: null,
       context: { messages: transcript.messages, entryIds: transcript.messages.map((message) => message.nativeId), oldestEntryId: null, hasMore: false, turnsBefore: 0, thinkingLevel: profile.effort ?? "off", model: { provider: session.provider, modelId: session.model } },

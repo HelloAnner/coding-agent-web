@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     model?: unknown;
     title?: unknown;
     sessionPath?: unknown;
+    profilePath?: unknown;
   } | null;
   const cwd = typeof body?.cwd === "string" ? body.cwd : "";
   const harness = typeof body?.harness === "string" ? body.harness.trim() : "";
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
       model: typeof body?.model === "string" ? body.model : "",
       title: typeof body?.title === "string" ? body.title : "",
       sessionPath: typeof body?.sessionPath === "string" ? body.sessionPath : "",
+      profilePath: typeof body?.profilePath === "string" ? body.profilePath : "",
     });
     return NextResponse.json({ id });
   } catch (error) {

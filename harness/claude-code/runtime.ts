@@ -403,7 +403,7 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   const profile = resolveClaudeProfile(prompt.profileId, prompt.provider);
   const cwd = realpathSync(prompt.cwd);
   const existing = readCatalogSession(prompt.id);
-  if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || realpathSync(existing.cwd) !== cwd || existing.sessionPath !== profile.configDir)) throw new Error("This Claude Code session keeps its original profile and directory. Start a new chat to switch models.");
+  if (existing && (existing.harness !== "claude-code" || existing.model !== profile.id || existing.provider !== profile.provider || realpathSync(existing.cwd) !== cwd || (existing.profilePath || existing.sessionPath) !== profile.configDir)) throw new Error("This Claude Code session keeps its original profile and directory. Start a new chat to switch models.");
   if (existing && !claudeTranscriptFile(profile.configDir, prompt.id) && !run.child) throw new Error("Claude Code session history is missing. Start a new chat instead of resetting this conversation.");
   if (run.child && (run.cwd !== cwd || run.profile?.id !== profile.id)) throw new Error("Claude Code session profile mismatch");
   const message: ClaudeQueuedMessage = { text: prompt.text, images: prompt.images ?? [], promptId: prompt.promptId ?? randomUUID() };
@@ -412,16 +412,19 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   if (run.isStreaming) {
     if (!prompt.streamingBehavior) throw new Error("Claude Code is already answering in this session");
     run.enqueue(prompt.streamingBehavior, message);
-    return { sessionPath: profile.configDir, provider: profile.provider, model: profile.id, queued: true };
+    return { sessionPath: claudeTranscriptFile(profile.configDir, prompt.id) ?? "", provider: profile.provider, model: profile.id, queued: true };
   }
   run.beginTurn();
   const turn = run.mapper;
   try {
     await run.start(profile, cwd, Boolean(existing));
     if (run.aborted || run.mapper !== turn) throw new Error("Claude Code was stopped before sending this message");
-    upsertCatalogSession({ id: prompt.id, cwd, harness: "claude-code", provider: profile.provider, model: profile.id, title: existing?.title || prompt.text.trim().slice(0, 100) || profile.name, sessionPath: profile.configDir });
+    // The row names the transcript a reader can open; the profile directory is
+    // the harness setting, not the conversation's file.
+    const sessionPath = claudeTranscriptFile(profile.configDir, prompt.id) ?? "";
+    upsertCatalogSession({ id: prompt.id, cwd, harness: "claude-code", provider: profile.provider, model: profile.id, title: existing?.title || prompt.text.trim().slice(0, 100) || profile.name, sessionPath, profilePath: profile.configDir });
     run.writeUserMessage(message, false);
-    return { sessionPath: profile.configDir, provider: profile.provider, model: profile.id };
+    return { sessionPath: sessionPath, provider: profile.provider, model: profile.id };
   } catch (error) {
     if (run.mapper === turn) run.settle();
     throw error;
