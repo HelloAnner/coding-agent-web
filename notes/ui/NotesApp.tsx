@@ -7,8 +7,10 @@ import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "@/components/Sideb
 import { SidebarMenu, type SidebarMenuAnchor } from "@/components/SidebarMenu";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { WebApp } from "@/lib/apps";
-import type { NotesEditorControl, NotesNode, NotesSaveState } from "@/notes/types";
+import type { NotesBoardSettings, NotesEditorControl, NotesNode, NotesSaveState, NotesSettings } from "@/notes/types";
 import { NoteEditor } from "./NoteEditor";
+import { NotesAgentPanel } from "./NotesAgentPanel";
+import { NotesSettingsDialog } from "./NotesSettingsDialog";
 import { Whiteboard } from "./Whiteboard";
 
 type CreateKind = "note" | "board" | "dir";
@@ -24,6 +26,27 @@ const SAVE_LABELS: Record<NotesSaveState, string> = {
   saving: "保存中…",
   error: "保存失败",
 };
+
+/** What a whiteboard uses until /api/notes/settings answers (Cascadia 20). */
+const DEFAULT_BOARD: NotesBoardSettings = { fontFamily: 3, fontSize: 20 };
+
+function SettingsIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" />
+    </svg>
+  );
+}
+
+function AgentIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v3M6 9h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" />
+      <path d="M9 14h.01M15 14h.01" />
+    </svg>
+  );
+}
 
 function baseName(relative: string): string {
   return relative.split("/").pop() ?? relative;
@@ -101,6 +124,11 @@ export function NotesApp({
   const renameCancelled = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<NotesSaveState>("saved");
+  const [settings, setSettings] = useState<NotesSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
+  // Bumped when the agent rewrote a file: the open editor reloads from disk.
+  const [vaultKey, setVaultKey] = useState(0);
   // Every selection goes through selectPath, which updates this ref at once.
   const selectedPathRef = useRef<string | null>(selectedPath);
   const plusRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +146,7 @@ export function NotesApp({
   );
   const selectedFile = selectedNode && selectedNode.type !== "dir" ? selectedNode : null;
   const boardOpen = selectedFile?.type === "board";
+  const board = settings?.board ?? DEFAULT_BOARD;
 
   const refresh = useCallback(async () => {
     try {
@@ -141,6 +170,22 @@ export function NotesApp({
     if (!active) return;
     void refresh();
   }, [active, refresh]);
+
+  // Settings can change while another app is in front (another tab), so they
+  // are read on every return, like the tree.
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    fetch("/api/notes/settings", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json() as { settings?: NotesSettings };
+        if (alive && response.ok && body.settings) setSettings(body.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [active]);
 
   // A reload or a shared link carries the open file in ?path=.
   useEffect(() => {
@@ -406,6 +451,14 @@ export function NotesApp({
     }
   };
 
+  // The agent writes straight to the vault: the tree is stale, and the open
+  // file must be read again or the next save would overwrite what it wrote.
+  const handleVaultChanged = useCallback((paths: string[]) => {
+    void refresh();
+    if (!selectedPath || !paths.includes(selectedPath)) return;
+    setVaultKey((key) => key + 1);
+  }, [refresh, selectedPath]);
+
   const renderNode = (node: NotesNode, depth: number) => {
     const isDir = node.type === "dir";
     const open = expanded.has(node.path);
@@ -632,8 +685,26 @@ export function NotesApp({
           </div>
         </div>
 
-        <div className="dashboard-sidebar-footer">
-          <span>点 + 在根目录新建</span>
+        <div className="dashboard-sidebar-footer notes-footer">
+          <button
+            type="button"
+            className={`notes-footer-button${agentOpen ? " is-active" : ""}`}
+            aria-pressed={agentOpen}
+            title="笔记 agent"
+            onClick={() => setAgentOpen((open) => !open)}
+          >
+            <AgentIcon />
+            <span>Agent</span>
+          </button>
+          <button
+            type="button"
+            className="notes-footer-button"
+            title="笔记设置"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon />
+            <span>设置</span>
+          </button>
         </div>
       </aside>
 
@@ -686,9 +757,15 @@ export function NotesApp({
         <div className="notes-content">
           {selectedFile ? (
             selectedFile.type === "board" ? (
-              <Whiteboard key={selectedFile.path} path={selectedFile.path} onSaveState={handleSaveState} onFlushReady={registerEditor} />
+              <Whiteboard
+                key={`${selectedFile.path}:${vaultKey}:${board.fontFamily}:${board.fontSize}`}
+                path={selectedFile.path}
+                board={board}
+                onSaveState={handleSaveState}
+                onFlushReady={registerEditor}
+              />
             ) : (
-              <NoteEditor key={selectedFile.path} path={selectedFile.path} onSaveState={handleSaveState} onFlushReady={registerEditor} />
+              <NoteEditor key={`${selectedFile.path}:${vaultKey}`} path={selectedFile.path} onSaveState={handleSaveState} onFlushReady={registerEditor} />
             )
           ) : (
             <div className="dashboard-empty">
@@ -697,6 +774,13 @@ export function NotesApp({
                 : selectedPath === "" ? "点 + 在根目录新建，或从左侧选择" : "从左侧选择，或点 + 新建"}
             </div>
           )}
+          <NotesAgentPanel
+            open={agentOpen}
+            contextPath={selectedFile?.path ?? null}
+            onClose={() => setAgentOpen(false)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onVaultChanged={handleVaultChanged}
+          />
         </div>
       </main>
 
@@ -717,6 +801,12 @@ export function NotesApp({
           onSelect: () => startCreate(item.kind, menu?.dir ?? ""),
         }))}
         onClose={() => setMenu(null)}
+      />
+
+      <NotesSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={setSettings}
       />
     </div>
   );

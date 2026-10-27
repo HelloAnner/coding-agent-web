@@ -1,0 +1,212 @@
+import type { NotesBoardSettings } from "../types";
+
+/**
+ * A whiteboard's scene, built from a shape list instead of hand-written
+ * Excalidraw JSON: the agent names boxes, arrows and text, this module fills in
+ * the element fields Excalidraw needs (ids, seeds, bindings, version fields).
+ *
+ * Coordinates are scene coordinates; 20px grid steps keep a generated board
+ * tidy without any layout engine.
+ */
+
+export type BoardShapeType = "rectangle" | "ellipse" | "diamond" | "text" | "arrow";
+
+export interface BoardShape {
+  type: BoardShapeType;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  /** Text inside a shape, or the text of a `text` shape. */
+  label?: string;
+  /** The arrow's end point, relative to its own x/y. */
+  to?: { x: number; y: number };
+  strokeColor?: string;
+  backgroundColor?: string;
+  fontSize?: number;
+}
+
+const STROKE = "#1b1b1f";
+const FILL = "transparent";
+const LINE_HEIGHT = 1.25;
+const DEFAULT_SIZE: Partial<Record<BoardShapeType, { width: number; height: number }>> = {
+  rectangle: { width: 200, height: 100 },
+  ellipse: { width: 160, height: 100 },
+  diamond: { width: 160, height: 120 },
+};
+
+function randomId(): string {
+  return Math.random().toString(36).slice(2, 12) || "element";
+}
+
+function randomInt(): number {
+  return Math.floor(Math.random() * 2 ** 31);
+}
+
+function textWidth(text: string, fontSize: number): number {
+  let width = 0;
+  for (const char of text) width += char.codePointAt(0)! > 0x2e80 ? fontSize : fontSize * 0.6;
+  return Math.max(fontSize, Math.round(width));
+}
+
+function labelSize(label: string, fontSize: number): { width: number; height: number } {
+  const lines = label.split("\n");
+  return {
+    width: Math.max(...lines.map((line) => textWidth(line, fontSize))),
+    height: Math.round(lines.length * fontSize * LINE_HEIGHT),
+  };
+}
+
+function baseElement(type: string, x: number, y: number, width: number, height: number) {
+  return {
+    id: randomId(),
+    type,
+    x,
+    y,
+    width,
+    height,
+    angle: 0,
+    strokeColor: STROKE,
+    backgroundColor: FILL,
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 1,
+    opacity: 100,
+    groupIds: [] as string[],
+    frameId: null,
+    roundness: { type: 3 },
+    seed: randomInt(),
+    version: 1,
+    versionNonce: randomInt(),
+    isDeleted: false,
+    boundElements: [] as { type: string; id: string }[],
+    updated: 1,
+    link: null,
+    locked: false,
+  };
+}
+
+function textElement(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  label: string,
+  fontSize: number,
+  board: NotesBoardSettings,
+  containerId: string | null,
+) {
+  return {
+    ...baseElement("text", x, y, width, height),
+    strokeColor: STROKE,
+    backgroundColor: "transparent",
+    roundness: null,
+    text: label,
+    originalText: label,
+    fontSize,
+    fontFamily: board.fontFamily,
+    textAlign: "left" as const,
+    verticalAlign: "middle" as const,
+    lineHeight: LINE_HEIGHT,
+    containerId,
+    autoResize: containerId === null,
+  };
+}
+
+function shapeElement(shape: BoardShape, board: NotesBoardSettings) {
+  const fontSize = shape.fontSize ?? board.fontSize;
+  const fallback = DEFAULT_SIZE[shape.type] ?? { width: 120, height: 40 };
+  const width = Math.max(1, Math.round(shape.width ?? fallback.width));
+  const height = Math.max(1, Math.round(shape.height ?? fallback.height));
+  const x = Math.round(shape.x);
+  const y = Math.round(shape.y);
+  const label = shape.label?.trim();
+
+  if (shape.type === "text") {
+    const size = label ? labelSize(label, fontSize) : { width, height };
+    return [textElement(x, y, size.width, size.height, label ?? "", fontSize, board, null)];
+  }
+
+  if (shape.type === "arrow") {
+    const dx = Math.round((shape.to?.x ?? x + width) - x);
+    const dy = Math.round((shape.to?.y ?? y) - y);
+    return [{
+      ...baseElement("arrow", x, y, Math.abs(dx), Math.abs(dy)),
+      points: [[0, 0], [dx, dy]],
+      lastCommittedPoint: null,
+      startBinding: null,
+      endBinding: null,
+      startArrowhead: null,
+      endArrowhead: "arrow",
+      elbowed: false,
+      roundness: { type: 2 },
+      strokeColor: shape.strokeColor ?? STROKE,
+    }];
+  }
+
+  const box = {
+    ...baseElement(shape.type, x, y, width, height),
+    backgroundColor: shape.backgroundColor ?? FILL,
+    ...(shape.strokeColor ? { strokeColor: shape.strokeColor } : {}),
+  };
+  if (!label) return [box];
+  // A shape's label is a separate text element bound to it, which is how
+  // Excalidraw keeps the text centered when the box moves or resizes.
+  const size = labelSize(label, fontSize);
+  const text = textElement(
+    x + (width - size.width) / 2,
+    y + (height - size.height) / 2,
+    size.width,
+    size.height,
+    label,
+    fontSize,
+    board,
+    box.id,
+  );
+  box.boundElements = [{ type: "text", id: text.id }];
+  return [box, text];
+}
+
+/** Read the elements of a stored scene, tolerating a broken or empty file. */
+export function readSceneElements(content: string | null): unknown[] {
+  if (!content) return [];
+  try {
+    const parsed = JSON.parse(content) as { elements?: unknown };
+    return Array.isArray(parsed?.elements) ? parsed.elements : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The scene JSON to write: the shapes, appended to what the board already has
+ * (or replacing it), with the vault's whiteboard style as the app state.
+ */
+export function buildBoardScene(
+  shapes: readonly BoardShape[],
+  board: NotesBoardSettings,
+  options: { existing?: string | null; replace?: boolean } = {},
+): string {
+  const kept = options.replace ? [] : readSceneElements(options.existing ?? null);
+  const created = shapes.flatMap((shape) => shapeElement(shape, board));
+  return JSON.stringify({
+    type: "excalidraw",
+    version: 2,
+    source: "coding-agent-web",
+    elements: [...kept, ...created],
+    appState: {
+      viewBackgroundColor: "#ffffff",
+      currentItemStrokeColor: STROKE,
+      currentItemStrokeWidth: 1,
+      currentItemStrokeStyle: "solid",
+      currentItemRoughness: 1,
+      currentItemRoundness: "round",
+      currentItemArrowType: "round",
+      currentItemFontFamily: board.fontFamily,
+      currentItemFontSize: board.fontSize,
+      currentItemTextAlign: "left",
+    },
+    files: {},
+  }, null, 2);
+}

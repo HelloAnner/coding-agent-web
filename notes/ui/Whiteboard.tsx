@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
-import type { NotesEditorControl, NotesSaveState } from "@/notes/types";
+import type { NotesBoardSettings, NotesEditorControl, NotesSaveState } from "@/notes/types";
 
 const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
   ssr: false,
@@ -15,10 +15,12 @@ const AUTOSAVE_MS = 700;
 /** A stored board: fetch its scene, autosave Excalidraw's serialized JSON. */
 export function Whiteboard({
   path,
+  board,
   onSaveState,
   onFlushReady,
 }: {
   path: string;
+  board: NotesBoardSettings;
   onSaveState: (state: NotesSaveState) => void;
   onFlushReady: (control: NotesEditorControl | null) => void;
 }) {
@@ -147,6 +149,7 @@ export function Whiteboard({
       key={path}
       content={content}
       theme={isDark ? "dark" : "light"}
+      board={board}
       onChange={handleChange}
     />
   );

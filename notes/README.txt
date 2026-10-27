@@ -58,3 +58,46 @@ Coding 的 @ 联动
   - 点树里的空白处把新建目标切回根目录（没有单独的根目录行）。
   - 触摸屏没有 HTML5 拖拽，删除按钮仍然可用；移动可在桌面浏览器上做。
   - 拖拽排序、全文搜索暂未实现。
+
+Agent 内核（pi）
+  目录
+    notes/agent/settings.ts      笔记设置：agent 模型、白板字体字号
+    notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
+    notes/agent/tools.ts         自定义 tool：notes_write、notes_board
+    notes/agent/skills.ts        notes/skills 下的技能清单
+    notes/agent/runtime.ts       pi AgentSession、事件流、转录
+    notes/agent/index.ts         两个接口的处理
+    notes/skills/<名字>/SKILL.md 技能（frontmatter 里写 name、description）
+
+  流程
+    浏览器 NotesAgentPanel
+        |  POST /api/notes/agent  {message}      NDJSON 逐行回事件
+        v
+    NotesAgent（一个进程一个 pi 会话）
+        |  read / ls / notes_write / notes_board
+        v
+    data/notes 里的 .md 与 .excalidraw
+
+  事件
+    message / assistant_start / text / thinking / tool_start / tool_end / error / done
+    GET  /api/notes/agent    整段转录 + 模型名 + 技能
+    POST /api/notes/agent    发一条消息，返回事件流
+    DELETE /api/notes/agent  停止当前这一轮
+
+  模型
+    notes-settings.json 的 agent：baseUrl / apiKey / model / api / contextWindow / maxTokens
+    这个 provider 只注册在笔记 agent 的 ModelRuntime 上，不写 models.json。
+    baseUrl 或 model 留空 = 用本机 pi 已配好的默认模型。
+    改模型会重建会话并清空对话：新会话看不到旧上下文。
+
+  范围
+    - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
+    - 技能只加载 notes/skills；用户自己的 coding skills、扩展、MCP 都不进笔记 agent。
+    - 会话在内存里，重启清空；长期记忆是落盘的文件。
+    - GET /api/notes/settings 返回设置、字体选项、技能；PUT 合并保存。
+    - API Key 不回传浏览器：设置里的 key 只显示“已保存”，留空表示不修改。
+    - 白板字体、字号来自设置，写入新元素和新白板的 appState；已有元素不改。
+
+白板偏好（可配置的部分）
+  设置 -> 白板：字体（Excalidraw 内置 8 种）、字号（10~64）。
+  不配时是 Cascadia、20px；描边 #1b1b1f、细实线、round 圆角、白底是固定默认。
