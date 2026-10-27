@@ -31,41 +31,34 @@ export async function checkFilePanel(page, filePath) {
   const storedWidths = () => page.evaluate(() => [
     localStorage.getItem("pi-sidebar-width"), localStorage.getItem("pi-right-panel-width"),
   ]);
-  const toggle = panel.getByRole("button", { name: "Expand file panel", exact: true });
-  if (page.viewportSize().width <= 640) {
-    assert.equal(await toggle.isVisible(), false, "Mobile already uses full width");
-  } else {
-    // Include a manually resized split in the round trip.
-    const separator = page.locator('[data-resize-handle="right-panel"]');
-    if (await separator.isVisible()) await separator.press("ArrowLeft");
-    const originalWidth = await width();
-    const originalStored = await storedWidths();
-    const sessionInfo = page.getByRole("button", { name: "Session info", exact: true });
-    const sessionPopover = page.locator(".session-info-popover");
-    for (let i = 0; i < 2; i++) {
-      await sessionInfo.click();
-      await sessionPopover.waitFor();
-      await toggle.click();
-      assert.equal(await sessionPopover.count(), 0, "Full-width mode dismisses inert top-bar menus");
-      assert.equal(await panel.getByRole("button", { name: "Restore file panel width", exact: true }).getAttribute("aria-pressed"), "true");
-      assert.equal(Math.round(await width()), page.viewportSize().width);
-      assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), true);
-      assert.equal(await frame.evaluate(() => window.previewInstance), instance);
-      assert.equal(await frame.evaluate(() => scrollY), 120);
-      assert.equal(await frame.locator("#notes").inputValue(), "Keep this note");
-      assert.equal(await frame.locator("#filter").inputValue(), "Pending");
-      await panel.getByRole("button", { name: "Restore file panel width", exact: true }).press("Enter");
-      assert.equal(await width(), originalWidth);
-      assert.deepEqual(await storedWidths(), originalStored);
-      assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), false);
-    }
-    await toggle.click();
-    await panel.getByRole("button", { name: "Hide file panel", exact: true }).click();
-    await page.getByRole("button", { name: "Show file panel", exact: true }).click();
-    assert.equal(await toggle.getAttribute("aria-pressed"), "false", "Reopening returns to the split layout");
-    assert.equal(await width(), originalWidth);
-    assert.equal(await frame.evaluate(() => window.previewInstance), instance);
-  }
-  await panel.getByRole("button", { name: "Hide file panel", exact: true }).click();
+  // The chat top bar's toggle is the only panel switch (the panel's own copy
+  // sat beside a full-width mode that is gone), and on a phone it can hide
+  // behind the toolbar overflow: click it in the page.
+  const togglePanel = () => page.evaluate(() => {
+    document.querySelector('button[aria-controls="file-panel"]')?.click();
+  });
+
+  // Include a manually resized split in the round trip.
+  const separator = page.locator('[data-resize-handle="right-panel"]');
+  if (await separator.isVisible()) await separator.press("ArrowLeft");
+  const originalWidth = await width();
+  const originalStored = await storedWidths();
+
+  // Closing keeps the viewer mounted: reopening restores the same preview
+  // instance, its scroll and its fields, at the same width.
+  await togglePanel();
+  await page.waitForFunction(() => document.querySelector("#file-panel")?.classList.contains("right-panel-closed"));
+  assert.equal(await page.locator("#session-sidebar").evaluate(el => el.inert), false);
+  await togglePanel();
+  await page.waitForFunction(() => document.querySelector("#file-panel")?.classList.contains("right-panel-open"));
+  assert.equal(await frame.evaluate(() => window.previewInstance), instance);
+  assert.equal(await frame.evaluate(() => scrollY), 120);
+  assert.equal(await frame.locator("#notes").inputValue(), "Keep this note");
+  assert.equal(await frame.locator("#filter").inputValue(), "Pending");
+  assert.equal(await width(), originalWidth);
+  assert.deepEqual(await storedWidths(), originalStored);
+
+  await togglePanel();
+  await page.waitForFunction(() => document.querySelector("#file-panel")?.classList.contains("right-panel-closed"));
   console.log(`PASS: file panel width and preview state at ${page.viewportSize().width}px`);
 }

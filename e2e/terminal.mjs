@@ -94,16 +94,22 @@ try {
     const showTab = (name) => (name === "Files" ? showSidebarFiles(page) : showSidebarSessions(page));
     const filesPanel = page.locator("#file-browser");
     const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
+    // The panel's own hide button is gone: the chat top bar's toggle closes it,
+    // and on a phone that toggle can sit hidden behind the toolbar overflow.
     const hidePanel = async () => {
-      const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });
-      if (await button.getAttribute("aria-expanded") === "true") await button.click();
+      await page.evaluate(() => {
+        const button = [...document.querySelectorAll("button[aria-controls=\"file-panel\"]")]
+          .find((element) => element.getAttribute("aria-expanded") === "true");
+        button?.click();
+      });
+      await page.locator("#file-panel.right-panel-closed").waitFor();
     };
     try {
       await page.goto(`${base}/?session=terminal-a1`);
       await page.getByText("Terminal session one message", { exact: true }).waitFor();
       await showSidebar();
       await showTab("Files");
-      await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
+      await filesPanel.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       await run("export PR695_TOKEN=alive; printf '\\nTOKEN:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput("TOKEN:alive:[0-9]+");
@@ -154,24 +160,24 @@ try {
       await run("printf '\\nSESSION:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`SESSION:alive:${pid}`);
 
-      // The terminal's own theme swaps xterm's palette in place and survives a reload.
+      // The terminal follows the app theme: switching the system scheme repaints
+      // xterm in place, and the palette it chose survives a reload.
       const terminalBackground = () => page.locator(".terminal-panel:visible .xterm-viewport").evaluate((el) => getComputedStyle(el).backgroundColor);
-      const appTheme = await page.evaluate(() => document.documentElement.dataset.theme);
-      await page.getByRole("button", { name: "Switch terminal to light theme", exact: true }).click();
-      await page.locator('.terminal-panel:visible[data-terminal-theme="light"]').waitFor();
-      assert.equal(await terminalBackground(), "rgb(251, 251, 252)");
-      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), appTheme);
+      const expectTerminalTheme = async (theme) => {
+        await page.locator(`.terminal-panel:visible[data-terminal-theme="${theme}"]`).waitFor();
+        assert.equal(await terminalBackground(), theme === "light" ? "rgb(251, 251, 252)" : "rgb(17, 19, 24)");
+      };
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expectTerminalTheme("dark");
       await run("printf '\\nTHEME:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`THEME:alive:${pid}`);
+      await page.emulateMedia({ colorScheme: "light" });
+      await expectTerminalTheme("light");
 
       await page.reload();
       await ready();
       await expectFontWeight(600);
-      await page.locator('.terminal-panel:visible[data-terminal-theme="light"]').waitFor();
-      assert.equal(await terminalBackground(), "rgb(251, 251, 252)");
-      await page.getByRole("button", { name: "Switch terminal to dark theme", exact: true }).click();
-      assert.equal(await terminalBackground(), "rgb(17, 19, 24)");
-      assert.equal(await page.evaluate(() => localStorage.getItem("pi-web:terminal-theme")), "dark");
+      await expectTerminalTheme("light");
       await run("printf '\\nREFRESH:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`REFRESH:alive:${pid}`);
       assert.equal(created.size, 1, "refresh must reconnect, not create");
@@ -243,7 +249,7 @@ try {
       await hidePanel();
       await showSidebar();
       await showTab("Files");
-      await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
+      await filesPanel.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await page.getByRole("button", { name: "Terminate terminal workspace-a", exact: true }).click();
       releaseCreation();
       await page.locator(".terminal-panel").waitFor({ state: "detached" });
@@ -252,7 +258,7 @@ try {
 
       await showSidebar();
       await showTab("Files");
-      await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
+      await filesPanel.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       await run("export PR695_WORKSPACE=retained");
       await hidePanel();
@@ -263,7 +269,7 @@ try {
       await filesPanel.getByRole("button").and(page.getByTitle(workspace, { exact: true })).first().click();
       await page.getByRole("menuitemradio").and(page.getByTitle(otherWorkspace, { exact: true })).click();
       await page.waitForFunction((root) => document.querySelector("#session-sidebar-panel-files .project-picker-button.is-project")?.title === root, otherWorkspace);
-      await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
+      await filesPanel.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
       const workspaceTabs = await page.evaluate(() => JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs")).tabs);
       assert.deepEqual(workspaceTabs.map((tab) => tab.cwd).sort(), [workspace, otherWorkspace].sort());

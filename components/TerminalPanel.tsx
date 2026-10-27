@@ -5,7 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { terminalFontSize, useChatAppearance } from "@/hooks/useChatAppearance";
 import { useI18n } from "@/hooks/useI18n";
-import { setTerminalTheme, useTerminalTheme } from "@/hooks/useTerminalTheme";
+import { useTheme } from "@/hooks/useTheme";
 import { subscribeFontPreferences } from "@/hooks/useFontPreferences";
 import { readFontWeight } from "@/lib/font-preferences";
 import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
@@ -18,7 +18,7 @@ import {
   type TerminalModifiers,
 } from "@/lib/terminal-extra-keys";
 import type { TerminalEvent } from "@/lib/terminal-manager";
-import { TERMINAL_XTERM_THEMES } from "@/lib/terminal-theme";
+import { TERMINAL_XTERM_THEMES, type TerminalTheme } from "@/lib/terminal-theme";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";
 
@@ -46,7 +46,8 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   const [modifiers, setModifiers] = useState<TerminalModifiers>(NO_TERMINAL_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const showExtraKeys = useTerminalExtraKeysVisible();
-  const theme = useTerminalTheme();
+  // The terminal shares the app's light/dark theme; its palettes live in lib/terminal-theme.ts.
+  const theme: TerminalTheme = useTheme().isDark ? "dark" : "light";
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const fontSize = terminalFontSize(useChatAppearance().fontSize);
@@ -267,9 +268,6 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     return () => { cancelled = true; };
   }, [id, tab.closing]);
 
-  const nextTheme = theme === "dark" ? "light" : "dark";
-  const themeLabel = nextTheme === "light" ? "terminal.lightTheme" : "terminal.darkTheme";
-
   return (
     <section className="terminal-panel" data-terminal-theme={theme} aria-label={t("terminal.title")}>
       <header className="terminal-panel-header">
@@ -285,17 +283,6 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
               </svg>
             </button>
           )}
-          <button type="button" onClick={() => setTerminalTheme(nextTheme)} title={t(themeLabel)} aria-label={t(themeLabel)}>
-            {nextTheme === "light" ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-          </button>
           <button type="button" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M20 11a8 8 0 1 0-2.34 5.66" /><polyline points="20 4 20 11 13 11" />

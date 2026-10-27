@@ -559,8 +559,8 @@ html.dark .web-login-error {
   cursor: not-allowed;
 }
 
-/* The terminal has its own light/dark choice (lib/terminal-theme.ts), apart
-   from the app theme. Its backgrounds match the xterm palettes there. */
+/* The terminal follows the app theme's light/dark choice. Its backgrounds
+   match the xterm palettes in lib/terminal-theme.ts. */
 .terminal-panel {
   --terminal-bg: #111318;
   --terminal-header-bg: #181b21;
@@ -2430,26 +2430,7 @@ span.token.table {
   }
 }
 
-/* Full-width mode keeps the mounted viewer and saved split width intact. */
-@media (min-width: 641px) {
-  .right-panel-container.right-panel-open.right-panel-full-width {
-    position: fixed;
-    inset: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
-    z-index: 250;
-    width: auto;
-    min-width: 0;
-    height: var(--app-viewport-height, 100dvh);
-    border-left: none !important;
-    box-shadow: none;
-    transform: none;
-    transition: none;
-  }
-  .right-panel-container.right-panel-full-width > * {
-    width: 100%;
-    min-width: 0;
-  }
-}
-.file-panel-expand-button {
+.file-panel-terminal-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2457,17 +2438,20 @@ span.token.table {
   width: 36px;
   height: 36px;
   padding: 0;
-  background: var(--bg-selected);
+  background: none;
   border: none;
   border-left: 1px solid var(--border);
-  color: var(--text);
+  color: var(--text-muted);
   cursor: pointer;
 }
-.file-panel-expand-button:hover,
-.file-panel-expand-button[aria-pressed="true"] {
+.file-panel-terminal-button:hover:enabled {
   color: var(--accent);
 }
-.file-panel-expand-button:focus-visible {
+.file-panel-terminal-button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+.file-panel-terminal-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -3px;
 }
@@ -2525,7 +2509,6 @@ span.token.table {
     width: 100%;
     flex: 1 1 auto;
   }
-  .file-panel-expand-button,
   .panel-resize-handle,
   .right-panel-overlay-backdrop {
     display: none;

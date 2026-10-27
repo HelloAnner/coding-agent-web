@@ -325,11 +325,6 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
-  const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
-  useEffect(() => {
-    if (!rightPanelOpen || isMobile) setRightPanelExpanded(false);
-  }, [rightPanelOpen, isMobile]);
   useEffect(() => {
     if (!rightPanelOpen) setMobileFilesOpen(false);
   }, [rightPanelOpen]);
@@ -524,10 +519,6 @@ export function AppShell() {
     }
   }, [hasSubagentSessions]);
 
-  useEffect(() => {
-    if (rightPanelFullWidth) setActiveTopPanel(null);
-  }, [rightPanelFullWidth]);
-
   const toggleTopPanel = useCallback((
     panel: "agents" | "branches" | "system" | "tools" | "session",
     keepMobileToolbarOpen = false,
@@ -576,11 +567,6 @@ export function AppShell() {
     }
     setRightPanelOpen((open) => !open);
   }, [isMobile, rightPanelOpen]);
-
-  const handleRightPanelExpandToggle = useCallback(() => {
-    setActiveTopPanel(null);
-    setRightPanelExpanded((expanded) => !expanded);
-  }, []);
 
   // All apps are mounted in this shell. A switch shows the other one at once
   // and lets the shared layout's route change catch the URL up; the window
@@ -2435,7 +2421,6 @@ export function AppShell() {
       <div
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
-        inert={rightPanelFullWidth}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -2454,7 +2439,6 @@ export function AppShell() {
       {sidebarOpen && (
         <div
           {...sidebarResizer.separatorProps}
-          inert={rightPanelFullWidth}
           aria-controls="session-sidebar"
           className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="sidebar"
@@ -2463,7 +2447,7 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(36px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
@@ -2924,7 +2908,6 @@ export function AppShell() {
       {rightPanelOpen && (
         <div
           {...rightPanelResizer.separatorProps}
-          inert={rightPanelFullWidth}
           aria-controls="file-panel"
           className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
           data-resize-handle="right-panel"
@@ -2936,7 +2919,7 @@ export function AppShell() {
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelFullWidth ? " right-panel-full-width" : ""}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
           borderLeft: "1px solid var(--border)",
@@ -2973,7 +2956,6 @@ export function AppShell() {
               {!isMobile && (
                 <div
                   {...fileBrowserResizer.separatorProps}
-                  inert={rightPanelFullWidth}
                   aria-controls="file-browser"
                   className={`panel-resize-handle file-browser-resize-handle${fileBrowserResizer.isResizing ? " is-resizing" : ""}`}
                   data-resize-handle="file-browser"
@@ -3029,37 +3011,14 @@ export function AppShell() {
               </div>
               <button
                 type="button"
-                className="file-panel-expand-button"
-                onClick={handleRightPanelExpandToggle}
-                aria-controls="file-panel"
-                aria-pressed={rightPanelFullWidth}
-                title={translate(rightPanelFullWidth ? "files.restorePanelWidth" : "files.expandPanel")}
-                aria-label={translate(rightPanelFullWidth ? "files.restorePanelWidth" : "files.expandPanel")}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d={rightPanelFullWidth
-                    ? "M9 3v6H3m12-6v6h6M9 21v-6H3m12 6v-6h6M3 3l6 6m12-6-6 6M3 21l6-6m12 6-6-6"
-                    : "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 3l6 6m12-6-6 6M3 21l6-6m12 6-6-6"} />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRightPanelOpen(false)}
-                aria-controls="file-panel"
-                aria-expanded={rightPanelOpen}
-                title={translate("files.hidePanel")}
-                aria-label={translate("files.hidePanel")}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                  background: "var(--bg-selected)", border: "none", borderLeft: "1px solid var(--border)",
-                  color: "var(--text)", cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
-                }}
-                onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
-                onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+                onClick={() => { if (activeCwd) handleOpenTerminal(activeCwd); }}
+                disabled={!activeCwd}
+                title={translate("terminal.open")}
+                aria-label={translate("terminal.open")}
+                className="file-panel-terminal-button"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+                  <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
               </button>
             </div>
