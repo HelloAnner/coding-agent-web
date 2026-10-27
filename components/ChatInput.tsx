@@ -1921,7 +1921,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         border: 0,
         background: "transparent",
         padding: compact ? 0 : "0 16px 8px",
-        paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        paddingRight: compact ? 0 : 16,
         opacity: builtinCommandPending ? 0.5 : 1,
         transition: "opacity 0.15s",
       }}

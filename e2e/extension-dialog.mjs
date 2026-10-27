@@ -40,7 +40,6 @@ export async function checkExtensionDialogs(page, artifacts, width) {
   page.on("request", onRequest);
   const start = async (mode) => {
     await page.mouse.move(0, 0);
-    await page.locator("[data-minimap-preview-box]").waitFor({ state: "hidden" });
     const input = page.locator("textarea").last();
     await input.fill(`/e2e-dialog ${mode}`);
     await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -146,7 +145,6 @@ function scrollsSideways(dialog) {
 export async function checkExtensionDialogSizing(page, width) {
   const start = async (mode, name = `E2E ${mode}`) => {
     await page.mouse.move(0, 0);
-    await page.locator("[data-minimap-preview-box]").waitFor({ state: "hidden" });
     await page.locator("textarea").last().fill(`/e2e-dialog ${mode}`);
     await page.getByRole("button", { name: "Send", exact: true }).click();
     const dialog = page.getByRole("dialog", name === null ? undefined : { name, exact: true });

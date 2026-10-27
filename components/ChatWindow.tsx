@@ -17,7 +17,6 @@ import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } fro
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
 import { phaseLabel } from "@/lib/chat-phase-label";
@@ -25,7 +24,6 @@ import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type Notice
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
@@ -102,7 +100,6 @@ interface Props {
   /** Keeps the completion sound's audio running until the returned release is called. */
   holdAudio?: () => () => void;
 }
-const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
 
 // One update check per page. Every fresh composer mounts the header again
@@ -259,7 +256,6 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
 
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, harness, harnessModel, onHarnessChange, onCatalogModelChange, onProjectPreferenceChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
-  const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -290,7 +286,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const confirmClaudeProject = useCallback((cwd: string) => window.confirm(t("harness.claudeTrust", { cwd })), [t]);
 
   const {
-    loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
+    loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, streamingStore,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -323,7 +319,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // re-render StreamingReply alone.
   const isStreaming = useStreamingSelector(streamingStore, selectIsStreaming);
   const hasStreamingContent = useStreamingSelector(streamingStore, selectHasStreamingContent);
-  const getStreamingMessage = useCallback(() => streamingStore.getState().streamingMessage, [streamingStore]);
   const sessionBusy = agentRunning || bashRunning;
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
@@ -819,7 +814,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
-  const visibleMessages = messages.filter((m) => isMessageGroupAnchor(m) || m.role === "assistant");
   // Stable Map identity: `messages` doesn't change during streaming updates
   // (the streaming message lives in streamingStore), so memoized MessageViews
   // skip re-rendering on every message_update event. An inline `new Map()`
@@ -847,11 +841,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     }
     return history.reverse();
   }, [messages]);
-  const messageRefs = useMessageRefs(visibleMessages.length);
-  const revealHistoryForMinimap = useCallback(() => {
-    setVisibleCount((current) => Math.max(current, messages.length * 2));
-  }, [messages.length]);
-
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
@@ -1103,7 +1092,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           position: "absolute",
           top: 12,
           left: 0,
-          right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+          right: 0,
           zIndex: 40,
           display: "flex",
           // Toasts live in the top-right corner
@@ -1126,7 +1115,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         <div
           ref={scrollContainerRef}
           // The message list is the one place long output has to be dragged through,
-          // so it shows its scrollbar instead of hiding it behind the minimap (#788).
+          // so it keeps its scrollbar visible (#788).
           // A stable gutter keeps the centred column from shifting when a short
           // session grows past one screen.
           className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
@@ -1147,26 +1136,16 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (isMessageGroupAnchor(messages[i])) { lastAnchorIdx = i; break; }
               }
 
-              const visibleRefIndexByMessage = new Map<number, number>();
-              let refIdx = 0;
-              messages.forEach((msg, idx) => {
-                if (isMessageGroupAnchor(msg) || msg.role === "assistant") {
-                  visibleRefIndexByMessage.set(idx, refIdx++);
-                }
-              });
-
-              const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
-                messageRefs.current[refIndex] = el;
+              const attachUserMessageRef = (idx: number) => (el: HTMLDivElement | null) => {
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; recoverTruncation?: boolean; turnDurationMs?: number; withNotices?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 if (isHiddenCustomMessage(msg)) return null;
                 // pi's showCacheMissNotices (#1265): read from the stored message, not a turn view's copy.
                 const notices = options.withNotices === false ? [] : getTranscriptNotices(messages[idx]);
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
-                const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
                 // Not the entry id alone: a message sent or streamed in this run
                 // gets its id only when the file is read again (#1184).
@@ -1213,9 +1192,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 );
                 const noticeLines = notices.length > 0 ? <TranscriptNoticeLines key={`${keyPrefix}-notices-${messageKey}`} notices={notices} /> : null;
                 // One shape with or without notices, so lines arriving on a reload do not remount the view.
-                if (!isVisible || currentRefIdx === undefined) return <Fragment key={`${keyPrefix}-${messageKey}`}>{view}{noticeLines}</Fragment>;
+                if (!isVisible) return <Fragment key={`${keyPrefix}-${messageKey}`}>{view}{noticeLines}</Fragment>;
                 return (
-                  <div key={`${keyPrefix}-${messageKey}`} data-entry-id={entryIds[idx]} ref={options.attachRef === false ? undefined : attachVisibleRef(idx, currentRefIdx)}>
+                  <div key={`${keyPrefix}-${messageKey}`} data-entry-id={entryIds[idx]} ref={attachUserMessageRef(idx)}>
                     {view}
                     {noticeLines}
                   </div>
@@ -1272,7 +1251,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 // processViews also holds the notice lines of steps that show nothing else.
                 let processMessageCount = 0;
                 let processToolCount = 0;
-                let processRefIdx: number | undefined;
                 let revealProcess = false;
 
                 for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
@@ -1282,7 +1260,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     if (isHiddenCustomMessage(processMessage)) continue;
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
                     processMessageCount += 1;
-                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    processViews.push(renderMessage(processIdx, { keyPrefix: "process" }));
                     continue;
                   }
                   if (processMessage.role !== "assistant") continue;
@@ -1295,12 +1273,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     if (notices.length > 0) processViews.push(<TranscriptNoticeLines key={`process-notices-${messageKeys[processIdx]}`} notices={notices} />);
                     continue;
                   }
-                  processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                   processToolCount += countToolCallBlocks(blocks);
                   processMessageCount += 1;
                   revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
                   processViews.push(renderMessage(processIdx, {
-                    attachRef: false,
                     keyPrefix: "process",
                     messageOverride: message,
                     showTimestamp: false,
@@ -1314,10 +1290,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   const answered = collapsesProcessDetails(finalAnswerMessage);
                   const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
                   rendered.push(
-                    <div
-                      key={`process-group-${messageKeys[groupStartIdx]}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
-                    >
+                    <div key={`process-group-${messageKeys[groupStartIdx]}`}>
                       {/* Re-key on answer availability: useState reads defaultExpanded only
                           on mount, so a turn first rendered without an answer (expanded)
                           would otherwise stay open once its answer shows up, e.g. when
@@ -1402,16 +1375,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         </div>
-        {isMobile || pendingScrollRestore ? null : (
-          <ChatMinimap
-            messages={messages}
-            getStreamingMessage={getStreamingMessage}
-            scrollContainer={scrollContainerRef}
-            messageRefs={messageRefs}
-            onRevealHistory={revealHistoryForMinimap}
-            turnsBefore={earlierTurnCount}
-          />
-        )}
         </>}
       </div>
 
@@ -1501,7 +1464,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               position: "absolute",
               bottom: "100%",
               left: 0,
-              right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+              right: 0,
               display: "flex",
               justifyContent: "center",
               paddingBottom: 10,
@@ -1528,7 +1491,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             .new-session-context in app/globals.css; the side padding and
             width are inline here). */}
         {isEmptyNew && (
-          <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
+          <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: 16 }}>
             <div className="new-session-hero-inner" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
               <div className="new-session-brand">
                 <Image src="/icons/apple-touch-icon.png" width={40} height={40} alt="" priority className="new-session-logo" />

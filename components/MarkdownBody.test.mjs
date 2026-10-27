@@ -186,7 +186,7 @@ test("retains single-dollar equations, numeric math, balanced padding and multil
   }
 });
 
-test("file previews and minimap Markdown use the same currency-safe math rules", () => {
+test("file previews use currency-safe math rules", () => {
   const html = renderToStaticMarkup(React.createElement(ReactMarkdown, {
     remarkPlugins: markdownPreviewRemarkPlugins,
     rehypePlugins: markdownPreviewRehypePlugins,

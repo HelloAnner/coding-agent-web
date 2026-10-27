@@ -765,8 +765,7 @@ function turnAnchorShape(entry: SessionEntry): Parameters<typeof isMessageGroupA
 
 /**
  * Turns on the branch above `oldest`, the first entry of a page: the anchors
- * the chat would group by (#791). The minimap numbers loaded turns from it, so
- * a turn keeps its number as older pages load.
+ * the chat would group by (#791).
  */
 function countTurnsBefore(entries: SessionEntry[], oldest: SessionEntry): number {
   const byId = new Map<string, SessionEntry>();
