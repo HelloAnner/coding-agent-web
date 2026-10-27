@@ -94,7 +94,18 @@ test("a note can move between directories, but never over another file", async (
 
   await notes.createItem("", "移动我", "note");
   await assert.rejects(() => notes.moveItem("移动我.md", "目标"), /已存在/);
-  await assert.rejects(() => notes.moveItem("目标", ""), /只支持/);
+});
+
+test("a directory moves with its contents", async () => {
+  await notes.createDirectory("", "归档");
+  await notes.createDirectory("", "旧项目");
+  await notes.createItem("旧项目", "总结", "note");
+
+  const moved = await notes.moveItem("旧项目", "归档");
+  assert.equal(moved, "归档/旧项目");
+  assert.equal((await notes.readItem("归档/旧项目/总结.md")).kind, "note");
+  assert.equal(await notes.moveItem("归档/旧项目", ""), "旧项目");
+  assert.equal((await notes.readItem("旧项目/总结.md")).kind, "note");
 });
 
 test("remove deletes files and whole directories, but not the root", async () => {

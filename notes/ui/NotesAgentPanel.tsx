@@ -16,7 +16,13 @@ const TOOL_LABELS: Record<string, string> = {
   ls: "列目录",
   notes_write: "写笔记",
   notes_board: "画白板",
+  notes_manage: "整理目录",
 };
+
+/** Tools that change the vault: the sidebar is stale after any of them. */
+const VAULT_TOOLS = new Set(["notes_write", "notes_board", "notes_manage"]);
+/** Tools whose `path` holds content the open editor must read again. */
+const CONTENT_TOOLS = new Set(["notes_write", "notes_board"]);
 
 function AssistantMessage({ message }: { message: NotesChatMessage }) {
   return (
@@ -69,6 +75,8 @@ export function NotesAgentPanel({
   const [error, setError] = useState<string | null>(null);
   const assistantId = useRef<string | null>(null);
   const touched = useRef<Set<string>>(new Set());
+  // A rename or a delete leaves no path behind, but the tree still changed.
+  const changed = useRef(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -121,11 +129,14 @@ export function NotesAgentPanel({
     if (event.type === "tool_start") {
       const id = assistantId.current;
       if (!id) return;
-      try {
-        const path = (JSON.parse(event.tool.args) as { path?: unknown }).path;
-        if (typeof path === "string") touched.current.add(path);
-      } catch {
-        // Arguments are shown as-is; only a path we can read is a vault update.
+      if (VAULT_TOOLS.has(event.tool.name)) changed.current = true;
+      if (CONTENT_TOOLS.has(event.tool.name)) {
+        try {
+          const path = (JSON.parse(event.tool.args) as { path?: unknown }).path;
+          if (typeof path === "string") touched.current.add(path);
+        } catch {
+          // Arguments are shown as-is; only a path we can read is a vault update.
+        }
       }
       setMessages((current) => current.map((message) => (message.id === id
         ? { ...message, tools: [...(message.tools ?? []), event.tool] }
@@ -151,7 +162,9 @@ export function NotesAgentPanel({
       setBusy(false);
       const paths = [...touched.current];
       touched.current = new Set();
-      if (paths.length > 0) onVaultChanged(paths);
+      const mutated = changed.current;
+      changed.current = false;
+      if (mutated) onVaultChanged(paths);
     }
   };
 
@@ -163,6 +176,7 @@ export function NotesAgentPanel({
     setError(null);
     setBusy(true);
     touched.current = new Set();
+    changed.current = false;
     assistantId.current = null;
     const message = contextPath ? `（当前打开：${contextPath}）\n\n${text}` : text;
     try {

@@ -67,7 +67,7 @@ Agent 内核（pi）
   目录
     notes/agent/settings.ts      笔记设置：agent 模型、白板字体字号
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
-    notes/agent/tools.ts         自定义 tool：notes_write、notes_board
+    notes/agent/tools.ts         自定义 tool：notes_write、notes_board、notes_manage
     notes/agent/skills.ts        notes/skills 下的技能清单
     notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
     notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每个任务自己的提示词/技能/工具
@@ -89,7 +89,7 @@ Agent 内核（pi）
         |  POST /api/notes/agent  {message}      NDJSON 逐行回事件
         v
     NotesAgent（一个进程一个 pi 会话）
-        |  read / ls / notes_write / notes_board
+        |  read / ls / notes_write / notes_board / notes_manage
         v
     data/notes 里的 .md 与 .excalidraw
 
@@ -107,6 +107,7 @@ Agent 内核（pi）
 
   范围
     - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
+    - notes_manage 管目录树：mkdir / create / rename / move / remove，删非空目录要显式 recursive=true。
     - 技能只加载 notes/skills；用户自己的 coding skills、扩展、MCP 都不进笔记 agent。
     - 会话在内存里，重启清空；长期记忆是落盘的文件。
     - GET /api/notes/settings 返回设置、字体选项、技能；PUT 合并保存。

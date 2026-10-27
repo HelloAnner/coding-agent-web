@@ -12,7 +12,7 @@ import { notesRoot } from "../files";
 import { readNotesSettings } from "./settings";
 import { notesSkillsDir } from "./skills";
 import { NOTES_SYSTEM_PROMPT } from "./system-prompt";
-import { NOTES_BOARD_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
+import { NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
 
 /**
  * How one notes agent session is built. The expensive, auth-bound part (the
@@ -23,8 +23,8 @@ import { NOTES_BOARD_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
 
 export const NOTES_AGENT_PROVIDER = "notes";
 
-/** Only what an agent may call: reading the vault and writing notes/boards. */
-export const NOTES_AGENT_TOOLS = ["read", "ls", NOTES_WRITE_TOOL, NOTES_BOARD_TOOL];
+/** Only what an agent may call: reading the vault, writing notes/boards, and the tree. */
+export const NOTES_AGENT_TOOLS = ["read", "ls", NOTES_WRITE_TOOL, NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL];
 
 export interface NotesSessionProfile {
   /** Defaults to the notes panel's own preamble. */

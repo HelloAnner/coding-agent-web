@@ -240,10 +240,10 @@ export async function renameItem(relative: string, name: string): Promise<string
   return joinRelative(parentOf(normalizeRelative(relative)), fileName);
 }
 
-/** Move a note or board into another directory. */
+/** Move a note, board or directory into another directory. */
 export async function moveItem(relative: string, dir: string): Promise<string> {
-  kindForPath(relative);
   const source = await resolveExisting(relative);
+  if (!(await stat(source)).isDirectory()) kindForPath(relative);
   const destination = await resolveParent(dir);
   if (path.dirname(source) === destination) return normalizeRelative(relative);
   const fileName = path.basename(source);
