@@ -71,7 +71,9 @@ Agent 内核（pi）
 
   内置技能
     note-writing          笔记结构：结论先行、删掉空小节
-    whiteboard-style      白板风格：3~8 个节点、留白、手绘感、只画核心关系
+    whiteboard-style      白板风格：先一句话主张、按概念选构图、留白、只画核心关系
+                          借鉴 excalidraw-diagram-skill 的方法：同构检验、构图模式表、
+                          容器纪律、留白即权重、画完核坐标
     whiteboard-drawing    notes_board 的字段、坐标、追加和重画规则
 
   流程
