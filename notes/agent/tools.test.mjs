@@ -10,7 +10,7 @@ process.env.CODING_AGENT_WEB_NOTES_DIR = root;
 // jiti resolves the tools' extensionless imports; plain --experimental-strip-types does not.
 const jiti = createJiti(import.meta.url, { interopDefault: true, moduleCache: false });
 const notes = await jiti.import("../files.ts");
-const { notesAgentTools, NOTES_MANAGE_TOOL, NOTES_WRITE_TOOL } = await jiti.import("./tools.ts");
+const { notesAgentTools, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL, NOTES_WRITE_TOOL } = await jiti.import("./tools.ts");
 
 const tools = notesAgentTools({ fontFamily: 3, fontSize: 20 });
 const manage = tools.find((tool) => tool.name === NOTES_MANAGE_TOOL);
@@ -21,8 +21,8 @@ const run = (tool, params) => tool.execute("call", params, undefined, undefined,
 
 after(() => rm(root, { recursive: true, force: true }));
 
-test("the notes agent gets a tree tool next to write and board", () => {
-  assert.deepEqual(tools.map((tool) => tool.name), [NOTES_WRITE_TOOL, "notes_board", NOTES_MANAGE_TOOL]);
+test("the notes agent gets a tree tool and a session reader next to write and board", () => {
+  assert.deepEqual(tools.map((tool) => tool.name), [NOTES_WRITE_TOOL, "notes_board", NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL]);
 });
 
 test("mkdir builds every missing level", async () => {

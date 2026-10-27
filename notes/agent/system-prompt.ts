@@ -11,6 +11,8 @@ export const NOTES_SYSTEM_PROMPT = `你是 Notes 面板里的写作与白板助�
 
 左侧目录树用 notes_manage 整理：mkdir 新建目录（多级一次建好）、create 新建空的笔记或白板、rename 重命名、move 换到别的目录、remove 删除（删目录会连内容一起删）。
 
+要看 Coding 里的对话，用 notes_sessions：list 列会话（标出有没有笔记还没读过的新内容），read 读一个会话的正文。不要用 read 或 bash 去翻会话文件。
+
 工作方式：
 - 先 ls 看目录结构，要改已有内容先 read，再整体重写该文件。
 - 路径一律相对笔记库，不要写绝对路径，不要写到库外。

@@ -40,6 +40,14 @@ function database(): DatabaseSync {
       scroll_y REAL NOT NULL,
       zoom REAL NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS notes_session_ingest (
+      session_id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      project TEXT NOT NULL,
+      modified TEXT NOT NULL,
+      message_count INTEGER NOT NULL,
+      processed_at INTEGER NOT NULL
+    );
   `);
   open = { file, db };
   return db;
@@ -116,6 +124,59 @@ export function writeBoardView(relative: string, view: NotesBoardView): void {
        ON CONFLICT(path) DO UPDATE SET scroll_x = excluded.scroll_x, scroll_y = excluded.scroll_y, zoom = excluded.zoom`,
     )
     .run(relative, view.scrollX, view.scrollY, view.zoom);
+}
+
+/** One Coding session the notes agent has already read, at which version. */
+export interface NotesIngestRow {
+  sessionId: string;
+  /** Absolute path of the harness session file. */
+  path: string;
+  /** Project root the session belongs to (the Coding sidebar's group). */
+  project: string;
+  /** The session's last-message time, as read from the catalogue. */
+  modified: string;
+  messageCount: number;
+  processedAt: number;
+}
+
+/** What every session the notes agent has already ingested looks like. */
+export function readIngestRows(): Map<string, NotesIngestRow> {
+  const rows = database()
+    .prepare("SELECT session_id, path, project, modified, message_count, processed_at FROM notes_session_ingest")
+    .all() as { session_id: string; path: string; project: string; modified: string; message_count: number; processed_at: number }[];
+  return new Map(rows.map((row) => [row.session_id, {
+    sessionId: row.session_id,
+    path: row.path,
+    project: row.project,
+    modified: row.modified,
+    messageCount: row.message_count,
+    processedAt: row.processed_at,
+  }]));
+}
+
+/** Remember the version of each session a run has just read. */
+export function writeIngestRows(rows: readonly Omit<NotesIngestRow, "processedAt">[]): void {
+  if (!rows.length) return;
+  const db = database();
+  const insert = db.prepare(
+    `INSERT INTO notes_session_ingest (session_id, path, project, modified, message_count, processed_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       path = excluded.path,
+       project = excluded.project,
+       modified = excluded.modified,
+       message_count = excluded.message_count,
+       processed_at = excluded.processed_at`,
+  );
+  const at = Date.now();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const row of rows) insert.run(row.sessionId, row.path, row.project, row.modified, row.messageCount, at);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function closeNotesDb(): void {

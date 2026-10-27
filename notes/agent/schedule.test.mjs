@@ -8,6 +8,12 @@ test("everyMinutes counts from the given time", () => {
   assert.equal(nextRunAt({ everyMinutes: 30 }, from), from.getTime() + 30 * 60_000);
 });
 
+test("everySeconds wins over everyMinutes", () => {
+  const from = new Date(2026, 0, 1, 10, 0, 0, 0);
+  assert.equal(nextRunAt({ everySeconds: 30, everyMinutes: 5 }, from), from.getTime() + 30_000);
+  assert.equal(nextRunAt({ everySeconds: 0 }, from), null);
+});
+
 test("dailyAt later today stays today", () => {
   const next = new Date(nextRunAt({ dailyAt: "08:30" }, new Date(2026, 0, 1, 8, 0, 0, 0)));
   assert.deepEqual([next.getDate(), next.getHours(), next.getMinutes()], [1, 8, 30]);

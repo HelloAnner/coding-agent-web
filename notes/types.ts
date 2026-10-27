@@ -126,6 +126,8 @@ export interface NotesTaskDefinition {
   title: string;
   /** The message the agent receives when the task fires. */
   prompt: string;
+  /** Run every N seconds, counted from the previous run. */
+  everySeconds?: number;
   /** Run every N minutes, counted from the previous run. */
   everyMinutes?: number;
   /** Run once a day at local "HH:MM". */
@@ -136,13 +138,24 @@ export interface NotesTaskDefinition {
   systemPrompt?: string;
   /** Skill names under notes/skills; omitted loads all, [] loads none. */
   skills?: string[];
-  /** Tool allowlist; defaults to read / ls / notes_write / notes_board / notes_manage. */
+  /** Tool allowlist; defaults to read / ls / notes_write / notes_board / notes_manage / notes_sessions. */
   tools?: string[];
   /** Abort a run after this many minutes. Default: 15. */
   timeoutMinutes?: number;
+  /**
+   * Decides this fire's prompt; null means there is nothing to do and no
+   * session is built at all. `after` runs once the turn is over, whatever the
+   * outcome, which is where a task records what it just covered.
+   */
+  prepare?: () => NotesTaskPreparation | null | Promise<NotesTaskPreparation | null>;
 }
 
-export type NotesTaskStatus = "idle" | "queued" | "running" | "ok" | "error" | "timeout";
+export interface NotesTaskPreparation {
+  prompt: string;
+  after?: (status: NotesTaskStatus) => void | Promise<void>;
+}
+
+export type NotesTaskStatus = "idle" | "queued" | "running" | "ok" | "error" | "timeout" | "skipped";
 
 /** The outcome of one run, kept in memory for the task list. */
 export interface NotesTaskRun {
@@ -156,7 +169,7 @@ export interface NotesTaskRun {
 }
 
 /** GET /api/notes/tasks: a definition plus where its run state stands. */
-export interface NotesTaskView extends NotesTaskDefinition {
+export interface NotesTaskView extends Omit<NotesTaskDefinition, "prepare"> {
   status: NotesTaskStatus;
   /** Next scheduled fire time, epoch ms; null when it will not run again. */
   nextRunAt: number | null;

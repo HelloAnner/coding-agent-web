@@ -15,6 +15,7 @@ import {
   writeItem,
 } from "../files";
 import { buildBoardScene } from "./board";
+import { listCodingSessions, readCodingSession } from "../ingest";
 
 /**
  * The notes agent's own tools. `read` and `ls` come from pi; these three are
@@ -27,6 +28,7 @@ import { buildBoardScene } from "./board";
 export const NOTES_WRITE_TOOL = "notes_write";
 export const NOTES_BOARD_TOOL = "notes_board";
 export const NOTES_MANAGE_TOOL = "notes_manage";
+export const NOTES_SESSIONS_TOOL = "notes_sessions";
 
 function vaultPath(value: string, extension: string | null, tool: string): string {
   const target = value.trim().replace(/^\/+/, "");
@@ -233,6 +235,46 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         }
         await removeItem(target);
         return textResult(`已删除 ${target}`, { action: params.action, path: target });
+      },
+    }),
+    defineTool({
+      name: NOTES_SESSIONS_TOOL,
+      label: "读 Coding 会话",
+      description: "看 Coding 模块里的会话：list 列出非归档会话，标出哪些有笔记还没读过的新内容；read 读一个会话的正文（用户提问、助手回答、工具调用摘要）。只读，不改笔记。",
+      promptSnippet: "List Coding sessions and read a session's transcript",
+      promptGuidelines: [
+        "Read Coding conversations with notes_sessions; never open session files with read or bash.",
+        "Only the sessions the task prompt lists are this run's job.",
+      ],
+      parameters: Type.Object({
+        action: Type.Union([Type.Literal("list"), Type.Literal("read")], {
+          description: "list 列会话 / read 读一个会话的正文",
+        }),
+        session: Type.Optional(Type.String({ description: "read 的会话 id（任务提示或 list 里给的）" })),
+        project: Type.Optional(Type.String({ description: "list 只看某个项目：项目根路径或文件夹名的一部分" })),
+      }),
+      async execute(_toolCallId, params) {
+        if (params.action === "read") {
+          const id = (params.session ?? "").trim();
+          if (!id) throw new NotesError("read 需要 session", 400);
+          const text = await readCodingSession(id);
+          if (text === null) throw new NotesError(`没有这个会话：${id}`, 404);
+          return textResult(text, { session: id });
+        }
+        const filter = (params.project ?? "").trim().toLowerCase();
+        const sessions = await listCodingSessions();
+        const shown = filter
+          ? sessions.filter((session) => session.projectRoot.toLowerCase().includes(filter)
+            || session.projectDir.toLowerCase().includes(filter))
+          : sessions;
+        if (!shown.length) {
+          return textResult(filter ? `没有匹配「${params.project}」的会话` : "还没有任何 Coding 会话", { count: 0 });
+        }
+        const lines = shown.map((session) => `${session.pending ? "新 " : "已读 "}${session.projectDir}/ · 「${session.name}」 id=${session.id} · ${session.modified} · ${session.messageCount} 条`);
+        return textResult(lines.join("\n"), {
+          count: shown.length,
+          pending: shown.filter((session) => session.pending).length,
+        });
       },
     }),
   ];

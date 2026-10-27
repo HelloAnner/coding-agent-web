@@ -1,5 +1,5 @@
 import { SubagentQueue } from "@/lib/subagent-queue";
-import type { NotesTaskDefinition, NotesTaskRun, NotesTaskStatus, NotesTaskView } from "../types";
+import type { NotesTaskDefinition, NotesTaskPreparation, NotesTaskRun, NotesTaskStatus, NotesTaskView } from "../types";
 import { createNotesSession } from "./profile";
 import { nextRunAt } from "./schedule";
 import { NOTES_SCHEDULED_TASKS } from "./tasks";
@@ -112,6 +112,21 @@ class NotesTaskScheduler {
     const started = Date.now();
     let text = "";
     let timedOut = false;
+    let preparation: NotesTaskPreparation | null = null;
+    try {
+      preparation = task.prepare ? await task.prepare() : { prompt: task.prompt };
+    } catch (error) {
+      preparation = null;
+      this.finish(entry, started, "error", "", error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (!preparation) {
+      // Nothing to do this round: no session, no model call, nothing logged.
+      entry.status = "skipped";
+      return;
+    }
+    let prompted = false;
+    let status: NotesTaskStatus = "error";
     try {
       const { session } = await createNotesSession({
         systemPrompt: task.systemPrompt,
@@ -128,16 +143,28 @@ class NotesTaskScheduler {
         void session.abort();
       }, timeout * 60_000);
       try {
-        await session.prompt(task.prompt);
+        prompted = true;
+        await session.prompt(preparation.prompt);
       } finally {
         clearTimeout(timer);
         unsubscribe();
         session.dispose();
       }
-      this.finish(entry, started, timedOut ? "timeout" : "ok", text, timedOut ? `超过 ${timeout} 分钟未完成` : undefined);
+      status = timedOut ? "timeout" : "ok";
+      this.finish(entry, started, status, text, timedOut ? `超过 ${timeout} 分钟未完成` : undefined);
     } catch (error) {
+      status = timedOut ? "timeout" : "error";
       const message = error instanceof Error ? error.message : String(error);
-      this.finish(entry, started, timedOut ? "timeout" : "error", text, message);
+      this.finish(entry, started, status, text, message);
+    }
+    // Only a turn that actually ran consumed the session it was given; one
+    // that never got a session leaves the work for the next tick.
+    if (prompted && preparation.after) {
+      try {
+        await preparation.after(status);
+      } catch (error) {
+        console.error(`[notes-task] ${task.id} after failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 

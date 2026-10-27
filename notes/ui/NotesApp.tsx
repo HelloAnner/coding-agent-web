@@ -490,7 +490,7 @@ export function NotesApp({
       <div key={node.path}>
         <div
           className={`session-tree-row session-tree-session dashboard-tree-row notes-tree-row${selected ? " is-selected" : ""}${dragPath === node.path ? " is-dragging" : ""}${isDir && dropTarget === node.path ? " is-drop-target" : ""}`}
-          style={{ paddingLeft: 20 + depth * 14 }}
+          style={{ paddingLeft: 2 + depth * 14 }}
           data-notes-path={node.path}
           draggable={!isDir && renamingPath !== node.path}
           onDragStart={!isDir ? (event) => {

@@ -35,6 +35,8 @@ notes 独立应用
   notes_entries：path / parent / name / type(dir|note|board) / abs_path
   notes_meta：root（笔记库绝对路径）、synced_at
   notes_board_views：path / scroll_x / scroll_y / zoom（白板上次的视口）
+  notes_session_ingest：session_id / path / project / modified / message_count / processed_at
+                        （笔记 agent 已经读过哪个 Coding 会话的哪个版本）
   服务启动时同步一次；每次 GET /api/notes 或 /api/notes/mentions 再整表重建。
   文件系统仍是唯一源数据，DB 只做索引；白板视口例外，Excalidraw 的 scene
   JSON 不保存 scrollX/scrollY/zoom，所以视口只能落在 DB。
@@ -67,8 +69,9 @@ Agent 内核（pi）
   目录
     notes/agent/settings.ts      笔记设置：agent 模型、白板字体字号
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
-    notes/agent/tools.ts         自定义 tool：notes_write、notes_board、notes_manage
+    notes/agent/tools.ts         自定义 tool：notes_write、notes_board、notes_manage、notes_sessions
     notes/agent/skills.ts        notes/skills 下的技能清单
+    notes/ingest.ts              Coding 会话 -> 笔记：扫描、待读清单、转录、标记已读
     notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
     notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每个任务自己的提示词/技能/工具
     notes/agent/schedule.ts      下一次触发时间（纯函数，可单测）
@@ -89,7 +92,7 @@ Agent 内核（pi）
         |  POST /api/notes/agent  {message}      NDJSON 逐行回事件
         v
     NotesAgent（一个进程一个 pi 会话）
-        |  read / ls / notes_write / notes_board / notes_manage
+        |  read / ls / notes_write / notes_board / notes_manage / notes_sessions
         v
     data/notes 里的 .md 与 .excalidraw
 
@@ -105,8 +108,20 @@ Agent 内核（pi）
     baseUrl 或 model 留空 = 用本机 pi 已配好的默认模型。
     改模型会重建会话并清空对话：新会话看不到旧上下文。
 
+  定时任务：Coding 对话 -> 笔记（coding-to-notes）
+    everySeconds 30，prepare 先扫会话；没有新内容就不建会话、不调模型（状态 skipped）。
+    候选 = Coding 里非归档、有消息的会话（family 根），带 subagent 的一起算一个。
+    每个候选的状态存在 notes_session_ingest 表（modified + message_count 就是版本），
+    prepare 取最新 3 个进这一轮，跑完（不管成败）把这三个的版本写回表里。
+    会话有了新消息 -> modified/message_count 变了 -> 下一轮重新进清单。
+    最后一条消息在 90 秒内的会话先不读：正在用的对话每轮都重读，笔记会来回改。
+    提示词 CODING_DIGEST_PROMPT：项目目录一一对应、按主题子目录、白板优先、
+    同一主题改旧的不另起一篇、没价值就不写。
+
   范围
     - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
+    - notes_sessions 只读 Coding 的会话文件，不改任何东西。
+    - 只扫 pi 的会话（~/.pi/agent/sessions）；Claude Code / dsh / grok 的转录是别的格式，暂不读。
     - notes_manage 管目录树：mkdir / create / rename / move / remove，删非空目录要显式 recursive=true。
     - 技能只加载 notes/skills；用户自己的 coding skills、扩展、MCP 都不进笔记 agent。
     - 会话在内存里，重启清空；长期记忆是落盘的文件。
