@@ -1,6 +1,6 @@
-import { flattenNotesIndex, listTree, notesErrorResponse, notesRoot } from "./files";
-import { readNotesMentions, replaceNotesIndex } from "./db";
-import type { NotesIndexRow, NotesMention, NotesNode } from "./types";
+import { flattenNotesIndex, listTree, notesErrorResponse, notesRoot, normalizeBoardPath } from "./files";
+import { readBoardView, readNotesMentions, replaceNotesIndex, writeBoardView } from "./db";
+import type { NotesBoardView, NotesIndexRow, NotesMention, NotesNode } from "./types";
 
 /** Read the vault and rebuild its database index. */
 export async function syncNotesIndex(): Promise<{ root: string; tree: NotesNode[]; rows: NotesIndexRow[] }> {
@@ -45,6 +45,32 @@ export async function listNotesMentions(): Promise<Response> {
     } catch {
       return Response.json({ root, notes: fallbackMentions(rows) });
     }
+  } catch (error) {
+    return notesErrorResponse(error);
+  }
+}
+
+/** GET /api/notes/view: where a whiteboard was left (null on first open). */
+export async function readNotesBoardView(request: Request): Promise<Response> {
+  try {
+    const path = normalizeBoardPath(new URL(request.url).searchParams.get("path") ?? "");
+    return Response.json({ view: readBoardView(path) });
+  } catch (error) {
+    return notesErrorResponse(error);
+  }
+}
+
+/** PUT /api/notes/view: remember pan and zoom for the next open. */
+export async function saveNotesBoardView(request: Request): Promise<Response> {
+  try {
+    const path = normalizeBoardPath(new URL(request.url).searchParams.get("path") ?? "");
+    const body = await request.json() as Partial<NotesBoardView>;
+    const view = { scrollX: Number(body.scrollX), scrollY: Number(body.scrollY), zoom: Number(body.zoom) };
+    if (!Number.isFinite(view.scrollX) || !Number.isFinite(view.scrollY) || !(view.zoom > 0)) {
+      return Response.json({ error: "白板视图无效" }, { status: 400 });
+    }
+    writeBoardView(path, view);
+    return Response.json({ ok: true });
   } catch (error) {
     return notesErrorResponse(error);
   }

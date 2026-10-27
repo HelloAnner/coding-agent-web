@@ -13,6 +13,13 @@ export interface NotesNode {
 
 export type NotesSaveState = "saved" | "saving" | "error";
 
+/** Where a whiteboard was left: pan offset and zoom, kept in the database. */
+export interface NotesBoardView {
+  scrollX: number;
+  scrollY: number;
+  zoom: number;
+}
+
 /** The open editor's save controls: a rename/move flushes, a delete discards. */
 export interface NotesEditorControl {
   flush: () => Promise<boolean>;

@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { NotesFileKind, NotesIndexRow, NotesMention } from "./types";
+import type { NotesBoardView, NotesFileKind, NotesIndexRow, NotesMention } from "./types";
 
 /**
  * The notes index in the app's SQLite database: one row per directory, note
@@ -33,6 +33,12 @@ function database(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS notes_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS notes_board_views (
+      path TEXT PRIMARY KEY,
+      scroll_x REAL NOT NULL,
+      scroll_y REAL NOT NULL,
+      zoom REAL NOT NULL
     );
   `);
   open = { file, db };
@@ -93,6 +99,23 @@ export function readNotesMentions(): NotesMention[] {
 export function readNotesRoot(): string | null {
   const row = database().prepare("SELECT value FROM notes_meta WHERE key = 'root'").get() as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+/** The pan and zoom a whiteboard was last left at, or null on first open. */
+export function readBoardView(relative: string): NotesBoardView | null {
+  const row = database()
+    .prepare("SELECT scroll_x, scroll_y, zoom FROM notes_board_views WHERE path = ?")
+    .get(relative) as { scroll_x: number; scroll_y: number; zoom: number } | undefined;
+  return row ? { scrollX: row.scroll_x, scrollY: row.scroll_y, zoom: row.zoom } : null;
+}
+
+export function writeBoardView(relative: string, view: NotesBoardView): void {
+  database()
+    .prepare(
+      `INSERT INTO notes_board_views (path, scroll_x, scroll_y, zoom) VALUES (?, ?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET scroll_x = excluded.scroll_x, scroll_y = excluded.scroll_y, zoom = excluded.zoom`,
+    )
+    .run(relative, view.scrollX, view.scrollY, view.zoom);
 }
 
 export function closeNotesDb(): void {

@@ -10,7 +10,7 @@ process.env.CODING_AGENT_WEB_NOTES_DIR = root;
 process.env.CODING_AGENT_WEB_DATA = path.join(dataDir, "data.db");
 
 const { flattenNotesIndex, listTree } = await import("./files.ts");
-const { closeNotesDb, readNotesIndexRows, readNotesMentions, readNotesRoot, replaceNotesIndex } = await import("./db.ts");
+const { closeNotesDb, readBoardView, readNotesIndexRows, readNotesMentions, readNotesRoot, replaceNotesIndex, writeBoardView } = await import("./db.ts");
 
 after(async () => {
   closeNotesDb();
@@ -45,4 +45,12 @@ test("the database keeps every row and mentions only files", async () => {
   assert.ok(mentions.every((note) => note.absPath.startsWith(root)));
   assert.equal(readNotesRoot(), root);
   assert.equal(readNotesIndexRows().length, 4);
+});
+
+test("a board view is stored once per path", async () => {
+  assert.equal(readBoardView("工作/架构.excalidraw"), null);
+  writeBoardView("工作/架构.excalidraw", { scrollX: -120, scrollY: 40, zoom: 1.5 });
+  writeBoardView("工作/架构.excalidraw", { scrollX: 8, scrollY: -3, zoom: 0.25 });
+  assert.deepEqual(readBoardView("工作/架构.excalidraw"), { scrollX: 8, scrollY: -3, zoom: 0.25 });
+  assert.equal(readBoardView("工作/项目/会议.md"), null);
 });

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
-import type { NotesBoardSettings, NotesEditorControl, NotesSaveState } from "@/notes/types";
+import type { NotesBoardSettings, NotesBoardView, NotesEditorControl, NotesSaveState } from "@/notes/types";
 
 const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
   ssr: false,
@@ -11,6 +11,7 @@ const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
 });
 
 const AUTOSAVE_MS = 700;
+const VIEW_SAVE_MS = 600;
 
 /** A stored board: fetch its scene, autosave Excalidraw's serialized JSON. */
 export function Whiteboard({
@@ -26,12 +27,18 @@ export function Whiteboard({
 }) {
   const { isDark } = useTheme();
   const [content, setContent] = useState<string | null>(null);
+  const [view, setView] = useState<NotesBoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<{ path: string; scene: string } | null>(null);
   // The last scene on disk. Excalidraw may report the same scene again after a
   // status re-render; skipping it stops save -> re-render -> save loops.
   const lastSaved = useRef<string | null>(null);
+  // Pan and zoom are not part of an Excalidraw file, so they live in the
+  // database: a debounce keeps a drag from writing on every pointer move.
+  const viewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingView = useRef<{ path: string; view: NotesBoardView } | null>(null);
+  const lastView = useRef<NotesBoardView | null>(null);
 
   const save = useCallback(async (target: string, scene: string, keepalive = false): Promise<boolean> => {
     onSaveState("saving");
@@ -52,19 +59,57 @@ export function Whiteboard({
     }
   }, [onSaveState]);
 
+  const saveView = useCallback((target: string, next: NotesBoardView, keepalive = false) => {
+    // The viewport is a convenience, not user data: a failed write just means
+    // the next board opens at the old place.
+    void fetch(`/api/notes/view?path=${encodeURIComponent(target)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+      keepalive,
+    }).catch(() => {});
+  }, []);
+
+  const handleViewChange = useCallback((next: NotesBoardView) => {
+    const last = lastView.current;
+    if (last && last.scrollX === next.scrollX && last.scrollY === next.scrollY && last.zoom === next.zoom) return;
+    lastView.current = next;
+    pendingView.current = { path, view: next };
+    if (viewTimer.current) clearTimeout(viewTimer.current);
+    viewTimer.current = setTimeout(() => {
+      viewTimer.current = null;
+      const queued = pendingView.current;
+      if (!queued) return;
+      pendingView.current = null;
+      saveView(queued.path, queued.view);
+    }, VIEW_SAVE_MS);
+  }, [path, saveView]);
+
   useEffect(() => {
     let alive = true;
     setContent(null);
     setError(null);
-    fetch(`/api/notes/file?path=${encodeURIComponent(path)}`, { cache: "no-store" })
-      .then(async (response) => {
+    // The board is only mounted once both answers are in: the canvas takes its
+    // starting viewport from initialData, not from a later update.
+    Promise.all([
+      fetch(`/api/notes/file?path=${encodeURIComponent(path)}`, { cache: "no-store" }).then(async (response) => {
         const body = await response.json() as { content?: string; error?: string };
         if (!response.ok) throw new Error(body.error || "读取白板失败");
-        if (alive) {
-          setContent(body.content ?? "");
-          lastSaved.current = body.content ?? "";
-          onSaveState("saved");
-        }
+        return body.content ?? "";
+      }),
+      fetch(`/api/notes/view?path=${encodeURIComponent(path)}`, { cache: "no-store" })
+        .then(async (response) => response.ok
+          ? (await response.json() as { view?: NotesBoardView | null }).view ?? null
+          : null)
+        .catch(() => null),
+    ])
+      .then(([text, stored]) => {
+        if (!alive) return;
+        lastSaved.current = text;
+        lastView.current = stored;
+        setView(stored);
+        setContent(text);
+        onSaveState("saved");
       })
       .catch((cause: unknown) => {
         if (alive) setError(cause instanceof Error ? cause.message : "读取白板失败");
@@ -80,7 +125,10 @@ export function Whiteboard({
     if (timer.current) clearTimeout(timer.current);
     const latest = pending.current;
     if (latest) void save(latest.path, latest.scene, true);
-  }, [save]);
+    if (viewTimer.current) clearTimeout(viewTimer.current);
+    const queued = pendingView.current;
+    if (queued) saveView(queued.path, queued.view, true);
+  }, [save, saveView]);
 
   // A rename runs this first: the board must be current before its path moves.
   const flush = useCallback(async (): Promise<boolean> => {
@@ -112,10 +160,12 @@ export function Whiteboard({
     const flushOnHide = () => {
       const latest = pending.current;
       if (latest) void save(latest.path, latest.scene, true);
+      const queued = pendingView.current;
+      if (queued) saveView(queued.path, queued.view, true);
     };
     window.addEventListener("pagehide", flushOnHide);
     return () => window.removeEventListener("pagehide", flushOnHide);
-  }, [save]);
+  }, [save, saveView]);
 
   const handleChange = useCallback((scene: string) => {
     if (scene === lastSaved.current) {
@@ -148,9 +198,11 @@ export function Whiteboard({
     <Canvas
       key={path}
       content={content}
+      view={view}
       theme={isDark ? "dark" : "light"}
       board={board}
       onChange={handleChange}
+      onViewChange={handleViewChange}
     />
   );
 }

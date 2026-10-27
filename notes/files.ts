@@ -47,6 +47,12 @@ function kindForPath(relative: string): NotesFileKind {
   return kind;
 }
 
+/** A whiteboard path the view-state endpoints accept, normalized. */
+export function normalizeBoardPath(relative: string): string {
+  if (kindForPath(relative) !== "board") throw new NotesError("只支持白板文件", 400);
+  return normalizeRelative(relative);
+}
+
 function joinRelative(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
 }

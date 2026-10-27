@@ -8,7 +8,7 @@ notes 独立应用
 目录
   notes/types.ts                 前后端共享的类型
   notes/files.ts                 文件树、读写、新建、重命名和路径校验
-  notes/db.ts                    notes_entries / notes_meta 的 SQLite 索引
+  notes/db.ts                    notes_entries / notes_meta / notes_board_views 的 SQLite 索引
   notes/index.ts                 扫描文件树并写入 DB；@ 菜单的 mentions 接口
   notes/ui/NotesApp.tsx          侧边栏树、新建/拖动/删除、标题和保存状态
   notes/ui/NoteEditor.tsx        Markdown 编辑与预览
@@ -23,6 +23,8 @@ notes 独立应用
   POST /api/notes                create / mkdir / rename / move / remove
   GET  /api/notes/file?path=     读文件
   PUT  /api/notes/file?path=     写文件
+  GET  /api/notes/view?path=     取白板的滚动位置和缩放（首次为 null）
+  PUT  /api/notes/view?path=     存白板的滚动位置和缩放 {scrollX, scrollY, zoom}
 
 存储
   data/notes/<目录>/<标题>.md            Markdown 笔记，文件名即标题
@@ -32,8 +34,10 @@ notes 独立应用
   DB 文件：CODING_AGENT_WEB_DATA，默认 ~/.coding-agent-web/data.db
   notes_entries：path / parent / name / type(dir|note|board) / abs_path
   notes_meta：root（笔记库绝对路径）、synced_at
+  notes_board_views：path / scroll_x / scroll_y / zoom（白板上次的视口）
   服务启动时同步一次；每次 GET /api/notes 或 /api/notes/mentions 再整表重建。
-  文件系统仍是唯一源数据，DB 只做索引。
+  文件系统仍是唯一源数据，DB 只做索引；白板视口例外，Excalidraw 的 scene
+  JSON 不保存 scrollX/scrollY/zoom，所以视口只能落在 DB。
 
 Coding 的 @ 联动
   @ 菜单在项目文件下面追加“笔记”分组，数据来自 /api/notes/mentions。
