@@ -269,6 +269,15 @@ button.notes-tree-toggle:hover {
   inset: 0;
 }
 
+/*
+ * Excalidraw's element properties island sits in the top-left corner of the
+ * canvas whenever anything is selected. On a board that is most of the canvas,
+ * so it stays collapsed until the top-bar 样式 button opens it.
+ */
+.notes-board:not(.is-shapes-open) .selected-shape-actions {
+  display: none;
+}
+
 .notes-error {
   display: flex;
   flex: 1 1 auto;

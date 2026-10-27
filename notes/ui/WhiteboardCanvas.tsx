@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, type ComponentProps } from "react";
+import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
 import {
   Excalidraw,
   serializeAsJSON,
@@ -79,6 +79,21 @@ function WhiteboardCanvas({
   // Mounted with one board's content by Whiteboard's key, so the scene is
   // parsed once per open file and per font change.
   const initialData = useMemo(() => parseScene(content, board, view), [content, board, view]);
+  // Excalidraw parks its element properties panel over the canvas as soon as
+  // something is selected. The board keeps it collapsed until the styles
+  // button in the top bar asks for it.
+  const [shapesOpen, setShapesOpen] = useState(false);
+  const toggleShapes = useCallback(() => setShapesOpen((open) => !open), []);
+  const renderShapesTrigger = useCallback((isMobile: boolean) => (isMobile ? null : (
+    <button
+      type="button"
+      className={`sidebar-trigger notes-shapes-trigger${shapesOpen ? " active" : ""}`}
+      onClick={toggleShapes}
+      aria-pressed={shapesOpen}
+    >
+      样式
+    </button>
+  )), [shapesOpen, toggleShapes]);
   // Excalidraw re-runs its onChange effect when the callback's identity
   // changes. A fresh arrow on every render (this component renders whenever
   // the save status changes) would save forever; keep it stable.
@@ -91,7 +106,7 @@ function WhiteboardCanvas({
     onChange(serializeAsJSON(elements, appState, files, "local"));
   }, [onChange, onViewChange]);
   return (
-    <div className="notes-board">
+    <div className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
       <Excalidraw
         initialData={initialData}
         langCode="zh-CN"
@@ -100,6 +115,7 @@ function WhiteboardCanvas({
         UIOptions={{
           canvasActions: { export: false, loadScene: false, saveAsImage: false, toggleTheme: false },
         }}
+        renderTopRightUI={renderShapesTrigger}
         onChange={handleChange}
       />
     </div>
