@@ -49,6 +49,15 @@ Claude Code
 
 id 是网页中稳定的 profile 标识，不是传给模型服务的 model。
 model 才是 CLI 的 --model；不写时用原生默认模型。
+name 只是界面标签，输入框那一行显示的永远是 name，不参与请求。
+所以网关把模型改名后只改 name 不会生效，旧 id 照样发出去。
+
+  { "name": "OpenCode · DeepSeek V4.1 Flash", "model": "deepseek-flash" }   <- 显示 V4.1，实际发 deepseek-flash
+
+这类错误来自服务端，不是 harness：CLI 把 410 / 404 的原文当成一条回复输出，
+界面上就是一条普通消息（例：410 Model deepseek-flash has been deprecated）。
+遇到就核对一遍 model 和 env 里的 ANTHROPIC_*MODEL，两处都改了才会生效。
+
 provider 用于菜单分组。id 必须唯一，每个 profile 必须使用独立的 configDir。
 不写 configDir 时默认 ~/.claude-profiles/<规范化后的 id>。
 enabled:false 隐藏该模型并停止发送，已有历史仍可查看，不会静默改用别的模型。
