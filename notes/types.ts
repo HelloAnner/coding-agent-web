@@ -112,6 +112,57 @@ export interface NotesAgentState {
   skills: NotesAgentSkill[];
 }
 
+/* ------------------------------ scheduler -------------------------------- */
+
+/**
+ * One timed notes job. Every run builds a fresh pi session from this
+ * definition, so two tasks can differ in system prompt, skills and tools while
+ * sharing the process's single model runtime.
+ */
+export interface NotesTaskDefinition {
+  /** Stable id; used by the list and manual-run endpoints. */
+  id: string;
+  /** Human label, for logs and the task list. */
+  title: string;
+  /** The message the agent receives when the task fires. */
+  prompt: string;
+  /** Run every N minutes, counted from the previous run. */
+  everyMinutes?: number;
+  /** Run once a day at local "HH:MM". */
+  dailyAt?: string;
+  /** false keeps the definition out of the pool. Default: enabled. */
+  enabled?: boolean;
+  /** Replaces NOTES_SYSTEM_PROMPT for this task. */
+  systemPrompt?: string;
+  /** Skill names under notes/skills; omitted loads all, [] loads none. */
+  skills?: string[];
+  /** Tool allowlist; defaults to read / ls / notes_write / notes_board. */
+  tools?: string[];
+  /** Abort a run after this many minutes. Default: 15. */
+  timeoutMinutes?: number;
+}
+
+export type NotesTaskStatus = "idle" | "queued" | "running" | "ok" | "error" | "timeout";
+
+/** The outcome of one run, kept in memory for the task list. */
+export interface NotesTaskRun {
+  /** Start time, epoch milliseconds. */
+  at: number;
+  durationMs: number;
+  status: NotesTaskStatus;
+  error?: string;
+  /** The assistant's final text, capped. */
+  text?: string;
+}
+
+/** GET /api/notes/tasks: a definition plus where its run state stands. */
+export interface NotesTaskView extends NotesTaskDefinition {
+  status: NotesTaskStatus;
+  /** Next scheduled fire time, epoch ms; null when it will not run again. */
+  nextRunAt: number | null;
+  lastRun?: NotesTaskRun;
+}
+
 /** One line of POST /api/notes/agent's NDJSON stream. */
 export type NotesAgentEvent =
   | { type: "message"; message: NotesChatMessage }

@@ -69,8 +69,12 @@ Agent 内核（pi）
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
     notes/agent/tools.ts         自定义 tool：notes_write、notes_board
     notes/agent/skills.ts        notes/skills 下的技能清单
-    notes/agent/runtime.ts       pi AgentSession、事件流、转录
-    notes/agent/index.ts         两个接口的处理
+    notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
+    notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每个任务自己的提示词/技能/工具
+    notes/agent/schedule.ts      下一次触发时间（纯函数，可单测）
+    notes/agent/scheduler.ts     定时线程池：FIFO、并发上限、超时、运行记录
+    notes/agent/tasks.ts         定时任务清单（在这里加任务）
+    notes/agent/index.ts         /api/notes/agent 与 /api/notes/tasks 的处理
     notes/skills/<名字>/SKILL.md 技能（frontmatter 里写 name、description）
 
   内置技能

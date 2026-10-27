@@ -1,11 +1,7 @@
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, SessionManager, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import type { NotesAgentEvent, NotesAgentModelSettings, NotesChatMessage } from "../types";
-import { notesRoot } from "../files";
-import { readNotesSettings } from "./settings";
-import { listNotesSkills, notesSkillsDir } from "./skills";
-import { NOTES_SYSTEM_PROMPT } from "./system-prompt";
-import { NOTES_BOARD_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
+import type { NotesAgentEvent, NotesChatMessage } from "../types";
+import { createNotesSession } from "./profile";
+import { listNotesSkills } from "./skills";
 
 /**
  * The notes agent: one pi session per server process, rooted at the notes
@@ -17,12 +13,7 @@ import { NOTES_BOARD_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
  * they never show up in the Coding sidebar's session list.
  */
 
-export const NOTES_AGENT_PROVIDER = "notes";
-
-type Session = Awaited<ReturnType<typeof createAgentSessionFromServices>>["session"];
-
-/** Only what the agent may call: reading the vault and writing notes/boards. */
-const AGENT_TOOLS = ["read", "ls", NOTES_WRITE_TOOL, NOTES_BOARD_TOOL];
+type Session = Awaited<ReturnType<typeof createNotesSession>>["session"];
 
 function resultText(result: unknown): string {
   const content = (result as { content?: unknown })?.content;
@@ -41,33 +32,6 @@ function argsText(args: unknown): string {
   } catch {
     return "{}";
   }
-}
-
-/**
- * The notes model from the settings dialog, registered as its own provider so
- * it never touches models.json. Empty baseUrl or model means "use pi's own
- * default model", which is what a fresh install already has.
- */
-function notesModel(runtime: ModelRuntime, settings: NotesAgentModelSettings) {
-  if (!settings.baseUrl || !settings.model) return undefined;
-  runtime.registerProvider(NOTES_AGENT_PROVIDER, {
-    name: "Notes Agent",
-    baseUrl: settings.baseUrl,
-    // Local OpenAI-compatible servers often need no key; pi refuses a provider without one.
-    apiKey: settings.apiKey || "not-needed",
-    api: settings.api,
-    models: [{
-      id: settings.model,
-      name: settings.model,
-      api: settings.api,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      reasoning: false,
-      contextWindow: settings.contextWindow,
-      maxTokens: settings.maxTokens,
-    }],
-  });
-  return runtime.getModel(NOTES_AGENT_PROVIDER, settings.model);
 }
 
 declare global {
@@ -95,42 +59,8 @@ export class NotesAgent {
   }
 
   static async create(): Promise<NotesAgent> {
-    const vault = notesRoot();
-    const settings = readNotesSettings();
-    const skillsDir = notesSkillsDir();
-    const services = await createAgentSessionServices({
-      cwd: vault,
-      agentDir: getAgentDir(),
-      // The notes agent has no project settings of its own: nothing here may
-      // write to the user's global pi settings.
-      settingsManager: SettingsManager.inMemory(),
-      resourceLoaderOptions: {
-        noExtensions: true,
-        noPromptTemplates: true,
-        noThemes: true,
-        noContextFiles: true,
-        systemPrompt: NOTES_SYSTEM_PROMPT,
-        // pi's global APPEND_SYSTEM.md is coding rules (git, AGENTS.md); the
-        // notes agent has its own prompt and must not inherit them.
-        appendSystemPrompt: [],
-        additionalSkillPaths: [skillsDir],
-        // Only the notes agent's own skills: the user's coding skills are for
-        // coding sessions, and their catalog would bloat every notes prompt.
-        skillsOverride: (base) => ({
-          skills: base.skills.filter((skill) => skill.filePath.startsWith(skillsDir)),
-          diagnostics: base.diagnostics,
-        }),
-      },
-    });
-    const model = notesModel(services.modelRuntime, settings.agent);
-    const { session } = await createAgentSessionFromServices({
-      services,
-      sessionManager: SessionManager.inMemory(vault),
-      tools: AGENT_TOOLS,
-      customTools: notesAgentTools(settings.board),
-      ...(model ? { model } : {}),
-    });
-    return new NotesAgent(session, model ? `${model.provider}/${model.id}` : null);
+    const { session, modelLabel } = await createNotesSession();
+    return new NotesAgent(session, modelLabel);
   }
 
   get messages(): NotesChatMessage[] {
