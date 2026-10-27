@@ -1,7 +1,8 @@
-// Settings shows these as swatches: System, then one row of three palettes.
+// Settings shows these as swatches: System, then one row of four palettes.
 export const THEME_OPTIONS = [
   { id: "auto", label: "settings.themeSystem", scheme: null },
   { id: "light", label: "settings.themeLight", scheme: "light" },
+  { id: "github-light", label: "settings.themeGithubLight", scheme: "light" },
   { id: "dark", label: "settings.themeDark", scheme: "dark" },
   { id: "one-dark-pro", label: "settings.themeOneDarkPro", scheme: "dark" },
 ] as const;

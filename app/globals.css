@@ -46,6 +46,27 @@
   --chat-content-font-size: 14px;
 }
 
+/* GitHub Light (Primer): white canvas on #f6f8fa chrome, #085ec4 accent
+   (GitHub's #0969da is lifted darker to hold AA on the selected-row gray). */
+[data-theme="github-light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-panel: #f6f8fa;
+  --bg-hover: #eff2f5;
+  --bg-selected: #e7ebef;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-muted: #57606a;
+  --text-dim: #4d565f;
+  --accent: #085ec4;
+  --accent-hover: #0550ae;
+  --accent-contrast: #ffffff;
+  --user-bg: #f2f7fd;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f8fafc;
+  --bg-subtle: rgba(31,35,40,0.04);
+}
+
 html.dark,
 [data-theme="dark"] {
   color-scheme: dark;
