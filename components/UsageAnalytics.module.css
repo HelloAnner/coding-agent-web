@@ -16,13 +16,7 @@
   line-height: 1.5;
 }
 
-:global(html.dark) .root,
-:global([data-theme="dark"]) .root,
-:global([data-theme="pine"]) .root,
-:global([data-theme="slate"]) .root,
-:global([data-theme="dusk"]) .root,
-:global([data-theme="ember"]) .root,
-:global([data-theme="contrast-dark"]) .root {
+:global(html.dark) .root {
   --usage-series: #3987e5;
 }
 

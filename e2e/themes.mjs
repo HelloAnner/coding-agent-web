@@ -8,7 +8,7 @@ import { DARK_THEMES, THEME_OPTIONS } from "../lib/theme.ts";
 const base = process.env.E2E_BASE_URL || "http://127.0.0.1:30141";
 const artifacts = fileURLToPath(new URL("../test-results/themes/", import.meta.url));
 const themes = THEME_OPTIONS.map(({ id }) => id);
-const labels = ["System", "Light", "Mist", "Lilac", "Sand", "Rose", "Dark", "Pine", "Dusk", "Ember", "Slate", "High contrast light", "High contrast dark", "Zenburn"];
+const labels = ["System", "Light", "Dark", "One Dark Pro"];
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch();
 
@@ -81,12 +81,12 @@ try {
     await page.getByRole("radio", { name: "System", exact: true }).locator("..").click();
     await page.emulateMedia({ colorScheme: "dark" });
     await expectTheme("dark");
-    await page.getByRole("radio", { name: "Pine", exact: true }).locator("..").click();
+    await page.getByRole("radio", { name: "One Dark Pro", exact: true }).locator("..").click();
     await page.emulateMedia({ colorScheme: "light" });
-    await expectTheme("pine");
-    const rose = page.getByRole("radio", { name: "Rose", exact: true });
-    await rose.focus();
-    await rose.press("ArrowRight");
+    await expectTheme("one-dark-pro");
+    const oneDarkPro = page.getByRole("radio", { name: "One Dark Pro", exact: true });
+    await oneDarkPro.focus();
+    await oneDarkPro.press("ArrowLeft");
     await expectTheme("dark");
     assert.equal(await page.getByRole("radio", { name: "Dark", exact: true }).isChecked(), true);
     await page.keyboard.press("Escape");
@@ -129,9 +129,8 @@ try {
     await expectTheme("dark");
     await openThemeMenu();
     await page.keyboard.press("End");
-    await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
-    await expectTheme("slate");
+    await expectTheme("one-dark-pro");
     await openThemeMenu();
     await page.screenshot({ path: `${artifacts}/menu-${width}.png`, animations: "disabled" });
     await page.evaluate(() => {

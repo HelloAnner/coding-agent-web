@@ -1,21 +1,9 @@
-// Settings shows these as swatches: System, the light row, the dark row, then a row of three:
-// the high-contrast pair and Zenburn.
-// The rows line up by hue: each light theme sits above its dark counterpart; Rose and Slate have none.
+// Settings shows these as swatches: System, then one row of three palettes.
 export const THEME_OPTIONS = [
   { id: "auto", label: "settings.themeSystem", scheme: null },
   { id: "light", label: "settings.themeLight", scheme: "light" },
-  { id: "mist", label: "settings.themeMist", scheme: "light" },
-  { id: "lilac", label: "settings.themeLilac", scheme: "light" },
-  { id: "sand", label: "settings.themeSand", scheme: "light" },
-  { id: "rose", label: "settings.themeRose", scheme: "light" },
   { id: "dark", label: "settings.themeDark", scheme: "dark" },
-  { id: "pine", label: "settings.themePine", scheme: "dark" },
-  { id: "dusk", label: "settings.themeDusk", scheme: "dark" },
-  { id: "ember", label: "settings.themeEmber", scheme: "dark" },
-  { id: "slate", label: "settings.themeSlate", scheme: "dark" },
-  { id: "contrast-light", label: "settings.themeContrastLight", scheme: "light" },
-  { id: "contrast-dark", label: "settings.themeContrastDark", scheme: "dark" },
-  { id: "zenburn", label: "settings.themeZenburn", scheme: "dark" },
+  { id: "one-dark-pro", label: "settings.themeOneDarkPro", scheme: "dark" },
 ] as const;
 
 export type ThemePreference = (typeof THEME_OPTIONS)[number]["id"];
