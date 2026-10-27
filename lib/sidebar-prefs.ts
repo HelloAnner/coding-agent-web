@@ -21,6 +21,8 @@ const ARCHIVE_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-archive-collapsed";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 const FILES_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-files-collapsed";
+const FILE_TREE_SOURCE_STORAGE_KEY = "pi-web:file-tree-source";
+const FILE_TREE_COLLAPSED_STORAGE_KEY = "pi-web:file-tree-collapsed";
 const NON_GIT_CWDS_STORAGE_KEY = "pi-web:sidebar-non-git-cwds";
 /**
  * Keys nothing reads now: the sessions/explorer split's, which the two tabs
@@ -198,6 +200,49 @@ export function saveShowIgnoredFiles(
   if (!storage) return;
   try {
     storage.setItem(SHOW_IGNORED_FILES_STORAGE_KEY, String(show));
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/** Which tree the file column shows: the project's files, or the notes vault. */
+export type FileTreeSource = "project" | "notes";
+
+export function loadFileTreeSource(storage: StorageLike | null = getBrowserStorage()): FileTreeSource {
+  if (!storage) return "project";
+  try {
+    return storage.getItem(FILE_TREE_SOURCE_STORAGE_KEY) === "notes" ? "notes" : "project";
+  } catch {
+    return "project";
+  }
+}
+
+export function saveFileTreeSource(source: FileTreeSource, storage: StorageLike | null = getBrowserStorage()): void {
+  if (!storage) return;
+  try {
+    storage.setItem(FILE_TREE_SOURCE_STORAGE_KEY, source);
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/** The file column folded away, leaving the viewer the whole panel. */
+export function loadFileTreeCollapsed(storage: StorageLike | null = getBrowserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(FILE_TREE_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveFileTreeCollapsed(
+  collapsed: boolean,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(FILE_TREE_COLLAPSED_STORAGE_KEY, String(collapsed));
   } catch {
     // Persistence is best-effort.
   }

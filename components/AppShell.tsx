@@ -77,6 +77,9 @@ import {
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
+import { NoteEditor } from "@/notes/ui/NoteEditor";
+import { Whiteboard } from "@/notes/ui/Whiteboard";
+import type { NotesBoardSettings, NotesFileKind } from "@/notes/types";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
@@ -84,8 +87,13 @@ import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
+import { loadFileTreeCollapsed, saveFileTreeCollapsed } from "@/lib/sidebar-prefs";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
+type NoteTab = { path: string; name: string; kind: NotesFileKind };
+// The panel shows no save status for a note: its editor autosaves on its own.
+const ignoreNoteSaveState = () => {};
+const ignoreNoteFlushReady = () => {};
 type AutoNameStatus =
   | { kind: "idle" }
   | { kind: "naming" }
@@ -330,6 +338,9 @@ export function AppShell() {
   // On a phone the right panel shows one column: the file tree over the
   // viewer, until a file (or terminal) is picked.
   const [mobileFilesOpen, setMobileFilesOpen] = useState(false);
+  // The file column (project files or notes) folded away: the viewer gets the panel.
+  const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
+  useEffect(() => { setFileTreeCollapsed(loadFileTreeCollapsed()); }, []);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
   const getResponsiveRightPanelWidth = useCallback(
@@ -675,6 +686,10 @@ export function AppShell() {
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the project changes (they belong to its sessions).
   const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
+  // The notes the right panel has open, beside the chat: notes are global,
+  // not tied to the project's workspace, so they are not parked with it.
+  const [noteTabs, setNoteTabs] = useState<NoteTab[]>([]);
+  const [notesBoard, setNotesBoard] = useState<NotesBoardSettings>({ fontFamily: 3, fontSize: 20 });
   const panelTabs: Tab[] = [
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
@@ -689,6 +704,12 @@ export function AppShell() {
       label: tab.label,
       filePath: tab.label,
       kind: "agent" as const,
+    })),
+    ...noteTabs.map((tab) => ({
+      id: `note:${tab.path}`,
+      label: tab.name,
+      filePath: tab.path,
+      kind: tab.kind,
     })),
   ];
 
@@ -1494,6 +1515,28 @@ export function AppShell() {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
   }, [handleOpenFile, selectedSession?.id]);
 
+  // A note or board from the notes tree: one tab per file, the editor autosaves.
+  const handleOpenNote = useCallback((path: string, name: string, kind: NotesFileKind) => {
+    setNoteTabs((tabs) => tabs.some((tab) => tab.path === path) ? tabs : [...tabs, { path, name, kind }]);
+    setActiveFileTabId(`note:${path}`);
+    setRightPanelOpen(true);
+    if (isMobile) {
+      setSidebarOpen(false);
+      setMobileFilesOpen(false);
+    }
+  }, [isMobile]);
+
+  // A whiteboard draws with the vault's tuned defaults; read them on first open.
+  useEffect(() => {
+    if (!noteTabs.some((tab) => tab.kind === "board")) return;
+    let alive = true;
+    fetch("/api/notes/settings", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ settings?: { board?: NotesBoardSettings } }> : null)
+      .then((body) => { if (alive && body?.settings?.board) setNotesBoard(body.settings.board); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [noteTabs]);
+
   const handleOpenTerminal = useCallback((cwd: string) => {
     const existing = terminalTabs.find((tab) => tab.cwd === cwd);
     const tab = existing ?? newTerminalTab(cwd);
@@ -1555,13 +1598,24 @@ export function AppShell() {
       });
       return;
     }
+    if (tabId.startsWith("note:")) {
+      const remainingNotes = noteTabs.filter((tab) => `note:${tab.path}` !== tabId);
+      setNoteTabs(remainingNotes);
+      setActiveFileTabId((cur) => {
+        if (cur !== tabId) return cur;
+        const lastNote = remainingNotes.at(-1);
+        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs)
+          ?? (lastNote ? `note:${lastNote.path}` : null);
+      });
+      return;
+    }
     setFileTabs((prev) => prev.filter((t) => t.id !== tabId));
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
       return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
-  }, [fileTabs, terminalTabs, agentTabs]);
+  }, [fileTabs, terminalTabs, agentTabs, noteTabs]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -1743,9 +1797,10 @@ export function AppShell() {
   // Subagent work tabs: like files, only the active one is mounted.
   const activeAgentTab = agentTabs.find((tab) => `agent:${tab.sessionId}` === activeFileTabId) ?? null;
   const activeTerminalTab = terminalTabs.find((tab) => tab.id === activeFileTabId) ?? null;
+  const activeNoteTab = noteTabs.find((tab) => `note:${tab.path}` === activeFileTabId) ?? null;
   // Phones show one column at a time: the file tree over the viewer, until a
   // file (or terminal) is picked; the tab bar's folder button reopens it.
-  const fileBrowserShown = !isMobile || mobileFilesOpen;
+  const fileBrowserShown = isMobile ? mobileFilesOpen : !fileTreeCollapsed;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
   const windowTitle = activeAppId === "coding"
     ? (activeCwdName ? `${activeCwdName} - Coding` : "Coding")
@@ -2899,14 +2954,20 @@ export function AppShell() {
               >
                 <FileBrowserPane
                   activeFilePath={activeFileTab?.filePath}
+                  activeNotePath={activeNoteTab?.path ?? null}
                   cwd={activeCwd}
                   refreshKey={explorerRefreshKey}
                   onOpenFile={handleOpenFile}
+                  onOpenNote={handleOpenNote}
                   onOpenTerminal={handleOpenTerminal}
                   onAtMention={handleAtMention}
                   onAtMentions={handleAtMentions}
                   onRefresh={handleExplorerRefresh}
                   onBack={isMobile ? () => setMobileFilesOpen(false) : undefined}
+                  onCollapse={isMobile ? undefined : () => {
+                    setFileTreeCollapsed(true);
+                    saveFileTreeCollapsed(true);
+                  }}
                 />
               </div>
               {!isMobile && (
@@ -2933,12 +2994,19 @@ export function AppShell() {
               background: "var(--bg-panel)",
               borderBottom: "1px solid var(--border)",
             }}>
-              {isMobile && (
+              {(isMobile || !fileBrowserShown) && (
                 <button
                   type="button"
-                  onClick={() => setMobileFilesOpen(true)}
-                  title={translate("sidebar.tabFiles")}
-                  aria-label={translate("sidebar.tabFiles")}
+                  onClick={() => {
+                    if (isMobile) {
+                      setMobileFilesOpen(true);
+                      return;
+                    }
+                    setFileTreeCollapsed(false);
+                    saveFileTreeCollapsed(false);
+                  }}
+                  title={isMobile ? translate("sidebar.tabFiles") : translate("sidebar.expandTree")}
+                  aria-label={isMobile ? translate("sidebar.tabFiles") : translate("sidebar.expandTree")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
                     width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0, flexShrink: 0,
@@ -2998,7 +3066,26 @@ export function AppShell() {
 
             {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
             <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-              {activeFileTab?.filePath ? (
+              {activeNoteTab ? (
+                <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                  {activeNoteTab.kind === "board" ? (
+                    <Whiteboard
+                      key={activeNoteTab.path}
+                      path={activeNoteTab.path}
+                      board={notesBoard}
+                      onSaveState={ignoreNoteSaveState}
+                      onFlushReady={ignoreNoteFlushReady}
+                    />
+                  ) : (
+                    <NoteEditor
+                      key={activeNoteTab.path}
+                      path={activeNoteTab.path}
+                      onSaveState={ignoreNoteSaveState}
+                      onFlushReady={ignoreNoteFlushReady}
+                    />
+                  )}
+                </div>
+              ) : activeFileTab?.filePath ? (
                 <FileViewer
                   key={`${fileWorkspaceGeneration}:${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
                   filePath={activeFileTab.filePath}
@@ -3023,7 +3110,7 @@ export function AppShell() {
                     { sourceSessionId: activeFileTab.sourceSessionId, page },
                   )}
                 />
-              ) : !activeTerminalTab && !activeAgentTab ? (
+              ) : !activeTerminalTab && !activeAgentTab && !activeNoteTab ? (
                 <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                    {translate("files.noneOpen")}
                 </div>

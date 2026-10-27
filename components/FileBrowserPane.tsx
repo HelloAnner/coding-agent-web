@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState, type Ref, type ReactNode } from "react";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
+import { NotesTree } from "./NotesTree";
 import { DismissButton } from "./DismissButton";
 import { getFileName } from "@/lib/file-paths";
-import { loadShowIgnoredFiles, saveShowIgnoredFiles } from "@/lib/sidebar-prefs";
+import {
+  loadFileTreeSource,
+  loadShowIgnoredFiles,
+  saveFileTreeSource,
+  saveShowIgnoredFiles,
+  type FileTreeSource,
+} from "@/lib/sidebar-prefs";
+import type { NotesFileKind } from "@/notes/types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   ChangesIcon,
@@ -71,8 +79,10 @@ function ToolbarIconButton({
 interface Props {
   cwd: string | null;
   activeFilePath?: string | null;
+  activeNotePath?: string | null;
   refreshKey?: number;
   onOpenFile: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  onOpenNote: (path: string, name: string, kind: NotesFileKind) => void;
   onOpenTerminal?: (cwd: string) => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
@@ -80,6 +90,8 @@ interface Props {
   onRefresh?: () => void;
   /** A phone's way back to the viewer (the tree covers it there). */
   onBack?: () => void;
+  /** Folds the column away, leaving the viewer the whole panel. */
+  onCollapse?: () => void;
 }
 
 /**
@@ -87,8 +99,10 @@ interface Props {
  * the actions on it, and the tree. A click on a file opens it in the panel's
  * viewer column.
  */
-export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack }: Props) {
+export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
   const { t } = useI18n();
+  const [source, setSource] = useState<FileTreeSource>("project");
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -111,6 +125,7 @@ export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, o
 
   useEffect(() => {
     setShowIgnoredFiles(loadShowIgnoredFiles());
+    setSource(loadFileTreeSource());
   }, []);
 
   useEffect(() => {
@@ -159,6 +174,7 @@ export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, o
   const refresh = () => {
     if (onRefresh) onRefresh();
     else setExplorerKey((key) => key + 1);
+    setNotesRefreshKey((key) => key + 1);
     setExplorerRefreshDone(true);
     if (explorerRefreshTimerRef.current) clearTimeout(explorerRefreshTimerRef.current);
     explorerRefreshTimerRef.current = setTimeout(() => setExplorerRefreshDone(false), 2000);
@@ -198,9 +214,8 @@ export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, o
             </svg>
           </button>
         )}
-        <FolderIcon size={13} />
         <span
-          title={cwd ?? undefined}
+          title={source === "notes" ? t("sidebar.tabNotes") : (cwd ?? undefined)}
           style={{
             minWidth: 0,
             flex: 1,
@@ -212,10 +227,61 @@ export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, o
             color: "var(--text)",
           }}
         >
-          {cwd ? getFileName(cwd) || cwd : t("sidebar.selectProject")}
+          {source === "notes"
+            ? t("sidebar.tabNotes")
+            : (cwd ? getFileName(cwd) || cwd : t("sidebar.selectProject"))}
         </span>
+        <div role="tablist" aria-label={t("sidebar.treeSource")} style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+          {(["project", "notes"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="tab"
+              aria-selected={source === option}
+              onClick={() => {
+                setSource(option);
+                saveFileTreeSource(option);
+              }}
+              style={{
+                height: 22, padding: "0 7px", border: "none", borderRadius: 5, cursor: "pointer",
+                background: source === option ? "var(--bg-selected)" : "transparent",
+                color: source === option ? "var(--text)" : "var(--text-dim)",
+                fontSize: 11, fontWeight: 500,
+              }}
+            >
+              {t(option === "notes" ? "sidebar.tabNotes" : "sidebar.tabFiles")}
+            </button>
+          ))}
+        </div>
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            title={t("sidebar.collapseTree")}
+            aria-label={t("sidebar.collapseTree")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 24, height: 24, padding: 0, marginRight: -4, flexShrink: 0,
+              background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer",
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+        )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, padding: "2px 6px", borderBottom: "1px solid var(--border)" }}>
+        {source === "notes" ? (
+          <ToolbarIconButton
+            onClick={refresh}
+            title={t("sidebar.refreshNotes")}
+            done={explorerRefreshDone}
+          >
+            {explorerRefreshDone ? <CheckIcon size={14} /> : <RefreshIcon size={14} />}
+          </ToolbarIconButton>
+        ) : (
+          <>
         <ToolbarIconButton
           onClick={() => { if (cwd) onOpenTerminal?.(cwd); }}
           disabled={!cwd || !onOpenTerminal}
@@ -276,15 +342,19 @@ export function FileBrowserPane({ cwd, activeFilePath, refreshKey, onOpenFile, o
         >
           <SearchIcon size={14} />
         </ToolbarIconButton>
+          </>
+        )}
       </div>
-      {cwd && fileManagerErrorMessage && (
+      {source === "project" && cwd && fileManagerErrorMessage && (
         <div role="alert" className="sidebar-files-error">
           <span className="sidebar-files-error-text">{fileManagerErrorMessage}</span>
           <DismissButton onClick={() => setFileManagerError(null)} title={t("files.dismissError")} />
         </div>
       )}
       <div className="sidebar-files-scroll scrollbar-subtle" style={{ flex: 1, minHeight: 0 }}>
-        {cwd && (
+        {source === "notes" ? (
+          <NotesTree activePath={activeNotePath} refreshKey={notesRefreshKey} onOpenNote={onOpenNote} />
+        ) : cwd && (
           <FileExplorer
             activeFilePath={activeFilePath}
             ref={fileExplorerRef}
