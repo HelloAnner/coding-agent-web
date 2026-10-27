@@ -31,6 +31,9 @@ export interface DshPrompt {
   sessionPath?: string | null;
 }
 
+/** A prompt sent while a turn runs: `steer` preempts that turn, `followUp` waits for it. */
+export type DshStreamingBehavior = "steer" | "followUp";
+
 type Listener = (event: AgentEventLike) => void;
 
 /** Enough of the last run that a reconnecting tab can rebuild the bubble. */
@@ -49,6 +52,8 @@ class DshSession {
   cwd = "";
   /** The chat reads a snapshot from here on connect; the kernel has none mid-run. */
   readonly streamingMessage: AssistantMessage | null = null;
+  /** Prompts accepted while a turn runs; one starts a turn each time the last settles. */
+  private readonly queued: { steering: DshPrompt[]; followUp: DshPrompt[] } = { steering: [], followUp: [] };
 
   constructor(readonly sessionId: string) {}
 
@@ -57,6 +62,8 @@ class DshSession {
     if (this.isStreaming) {
       for (const event of this.replay) listener(event);
     }
+    // A reconnect must see the queue as it is now, including an empty one.
+    listener(this.queueUpdate());
     return () => {
       this.subscribers.delete(listener);
     };
@@ -77,6 +84,44 @@ class DshSession {
         /* one broken stream must not stop the run */
       }
     }
+  }
+
+  queuedMessages(): { steering: string[]; followUp: string[] } {
+    return { steering: this.queued.steering.map((prompt) => prompt.text), followUp: this.queued.followUp.map((prompt) => prompt.text) };
+  }
+
+  private queueUpdate(): AgentEventLike {
+    const queued = this.queuedMessages();
+    return { type: "queue_update", steering: queued.steering, followUp: queued.followUp };
+  }
+
+  private publishQueue(): void {
+    this.publish(this.queueUpdate());
+  }
+
+  enqueue(behavior: DshStreamingBehavior, prompt: DshPrompt): void {
+    if (behavior === "steer") this.queued.steering.push(prompt);
+    else this.queued.followUp.push(prompt);
+    this.publishQueue();
+    // Steering is the only behavior that preempts work: the kernel's own cancel
+    // ends the running turn, and the queue then starts the next one.
+    if (behavior === "steer" && this.isStreaming && this.acpSessionId) {
+      dshKernel().notify("session/cancel", { sessionId: this.acpSessionId });
+    }
+  }
+
+  shiftQueue(): DshPrompt | null {
+    const next = this.queued.steering.shift() ?? this.queued.followUp.shift();
+    if (next) this.publishQueue();
+    return next ?? null;
+  }
+
+  clearQueue(): { steering: string[]; followUp: string[] } {
+    const cleared = this.queuedMessages();
+    this.queued.steering.length = 0;
+    this.queued.followUp.length = 0;
+    this.publishQueue();
+    return cleared;
   }
 }
 
@@ -104,6 +149,8 @@ function watchKernel(): void {
       run.publish({ type: "prompt_error", errorMessage: reason });
       run.publish({ type: "agent_end" });
       run.publish({ type: "agent_settled", aborted: run.aborted });
+      // The next prompt respawns the kernel and resumes this chat from its log.
+      drainQueue(run);
     }
   });
 }
@@ -186,11 +233,7 @@ async function openAcpSession(run: DshSession, prompt: DshPrompt): Promise<void>
  * Start one turn. Resolves once the kernel accepted the prompt: the reply
  * streams to subscribers as agent events, so the caller only reports "accepted".
  */
-export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: string }> {
-  const run = getDshSession(prompt.sessionId);
-  if (run.isStreaming) throw new Error("dsh is already answering in this chat");
-  if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
-
+async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolean): Promise<{ sessionPath: string }> {
   run.isStreaming = true;
   run.aborted = false;
   run.replay.length = 0;
@@ -206,6 +249,24 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
 
   run.model = prompt.model ?? "";
   run.publish({ type: "agent_start" });
+  // A queued prompt has no optimistic bubble: publish the delivery so it shows
+  // up when its own turn starts, not at the end of the queue.
+  if (announce) {
+    const imageBlocks = (prompt.images ?? []).map((image) => ({
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: image.mimeType, data: image.data },
+    }));
+    run.publish({
+      type: "message_end",
+      message: {
+        role: "user",
+        timestamp: Date.now(),
+        content: imageBlocks.length
+          ? [...(prompt.text.trim() ? [{ type: "text" as const, text: prompt.text }] : []), ...imageBlocks]
+          : prompt.text,
+      },
+    });
+  }
 
   const mapper = new DshEventMapper(run.model, (event) => run.publish(event));
   const acpSessionId = run.acpSessionId;
@@ -220,6 +281,9 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
     mapper.finish(error ? "error" : run.aborted ? "aborted" : stopReason);
     run.isStreaming = false;
     if (error) run.publish({ type: "prompt_error", errorMessage: error });
+    // A queued prompt continues the same run: no agent_end between turns keeps
+    // the browser on one active stage.
+    if (!run.aborted && drainQueue(run)) return;
     run.publish({ type: "agent_end" });
     run.publish({ type: "agent_settled", aborted: run.aborted });
   };
@@ -243,9 +307,48 @@ export async function sendDshPrompt(prompt: DshPrompt): Promise<{ sessionPath: s
   return { sessionPath: run.sessionPath ?? "" };
 }
 
+/** Start the next queued prompt in this run. False when the queue is empty. */
+function drainQueue(run: DshSession): boolean {
+  const next = run.shiftQueue();
+  if (!next) return false;
+  void startDshTurn(run, next, true).catch((error: unknown) => {
+    run.isStreaming = false;
+    run.publish({ type: "prompt_error", errorMessage: error instanceof Error ? error.message : String(error) });
+    run.publish({ type: "agent_end" });
+    run.publish({ type: "agent_settled", aborted: false });
+  });
+  return true;
+}
+
+/**
+ * Send one prompt. While a turn runs, a prompt with a behavior joins the queue
+ * instead of failing; without one this chat still takes a single prompt per run.
+ */
+export async function sendDshPrompt(
+  prompt: DshPrompt,
+  behavior?: DshStreamingBehavior,
+): Promise<{ sessionPath: string; queued?: boolean }> {
+  const run = getDshSession(prompt.sessionId);
+  if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
+  if (run.isStreaming) {
+    if (!behavior) throw new Error("dsh is already answering in this chat");
+    run.enqueue(behavior, prompt);
+    return { sessionPath: run.sessionPath ?? prompt.sessionPath ?? "", queued: true };
+  }
+  return startDshTurn(run, prompt, false);
+}
+
+export function clearDshQueue(sessionId: string): { steering: string[]; followUp: string[] } {
+  return getDshSession(sessionId).clearQueue();
+}
+
 export function abortDshPrompt(sessionId: string): boolean {
   const run = registry().get(sessionId);
-  if (!run?.isStreaming) return false;
+  if (!run) return false;
+  // Stop means stop: a queued prompt must not start after the current turn is cut.
+  const cleared = run.clearQueue();
+  const hadQueued = cleared.steering.length + cleared.followUp.length > 0;
+  if (!run.isStreaming) return hadQueued;
   run.aborted = true;
   if (run.acpSessionId) dshKernel().notify("session/cancel", { sessionId: run.acpSessionId });
   return true;

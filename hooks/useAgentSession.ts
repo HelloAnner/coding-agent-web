@@ -2761,6 +2761,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       return;
     }
+    if (runtimeHarnessRef.current === "dsh") {
+      // dsh takes one prompt per turn: the server holds the queued text until the
+      // running turn settles, and steering cancels it first.
+      try {
+        await sendDshCommand(sid, {
+          type: "prompt",
+          message,
+          streamingBehavior: behavior,
+          cwd: grokCwdRef.current ?? "",
+          sessionPath: dshSessionPathRef.current ?? undefined,
+          ...(grokModelRef.current?.provider ? { provider: grokModelRef.current.provider } : {}),
+          ...(grokModelRef.current?.modelId ? { model: grokModelRef.current.modelId } : {}),
+          ...(images?.length ? { images: images.map((img) => ({ data: img.data, mimeType: img.mimeType })) } : {}),
+        });
+      } catch (e) {
+        console.error("Failed to submit dsh streaming prompt:", e);
+        // The request is the dispatch: only a clear rejection means nothing was
+        // queued. A transport failure may have been accepted server-side.
+        if (!(e instanceof TypeError)) restore();
+        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
       await sendAgentCommand(sid, {
@@ -2814,7 +2837,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = runtimeHarnessRef.current === "claude-code"
         ? await sendClaudeCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" })
-        : await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" });
+        : runtimeHarnessRef.current === "dsh"
+          ? await sendDshCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" })
+          : await sendAgentCommand<{ steering?: string[]; followUp?: string[] }>(sid, { type: "clear_queue" });
       // clearQueue also emits an empty queue_update, but that only reaches us
       // while SSE is connected — clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });

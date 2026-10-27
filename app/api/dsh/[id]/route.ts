@@ -1,7 +1,7 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { dshSessionsRoot } from "@/harness/dsh";
-import { abortDshPrompt, isDshRunning, sendDshPrompt } from "@/harness/dsh/runtime";
+import { abortDshPrompt, clearDshQueue, isDshRunning, sendDshPrompt, type DshStreamingBehavior } from "@/harness/dsh/runtime";
 import { readDshTranscript } from "@/harness/dsh/transcript";
 
 export const dynamic = "force-dynamic";
@@ -30,8 +30,9 @@ function readImages(raw: unknown): Array<{ data: string; mimeType: string }> | u
 /**
  * POST /api/dsh/[id] - one command for a dsh chat.
  *
- *   { type: "prompt", message, cwd, provider?, model?, sessionPath? }
+ *   { type: "prompt", message, cwd, provider?, model?, sessionPath?, streamingBehavior? }
  *   { type: "abort" }
+ *   { type: "clear_queue" }
  *   { type: "get_state" }
  *
  * The reply itself does not come back here: it streams on /events.
@@ -55,6 +56,9 @@ export async function POST(
       const provider = typeof body.provider === "string" ? body.provider : undefined;
       const model = typeof body.model === "string" ? body.model : undefined;
       const sessionPath = typeof body.sessionPath === "string" ? body.sessionPath : undefined;
+      const streamingBehavior: DshStreamingBehavior | undefined = body.streamingBehavior === "steer"
+        ? "steer"
+        : body.streamingBehavior === "followUp" ? "followUp" : undefined;
       let images: Array<{ data: string; mimeType: string }> | undefined;
       try {
         images = readImages(body.images);
@@ -69,10 +73,10 @@ export async function POST(
         return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
       }
       try {
-        const result = await sendDshPrompt({ sessionId: id, cwd, text: message, images, provider, model, sessionPath });
+        const result = await sendDshPrompt({ sessionId: id, cwd, text: message, images, provider, model, sessionPath }, streamingBehavior);
         return NextResponse.json({
           success: true,
-          data: { sessionId: id, sessionPath: result.sessionPath, accepted: true },
+          data: { sessionId: id, sessionPath: result.sessionPath, accepted: true, queued: result.queued === true },
         });
       } catch (error) {
         return NextResponse.json(
@@ -83,6 +87,9 @@ export async function POST(
     }
     case "abort": {
       return NextResponse.json({ success: true, data: { aborted: abortDshPrompt(id) } });
+    }
+    case "clear_queue": {
+      return NextResponse.json({ success: true, data: clearDshQueue(id) });
     }
     case "get_state": {
       return NextResponse.json({ success: true, data: { isStreaming: isDshRunning(id) } });

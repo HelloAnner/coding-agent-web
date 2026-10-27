@@ -114,3 +114,54 @@ test("failed resume clears busy state without silently opening a new conversatio
     assert.equal(calls.some((call) => call.method === "session/new"), false);
   } finally { openError = null; }
 });
+
+test("a prompt sent while a turn runs is queued, steered, cleared or dropped", async () => {
+  const id = "dsh-queue";
+  const run = runtime.getDshSession(id);
+  const events = [];
+  run.onEvent((event) => events.push(event));
+  const prompts = () => calls.filter((call) => call.method === "session/prompt").length;
+
+  await runtime.sendDshPrompt(prompt(id));
+  const before = prompts();
+
+  // A follow-up waits for the running turn: nothing reaches the kernel yet.
+  assert.deepEqual(
+    await runtime.sendDshPrompt({ ...prompt(id), text: "later" }, "followUp"),
+    { sessionPath: "/sessions/native-id", queued: true },
+  );
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: ["later"] });
+  assert.equal(prompts(), before);
+  assert.ok(events.some((event) => event.type === "queue_update" && event.followUp[0] === "later"));
+
+  // Steering preempts it: cancel, then the queued text starts the next turn.
+  await runtime.sendDshPrompt({ ...prompt(id), text: "now" }, "steer");
+  assert.deepEqual(calls.at(-1), { method: "session/cancel", params: { sessionId: "native-id" } });
+  complete({ stopReason: "cancelled" });
+  await drain();
+  assert.equal(prompts(), before + 1);
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: ["later"] });
+  // Same run: the browser must not see a completed turn between queued prompts.
+  assert.equal(events.filter((event) => event.type === "agent_end").length, 0);
+  assert.equal(events.filter((event) => event.type === "agent_start").length, 2);
+  const delivered = events.find((event) => event.type === "message_end");
+  assert.equal(delivered.message.role, "user");
+  assert.equal(delivered.message.content, "now");
+
+  // Recall hands the texts back and empties the rows.
+  assert.deepEqual(runtime.clearDshQueue(id), { steering: [], followUp: ["later"] });
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
+
+  // Stop means stop: a queued follow-up must not start after the turn is cut.
+  await runtime.sendDshPrompt({ ...prompt(id), text: "dropped" }, "followUp");
+  assert.equal(runtime.abortDshPrompt(id), true);
+  assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
+  complete({ stopReason: "cancelled" });
+  await drain();
+  assert.equal(prompts(), before + 1);
+  assert.deepEqual(
+    { type: events.at(-1).type, aborted: events.at(-1).aborted },
+    { type: "agent_settled", aborted: true },
+  );
+  assert.equal(runtime.isDshRunning(id), false);
+});

@@ -953,9 +953,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     : null;
 
   const foreignHarness = composerHarness !== "pi";
-  // Claude Code accepts prompts while a turn runs (steer / follow-up); grok and
-  // dsh still take one prompt per run.
-  const supportsStreamingPrompts = !foreignHarness || composerHarness === "claude-code";
+  // Claude Code and dsh accept prompts while a turn runs (steer / follow-up);
+  // grok still takes one prompt per run.
+  const supportsStreamingPrompts = !foreignHarness || composerHarness === "claude-code" || composerHarness === "dsh";
   // The pi file's model is the one this chat will send. A catalog pair left
   // over from another harness must not stay on the row.
   useEffect(() => {
