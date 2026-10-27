@@ -32,6 +32,11 @@
   background: var(--bg-panel);
 }
 
+/* Put away the tree: the topbar's menu button brings it back. */
+.dashboard-app.is-tree-hidden .dashboard-sidebar {
+  display: none;
+}
+
 .dashboard-tree {
   flex: 1 1 auto;
   min-height: 0;
@@ -127,6 +132,10 @@
 .dashboard-menu-button:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.dashboard-menu-button.is-visible {
+  display: flex;
 }
 
 .dashboard-board-title {
@@ -397,6 +406,11 @@
 
   .dashboard-menu-button {
     display: flex;
+  }
+
+  /* The drawer already has its own toggle; no second collapse button. */
+  .notes-collapse-button {
+    display: none;
   }
 
   .dashboard-tree-row {

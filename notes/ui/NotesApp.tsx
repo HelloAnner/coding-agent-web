@@ -117,6 +117,8 @@ export function NotesApp({
   // "" is the root itself (no file open), a node path is a folder or file.
   const [selectedPath, setSelectedPath] = useState<string | null>("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop: the tree is a panel that can be put away, like the shell's sidebar.
+  const [treeHidden, setTreeHidden] = useState(false);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ anchor: SidebarMenuAnchor; dir: string | null; returnTo: HTMLElement | null } | null>(null);
@@ -614,7 +616,7 @@ export function NotesApp({
 
   return (
     <div
-      className="dashboard-app notes-app"
+      className={`dashboard-app notes-app${treeHidden ? " is-tree-hidden" : ""}`}
       role="region"
       aria-label="Notes"
       aria-hidden={!active}
@@ -635,6 +637,17 @@ export function NotesApp({
             onClick={() => (menu ? setMenu(null) : openMenu())}
           >
             <PlusIcon size={16} />
+          </button>
+          <button
+            type="button"
+            className="sidebar-search-toggle notes-collapse-button"
+            title="收起目录"
+            aria-label="收起目录"
+            onClick={() => setTreeHidden(true)}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+            </svg>
           </button>
         </div>
 
@@ -738,12 +751,12 @@ export function NotesApp({
 
       <main className="dashboard-main">
         {/* A whiteboard is the canvas: no name, no save status, no bar on desktop. */}
-        <header className={`dashboard-topbar${boardOpen ? " notes-board-topbar" : ""}`}>
+        <header className={`dashboard-topbar${boardOpen ? " notes-board-topbar" : ""}${treeHidden ? " is-tree-shown" : ""}`}>
           <button
             type="button"
-            className="dashboard-menu-button"
+            className={`dashboard-menu-button${treeHidden ? " is-visible" : ""}`}
             aria-label="展开目录"
-            onClick={() => setSidebarOpen(true)}
+            onClick={() => (isMobile ? setSidebarOpen(true) : setTreeHidden(false))}
           >
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />

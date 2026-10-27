@@ -394,6 +394,11 @@ button.notes-tree-toggle:hover {
   display: none;
 }
 
+/* A hidden tree needs its reopen button even over a whiteboard. */
+.notes-board-topbar.is-tree-shown {
+  display: flex;
+}
+
 @media (max-width: 640px) {
   .notes-board-topbar {
     display: flex;
