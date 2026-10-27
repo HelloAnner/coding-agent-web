@@ -17,10 +17,12 @@ export function registerNodeInstrumentation(): void {
   import("@/notes/index")
     .then(({ syncNotesIndex }) => syncNotesIndex())
     .catch(() => {});
-  // Make the catalogue complete: every harness's existing sessions get a row
-  // that names the file a reader can open, not just the chats this web started.
+  // Point the catalogue's rows at the harness files their conversations live
+  // in (an old Claude row stored its profile directory; a dsh row can be
+  // written before the kernel flushes). It never adds a row for a session the
+  // web did not start.
   import("@/lib/catalog-sync")
-    .then(({ syncCatalogSessions }) => syncCatalogSessions())
+    .then(({ repairCatalogSessionPaths }) => repairCatalogSessionPaths())
     .catch(() => {});
   // Timed notes jobs: the interval lives in the process, so it starts with the
   // server rather than on the first page view.
