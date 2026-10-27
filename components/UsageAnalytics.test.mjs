@@ -13,6 +13,12 @@ test("usage details flow with the page instead of a nested scrollable table", ()
   assert.doesNotMatch(source, /styles\.tableScroll/);
 });
 
+test("the usage page scrolls as one surface", () => {
+  const root = css.match(/\.root\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(root, /height:\s*100%/);
+  assert.match(root, /overflow-y:\s*auto/);
+});
+
 test("usage headline values stay compact on desktop and mobile", () => {
   assert.match(css, /\.kpi\.hero > strong\s*\{\s*font-size:\s*24px/);
   assert.doesNotMatch(css, /font-size:\s*(?:48|38|32|30)px/);
