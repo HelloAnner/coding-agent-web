@@ -1,11 +1,16 @@
 import { basename } from "node:path";
+import { readFileSync } from "node:fs";
+import { readCatalogSession } from "../lib/catalog-db";
 import { listSessionFamilies } from "../lib/session-family";
 import { getSessionEntries, listAllSessions, resolveSessionPath } from "../lib/session-reader";
 import { isFamilyArchived } from "../lib/session-tree";
 import { readSessionUiState } from "../lib/session-ui-state";
-import type { SessionInfo } from "../lib/types";
+import type { AgentMessage, SessionInfo } from "../lib/types";
 import type { SessionUiState } from "../lib/session-ui-state-shared";
-import type { AssistantContentBlock, SessionEntry, SessionMessage, TextContent } from "../lib/types";
+import type { SessionEntry, SessionMessage, TextContent } from "../lib/types";
+import { parseClaudeTranscript, readClaudeTranscript } from "../harness/claude-code/transcript";
+import { readDshTranscript } from "../harness/dsh/transcript";
+import { readGrokTranscript } from "../harness/grok/transcript";
 import { readIngestRows, writeIngestRows, type NotesIngestRow } from "./db";
 
 /**
@@ -37,7 +42,6 @@ export interface CodingSession {
 
 /** The transcript the agent reads is capped: the tail holds the conclusions. */
 const MAX_TRANSCRIPT_CHARS = 20_000;
-const MAX_HINT_CHARS = 120;
 const MAX_DIR_NAME = 60;
 /** A session still being written waits: rereading it every tick is churn. */
 const SETTLE_MS = 90_000;
@@ -65,54 +69,46 @@ function textOf(content: string | readonly (TextContent | { type: string })[]): 
     .trim();
 }
 
-/** One compact hint per tool call: what was touched, not what it answered. */
-function toolHint(input: Record<string, unknown>): string {
-  for (const key of ["path", "file_path", "command", "pattern", "description", "url"]) {
-    const value = input[key];
-    if (typeof value === "string" && value.trim()) {
-      const hint = value.trim().replace(/\s+/g, " ");
-      return hint.length > MAX_HINT_CHARS ? `${hint.slice(0, MAX_HINT_CHARS)}…` : hint;
-    }
-  }
-  return "";
+/** The tail of a too-long transcript: the conclusions live at the end. */
+function clip(text: string): string {
+  if (text.length <= MAX_TRANSCRIPT_CHARS) return text;
+  return `（前 ${text.length - MAX_TRANSCRIPT_CHARS} 字符省略，以下是最新的部分）\n\n${text.slice(-MAX_TRANSCRIPT_CHARS)}`;
 }
 
 /**
- * A session file as readable text: user turns and assistant answers, plus one
- * line per tool call. Tool results and thinking are the haystack, not the
- * knowledge, so they stay out; a compaction summary is kept, it is a summary
- * the model already wrote.
+ * A transcript as readable text: **only what the user asked and what the
+ * assistant answered**. Tool calls, tool results and thinking are the haystack,
+ * not the knowledge, so they never enter the text the notes agent reads.
+ *
+ * Every harness ends up here after its own parser has read its own file format,
+ * so what counts as a turn is decided once.
  */
-export function sessionTranscript(entries: readonly SessionEntry[]): string {
+export function messagesTranscript(messages: readonly AgentMessage[]): string {
   const parts: string[] = [];
-  for (const entry of entries) {
-    if (entry.type === "compaction") {
-      parts.push(`## 压缩摘要\n${entry.summary.trim()}`);
-      continue;
-    }
-    if (entry.type !== "message") continue;
-    const message = entry.message as SessionMessage;
+  for (const message of messages) {
     if (message.role === "user") {
-      const text = textOf(message.content);
+      const text = textOf(message.content as string | readonly TextContent[]);
       if (text) parts.push(`## 用户\n${text}`);
       continue;
     }
     if (message.role !== "assistant") continue;
     const answer = message.content
-      .filter((block: AssistantContentBlock): block is TextContent => block.type === "text")
+      .filter((block): block is TextContent => block.type === "text")
       .map((block) => block.text.trim())
       .filter(Boolean)
       .join("\n\n");
     if (answer) parts.push(`## 助手\n${answer}`);
-    for (const block of message.content) {
-      if (block.type !== "toolCall") continue;
-      const hint = toolHint(block.input ?? {});
-      parts.push(`· ${block.toolName}${hint ? ` ${hint}` : ""}`);
-    }
   }
-  const text = parts.join("\n\n");
-  if (text.length <= MAX_TRANSCRIPT_CHARS) return text;
-  return `（前 ${text.length - MAX_TRANSCRIPT_CHARS} 字符省略，以下是最新的部分）\n\n${text.slice(-MAX_TRANSCRIPT_CHARS)}`;
+  return clip(parts.join("\n\n"));
+}
+
+/** pi's own session file: the message entries, read like every other harness. */
+export function sessionTranscript(entries: readonly SessionEntry[]): string {
+  const messages = entries
+    .filter((entry) => entry.type === "message")
+    .map((entry) => (entry as { message: SessionMessage }).message)
+    .filter((message): message is SessionMessage => typeof message === "object" && message !== null);
+  return messagesTranscript(messages.filter((message) => message.role !== "system"));
 }
 
 const NO_RUNNING: ReadonlySet<string> = new Set();
@@ -185,6 +181,20 @@ export function claimSessions(sessions: readonly CodingSession[]): void {
 
 /** One session's transcript, or null when the id names no session on disk. */
 export async function readCodingSession(id: string): Promise<string | null> {
+  // Each harness writes its own file format, so each one is read by its own
+  // parser and then reduced to the same two kinds of text: what the user asked
+  // and what the assistant answered.
+  const row = readCatalogSession(id);
+  if (row) {
+    if (row.harness === "claude-code") {
+      const messages = row.profilePath
+        ? readClaudeTranscript(row.profilePath, id).messages
+        : parseClaudeTranscript(readFileSync(row.sessionPath, "utf8"));
+      return messagesTranscript(messages);
+    }
+    if (row.harness === "dsh") return messagesTranscript(readDshTranscript(row.sessionPath).messages);
+    if (row.harness === "grok") return messagesTranscript(readGrokTranscript(row.cwd, id).messages);
+  }
   const filePath = await resolveSessionPath(id);
   if (!filePath) return null;
   return sessionTranscript(getSessionEntries(filePath));

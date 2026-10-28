@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { interopDefault: true, moduleCache: false });
-const { codingSessions, projectDirName, sessionTranscript, sessionsPrompt } = await jiti.import("./ingest.ts");
+const { codingSessions, messagesTranscript, projectDirName, sessionTranscript, sessionsPrompt } = await jiti.import("./ingest.ts");
 
 const EMPTY_STATE = { version: 1, revision: 0, sessions: {}, projects: {} };
 
@@ -70,7 +70,7 @@ test("a session already read at this version is no longer pending", () => {
   assert.equal(codingSessions(catalog, EMPTY_STATE, fewer, now)[0].pending, true);
 });
 
-test("the transcript keeps turns and tool calls, drops tool results and thinking", () => {
+test("the transcript keeps the user's questions and the answers, nothing else", () => {
   const entries = [
     { type: "message", id: "1", parentId: null, timestamp: "", message: { role: "user", content: "把登录改成 JWT" } },
     {
@@ -93,12 +93,32 @@ test("the transcript keeps turns and tool calls, drops tool results and thinking
     { type: "compaction", id: "4", parentId: "3", timestamp: "", summary: "已讨论过刷新令牌", firstKeptEntryId: "1", tokensBefore: 10 },
   ];
   const text = sessionTranscript(entries);
-  assert.match(text, /## 用户\n把登录改成 JWT/);
-  assert.match(text, /## 助手\n换成 JWT/);
-  assert.match(text, /· edit src\/auth\.ts/);
-  assert.match(text, /## 压缩摘要\n已讨论过刷新令牌/);
-  assert.equal(text.includes("不重要的推理"), false);
-  assert.equal(text.includes("一大堆日志"), false);
+  assert.equal(text, "## 用户\n把登录改成 JWT\n\n## 助手\n换成 JWT，令牌放在 Authorization 头。");
+});
+
+// Every harness parses its own file and hands the messages here: tool calls,
+// tool results and thinking must not reach the notes agent.
+test("the shared transcript keeps only questions and answer text", () => {
+  const messages = [
+    { role: "user", content: "表单为什么要拆两列" },
+    {
+      role: "assistant", model: "m", provider: "p",
+      content: [
+        { type: "thinking", thinking: "用户在意的是布局" },
+        { type: "text", text: "两列让一眼看完，一列要滚。" },
+        { type: "toolCall", toolCallId: "t1", toolName: "read", input: { path: "form.tsx" } },
+      ],
+    },
+    { role: "toolResult", toolCallId: "t1", content: [{ type: "text", text: "文件很大" }] },
+    { role: "user", content: [{ type: "image", source: { type: "base64", data: "x", media_type: "image/png" } }, { type: "text", text: "按这张改" }] },
+  ];
+  const text = messagesTranscript(messages);
+  assert.match(text, /## 用户\n表单为什么要拆两列/);
+  assert.match(text, /## 助手\n两列让一眼看完/);
+  assert.match(text, /## 用户\n按这张改/);
+  assert.equal(text.includes("form.tsx"), false);
+  assert.equal(text.includes("文件很大"), false);
+  assert.equal(text.includes("用户在意的是布局"), false);
 });
 
 test("a long session keeps its tail, where the conclusions are", () => {
