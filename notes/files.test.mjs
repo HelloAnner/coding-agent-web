@@ -3,10 +3,13 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
+import { createJiti } from "jiti";
 
 const root = await mkdtemp(path.join(tmpdir(), "pi-web-notes-"));
 process.env.CODING_AGENT_WEB_NOTES_DIR = root;
-const notes = await import("./files.ts");
+// Renames and deletes write manual marks; keep them out of the real data.db.
+process.env.CODING_AGENT_WEB_DATA = path.join(root, "data.db");
+const notes = await createJiti(import.meta.url).import("./files.ts");
 
 after(() => rm(root, { recursive: true, force: true }));
 

@@ -2,6 +2,7 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile 
 import { watch as watchDirectory, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { NotesFileKind, NotesIndexRow, NotesNode } from "./types";
+import { manualCreateBlock, manualStructureBlock, recordManualCreate, recordManualRelocate, recordManualRemove } from "./manual";
 
 /**
  * The notes app's storage: one file per note or whiteboard under data/notes,
@@ -28,6 +29,15 @@ export class NotesError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+/**
+ * Who is mutating the tree. The page is "manual" and wins: its operations are
+ * recorded and refine what an agent may touch later. Agent tools pass "agent",
+ * which is refused on anything the user changed by hand.
+ */
+export interface NotesMutateOptions {
+  source?: "manual" | "agent";
 }
 
 /** The vault's root. data/ is outside git, so the notes are local files. */
@@ -206,30 +216,49 @@ function initialBoard(): string {
   }, null, 2);
 }
 
-export async function createDirectory(dir: string, name: string): Promise<NotesNode> {
+export async function createDirectory(dir: string, name: string, options: NotesMutateOptions = {}): Promise<NotesNode> {
   const parent = await resolveParent(dir);
   const nodeName = cleanName(name);
+  const relative = joinRelative(normalizeRelative(dir), nodeName);
+  if (options.source === "agent") {
+    const blocked = manualCreateBlock(relative);
+    if (blocked) throw new NotesError(blocked, 409);
+  } else {
+    recordManualCreate(relative);
+  }
   await mkdir(path.join(parent, nodeName));
-  return { name: nodeName, path: joinRelative(normalizeRelative(dir), nodeName), type: "dir", children: [] };
+  return { name: nodeName, path: relative, type: "dir", children: [] };
 }
 
-export async function createItem(dir: string, name: string, kind: NotesFileKind): Promise<NotesNode> {
+export async function createItem(dir: string, name: string, kind: NotesFileKind, options: NotesMutateOptions = {}): Promise<NotesNode> {
   const parent = await resolveParent(dir);
   const fileName = fileNameFor(name, kind);
+  const relative = joinRelative(normalizeRelative(dir), fileName);
+  if (options.source === "agent") {
+    const blocked = manualCreateBlock(relative);
+    if (blocked) throw new NotesError(blocked, 409);
+  } else {
+    recordManualCreate(relative);
+  }
   const absolute = path.join(parent, fileName);
   // wx: creation fails if the name is taken, instead of truncating a note.
   await writeFile(absolute, kind === "board" ? initialBoard() : "", { encoding: "utf8", flag: "wx" });
-  const relative = joinRelative(normalizeRelative(dir), fileName);
   return { name: fileName, path: relative, type: kind };
 }
 
-export async function renameItem(relative: string, name: string): Promise<string> {
-  const source = await resolveExisting(relative);
+export async function renameItem(relative: string, name: string, options: NotesMutateOptions = {}): Promise<string> {
+  const normalized = normalizeRelative(relative);
+  const source = await resolveExisting(normalized);
   const isDir = (await stat(source)).isDirectory();
   // Folders keep the name as typed; files get their extension back.
-  const fileName = isDir ? cleanName(name) : fileNameFor(name, kindForPath(relative));
+  const fileName = isDir ? cleanName(name) : fileNameFor(name, kindForPath(normalized));
   const target = path.join(path.dirname(source), fileName);
-  if (target === source) return normalizeRelative(relative);
+  const next = joinRelative(parentOf(normalized), fileName);
+  if (target === source) return normalized;
+  if (options.source === "agent") {
+    const blocked = manualStructureBlock(normalized);
+    if (blocked) throw new NotesError(blocked, 409);
+  }
   try {
     await stat(target);
     throw new NotesError("同名条目已存在", 409);
@@ -238,17 +267,25 @@ export async function renameItem(relative: string, name: string): Promise<string
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await rename(source, target);
-  return joinRelative(parentOf(normalizeRelative(relative)), fileName);
+  if (options.source !== "agent") recordManualRelocate(normalized, next, isDir ? "dir" : kindForPath(normalized));
+  return next;
 }
 
 /** Move a note, board or directory into another directory. */
-export async function moveItem(relative: string, dir: string): Promise<string> {
-  const source = await resolveExisting(relative);
-  if (!(await stat(source)).isDirectory()) kindForPath(relative);
+export async function moveItem(relative: string, dir: string, options: NotesMutateOptions = {}): Promise<string> {
+  const normalized = normalizeRelative(relative);
+  const source = await resolveExisting(normalized);
+  const isDir = (await stat(source)).isDirectory();
+  if (!isDir) kindForPath(normalized);
   const destination = await resolveParent(dir);
-  if (path.dirname(source) === destination) return normalizeRelative(relative);
+  if (path.dirname(source) === destination) return normalized;
   const fileName = path.basename(source);
   const target = path.join(destination, fileName);
+  const next = joinRelative(normalizeRelative(dir), fileName);
+  if (options.source === "agent") {
+    const blocked = manualStructureBlock(normalized);
+    if (blocked) throw new NotesError(blocked, 409);
+  }
   try {
     await lstat(target);
     throw new NotesError("同名条目已存在", 409);
@@ -257,16 +294,24 @@ export async function moveItem(relative: string, dir: string): Promise<string> {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await rename(source, target);
-  return joinRelative(normalizeRelative(dir), fileName);
+  if (options.source !== "agent") recordManualRelocate(normalized, next, isDir ? "dir" : kindForPath(normalized));
+  return next;
 }
 
 /** Delete a note, board or directory (a directory takes its contents). */
-export async function removeItem(relative: string): Promise<void> {
-  if (!normalizeRelative(relative)) throw new NotesError("不能删除根目录", 400);
-  const absolute = await resolveExisting(relative);
+export async function removeItem(relative: string, options: NotesMutateOptions = {}): Promise<void> {
+  const normalized = normalizeRelative(relative);
+  if (!normalized) throw new NotesError("不能删除根目录", 400);
+  const absolute = await resolveExisting(normalized);
   const realRoot = await realpath(notesRoot());
   if (absolute === realRoot) throw new NotesError("不能删除根目录", 400);
+  if (options.source === "agent") {
+    const blocked = manualStructureBlock(normalized);
+    if (blocked) throw new NotesError(blocked, 409);
+  }
+  const isDir = (await stat(absolute)).isDirectory();
   await rm(absolute, { recursive: true });
+  if (options.source !== "agent") recordManualRemove(normalized, isDir ? "dir" : kindForPath(normalized));
 }
 
 export async function readItem(relative: string): Promise<{ path: string; kind: NotesFileKind; content: string }> {

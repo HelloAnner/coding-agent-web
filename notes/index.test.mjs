@@ -3,13 +3,14 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
+import { createJiti } from "jiti";
 
 const root = await mkdtemp(path.join(tmpdir(), "pi-web-notes-index-"));
 const dataDir = await mkdtemp(path.join(tmpdir(), "pi-web-notes-db-"));
 process.env.CODING_AGENT_WEB_NOTES_DIR = root;
 process.env.CODING_AGENT_WEB_DATA = path.join(dataDir, "data.db");
 
-const { flattenNotesIndex, listTree } = await import("./files.ts");
+const { flattenNotesIndex, listTree } = await createJiti(import.meta.url).import("./files.ts");
 const { closeNotesDb, readBoardView, readNotesIndexRows, readNotesMentions, readNotesRoot, replaceNotesIndex, writeBoardView } = await import("./db.ts");
 
 after(async () => {

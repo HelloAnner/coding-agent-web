@@ -6,13 +6,14 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { NotesAgentModelSettings } from "../types";
 import { notesRoot } from "../files";
 import { readNotesSettings } from "./settings";
 import { notesSkillsDir } from "./skills";
 import { NOTES_SYSTEM_PROMPT } from "./system-prompt";
-import { NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
+import { NOTES_BOARD_TOOL, NOTES_LS_TOOL, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL, NOTES_WRITE_TOOL, notesAgentTools } from "./tools";
 
 /**
  * How one notes agent session is built. The expensive, auth-bound part (the
@@ -24,7 +25,7 @@ import { NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL, NOTES_WRITE_T
 export const NOTES_AGENT_PROVIDER = "notes";
 
 /** Only what an agent may call: reading the vault, writing notes/boards, the tree, and Coding sessions. */
-export const NOTES_AGENT_TOOLS = ["read", "ls", NOTES_WRITE_TOOL, NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL];
+export const NOTES_AGENT_TOOLS = ["read", NOTES_LS_TOOL, NOTES_WRITE_TOOL, NOTES_BOARD_TOOL, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL];
 
 export interface NotesSessionProfile {
   /** Defaults to the notes panel's own preamble. */
@@ -83,6 +84,24 @@ function notesModel(runtime: ModelRuntime, settings: NotesAgentModelSettings) {
     }],
   });
   return runtime.getModel(NOTES_AGENT_PROVIDER, settings.model);
+}
+
+/**
+ * pi's own default model, as a label, so the settings dialog can say what an
+ * empty notes model actually runs on. Undefined when pi has not chosen one.
+ */
+export function piDefaultModelLabel(): string | null {
+  try {
+    const settings = JSON.parse(readFileSync(path.join(getAgentDir(), "settings.json"), "utf8")) as {
+      defaultProvider?: unknown;
+      defaultModel?: unknown;
+    };
+    return typeof settings.defaultProvider === "string" && typeof settings.defaultModel === "string"
+      ? `${settings.defaultProvider}/${settings.defaultModel}`
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Build a fresh, disposable session for one run of a notes agent profile. */

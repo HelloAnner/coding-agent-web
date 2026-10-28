@@ -48,6 +48,15 @@ function database(): DatabaseSync {
       message_count INTEGER NOT NULL,
       processed_at INTEGER NOT NULL
     );
+    -- What the user did in the tree by hand: the agent may change content but
+    -- must not undo these. A remove row is also the "do not recreate" tombstone.
+    CREATE TABLE IF NOT EXISTS notes_manual_ops (
+      path TEXT PRIMARY KEY,
+      op TEXT NOT NULL,
+      from_path TEXT,
+      kind TEXT NOT NULL,
+      at INTEGER NOT NULL
+    );
   `);
   open = { file, db };
   return db;
@@ -177,6 +186,11 @@ export function writeIngestRows(rows: readonly Omit<NotesIngestRow, "processedAt
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/** The open handle, for the modules that keep their own tables here. */
+export function notesDatabase(): DatabaseSync {
+  return database();
 }
 
 export function closeNotesDb(): void {

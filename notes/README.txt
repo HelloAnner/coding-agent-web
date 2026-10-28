@@ -128,6 +128,17 @@ Agent 内核（pi）
     统一标题（rename 文件名/目录名）、按「项目 → 主题」收拢目录（move / remove），
     正文不重写，归属不确定的不挪；只在 manual:true 时注册，永远不会自己跑。
 
+  手动优先（notes_manual_ops）
+    页面上的 rename / move / remove 会写一条标记进 data.db；agent 的调用不写。
+    notes_ls 把标记读出来：条目后面标「手动改名 / 手动移动（原名 …）」，
+    末尾单独列「用户手动删除，不要重建」的路径。agent 的工具里用它替掉了 pi 自带的 ls。
+    notes/files.ts 的 create/rename/move/remove 带 source: manual | agent：
+      - agent 往 tombstone 路径（或它下面）建东西 -> 409「用户手动删除过」
+      - agent 改名/移动/删除带标记的条目，或动包含标记的目录 -> 409「用户手动改过」
+      - 页面操作永远允许；重建同名条目会清掉 tombstone，改名/移动把标记带到新路径
+    内容不锁：带标记的笔记/白板，agent 还能更新内容。
+    这两个 agent（coding-to-notes、notes-tidy）的提示词都写明：手动标记优先级最高。
+
   范围
     - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
     - notes_sessions 只读 Coding 的会话文件，不改任何东西。

@@ -15,6 +15,7 @@ import {
   writeItem,
 } from "../files";
 import { buildBoardScene, describeScene } from "./board";
+import { manualCreateBlock, readManualMarks } from "@/notes/manual";
 import { listCodingSessions, readCodingSession } from "../ingest";
 
 /**
@@ -57,7 +58,7 @@ async function ensureDirectories(target: string): Promise<void> {
   let dir = "";
   for (const segment of target.split("/")) {
     try {
-      await createDirectory(dir, segment);
+      await createDirectory(dir, segment, { source: "agent" });
     } catch (error) {
       if (!isExistsError(error)) throw error;
     }
@@ -76,6 +77,18 @@ function proseWarnings(elements: readonly { type: string; label?: string }[]): s
     return [`${JSON.stringify(label.slice(0, 18))}（${lines} 行 ${length} 字）`];
   });
 }
+
+/** How long ago a manual op happened, for the tree listing. */
+function ago(at: number, now = Date.now()): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}
+
+export const NOTES_LS_TOOL = "notes_ls";
 
 function textResult(text: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text }], details };
@@ -126,6 +139,58 @@ const boardShape = Type.Object({
 export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
   return [
     defineTool({
+      name: NOTES_LS_TOOL,
+      label: "看目录",
+      description: "列出笔记库的目录树，并标出用户手动做过的改动：手动改名/移动的条目，以及手动删除、不允许重建的路径。改动前先看这个；不要用 ls，它看不到这些标记。",
+      promptSnippet: "List the vault tree with the user's manual marks",
+      promptGuidelines: [
+        "List the vault with notes_ls; plain ls cannot see the user's manual marks.",
+        "An entry marked 手动改名/手动移动 keeps its name and place: update its content, never rename, move or delete it.",
+        "A path under 用户手动删除 must not be recreated.",
+      ],
+      parameters: Type.Object({
+        path: Type.Optional(Type.String({ description: "只列这个目录（相对路径，空字符串是根目录）；不传就是整棵树" })),
+      }),
+      async execute(_toolCallId, params) {
+        const marks = readManualMarks();
+        const markAt = new Map(marks.filter((mark) => mark.op !== "remove").map((mark) => [mark.path, mark]));
+        const tree = await listTree();
+        const requested = (params.path ?? "").trim().replace(/^\/+|\/+$/g, "");
+        const scope = requested ? await findNode(requested) : null;
+        if (requested && !scope) throw new NotesError(`没有这个目录：${requested}`, 404);
+
+        const lines: string[] = [];
+        const emit = (nodes: readonly NotesNode[], depth: number): void => {
+          for (const node of nodes) {
+            const mark = markAt.get(node.path);
+            const suffix = mark
+              ? `   ← 手动${mark.op === "move" ? "移动" : "改名"}${mark.fromPath ? `（原名 ${mark.fromPath}）` : ""}`
+              : "";
+            lines.push(`${"  ".repeat(depth)}${node.name}${node.type === "dir" ? "/" : ""}${suffix}`);
+            if (node.type === "dir" && node.children?.length) emit(node.children, depth + 1);
+          }
+        };
+        if (scope) {
+          if (scope.type === "dir") emit(scope.children ?? [], 0);
+          else lines.push(scope.path);
+        } else {
+          emit(tree, 0);
+        }
+
+        const tombstones = marks
+          .filter((mark) => mark.op === "remove")
+          .filter((mark) => !scope || mark.path === scope.path || mark.path.startsWith(`${scope.path}/`));
+        const body = lines.length ? lines.join("\n") : "（空目录）";
+        const removed = tombstones.length
+          ? `\n\n用户手动删除，不要重建：\n${tombstones.map((mark) => `  ${mark.path}（${mark.kind === "dir" ? "目录" : mark.kind === "board" ? "白板" : "笔记"}，${ago(mark.at)}）`).join("\n")}`
+          : "";
+        return textResult(`${body}${removed}`, {
+          entries: lines.length,
+          manual: marks.length,
+        });
+      },
+    }),
+    defineTool({
       name: NOTES_WRITE_TOOL,
       label: "写笔记",
       description: "创建或整体覆盖一篇 Markdown 笔记。路径相对笔记库，缺少的目录会自动创建。只写 .md；白板用 notes_board。",
@@ -145,9 +210,11 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
           await writeItem(target, params.content);
           return textResult(`已更新 ${target}`, { path: target, created: false });
         }
+        const blocked = manualCreateBlock(target);
+        if (blocked) throw new NotesError(blocked, 409);
         const dir = parentOf(target);
         await ensureDirectories(dir);
-        await createItem(dir, target.split("/").pop()!, "note");
+        await createItem(dir, target.split("/").pop()!, "note", { source: "agent" });
         await writeItem(target, params.content);
         return textResult(`已创建 ${target}`, { path: target, created: true });
       },
@@ -191,9 +258,11 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         }
         if (!params.elements?.length) throw new NotesError("draw 需要 elements", 400);
         if (!existing) {
+          const blocked = manualCreateBlock(target);
+          if (blocked) throw new NotesError(blocked, 409);
           const dir = parentOf(target);
           await ensureDirectories(dir);
-          await createItem(dir, target.split("/").pop()!, "board");
+          await createItem(dir, target.split("/").pop()!, "board", { source: "agent" });
         }
         const scene = buildBoardScene(params.elements, board, {
           existing: existing?.content ?? null,
@@ -255,6 +324,8 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, null, NOTES_MANAGE_TOOL);
         if (params.action === "mkdir") {
+          const blocked = manualCreateBlock(target);
+          if (blocked) throw new NotesError(blocked, 409);
           await ensureDirectories(target);
           return textResult(`已创建目录 ${target}`, { action: params.action, path: target });
         }
@@ -264,7 +335,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
           const full = vaultPath(target, extension, NOTES_MANAGE_TOOL);
           const dir = parentOf(full);
           await ensureDirectories(dir);
-          const node = await createItem(dir, full.split("/").pop()!, kind).catch((error: unknown) => {
+          const node = await createItem(dir, full.split("/").pop()!, kind, { source: "agent" }).catch((error: unknown) => {
             if (isExistsError(error)) throw new NotesError(`${full} 已存在`, 409);
             throw error;
           });
@@ -272,12 +343,12 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         }
         if (params.action === "rename") {
           if (!params.name) throw new NotesError("rename 需要 name", 400);
-          const next = await renameItem(target, params.name);
+          const next = await renameItem(target, params.name, { source: "agent" });
           return textResult(`${target} 重命名为 ${next}`, { action: params.action, path: next, from: target });
         }
         if (params.action === "move") {
           if (typeof params.dir !== "string") throw new NotesError("move 需要 dir，根目录传空字符串", 400);
-          const next = await moveItem(target, params.dir.trim());
+          const next = await moveItem(target, params.dir.trim(), { source: "agent" });
           return textResult(`${target} 移到 ${next}`, { action: params.action, path: next, from: target });
         }
         const node = await findNode(target);
@@ -287,7 +358,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
             400,
           );
         }
-        await removeItem(target);
+        await removeItem(target, { source: "agent" });
         return textResult(`已删除 ${target}`, { action: params.action, path: target });
       },
     }),
