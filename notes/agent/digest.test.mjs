@@ -23,10 +23,10 @@ test("the PASS marker does not leak into the tooltip", () => {
 
 test("the prompts keep the rules that regressions dropped before", () => {
   // relations, self-check, better-than-before, multi-region are what the runs lacked.
-  for (const rule of ["关系清单", "条 arrow", "说人话", "不比原来差", "2~4 个区域", "最多动 3 块"]) {
+  for (const rule of ["画系统，不画过程", "事实清单", "条 arrow", "说人话", "不比原来差", "2~4 个区域", "最多动 3 块"]) {
     assert.ok(SESSION_DIGEST_PROMPT.includes(rule), rule);
   }
-  for (const rule of ["读回来", "关系条数和区域数", "PASS"]) {
+  for (const rule of ["读回来", "事实条数和区域数", "讨论过程", "PASS"]) {
     assert.ok(SELF_CHECK_PROMPT.includes(rule), rule);
   }
 });
