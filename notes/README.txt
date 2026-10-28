@@ -115,9 +115,10 @@ Agent 内核（pi）
     prepare 取最新 3 个进这一轮，跑完（不管成败）把这三个的版本写回表里。
     会话有了新消息 -> modified/message_count 变了 -> 下一轮重新进清单。
     最后一条消息在 90 秒内的会话先不读：正在用的对话每轮都重读，笔记会来回改。
-    提示词 CODING_DIGEST_PROMPT：只出白板（这轮不给 notes_write），项目目录一一对应、
-    按主题子目录、长文字放白板里的 text、先 notes_board action=read 再 replace 重画
-    （用户手改过的白板按读到的最新内容改）、没价值就不画。
+    提示词 CODING_DIGEST_PROMPT：只出白板（这轮不给 notes_write），项目目录一一对应；
+    结构是「项目 / 主题目录 / 子主题白板」，白板名写子主题（优雅发布、流量拓扑），
+    不写目录名、不加「白板」后缀；先 notes_board action=read 再 replace 重画
+    （用户手改过的白板按读到的最新内容改）、同一个子主题才合并、没价值就不画。
 
   手动任务：整理笔记库（notes-tidy）
     没有排期，只能手动触发：Notes 侧栏右上角的整理按钮，或 POST /api/notes/tasks {id:"notes-tidy"}。

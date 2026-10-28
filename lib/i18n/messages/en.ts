@@ -399,8 +399,6 @@ export const enLocale: LocalePlugin = {
     "sidebar.notesNewNote": "New note",
     "sidebar.notesNewNoteIn": "New note in {name}",
     "sidebar.notesNoteTitle": "Note title",
-    "sidebar.notesKindNote": "Note",
-    "sidebar.notesKindBoard": "Board",
     "sidebar.notesCreate": "Create",
     "sidebar.notesCancel": "Cancel",
     "sidebar.notesCreateFailed": "Could not create the note",

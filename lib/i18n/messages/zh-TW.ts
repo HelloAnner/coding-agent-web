@@ -399,8 +399,6 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.notesNewNote": "新增筆記",
     "sidebar.notesNewNoteIn": "在 {name} 下新增筆記",
     "sidebar.notesNoteTitle": "筆記標題",
-    "sidebar.notesKindNote": "筆記",
-    "sidebar.notesKindBoard": "白板",
     "sidebar.notesCreate": "建立",
     "sidebar.notesCancel": "取消",
     "sidebar.notesCreateFailed": "建立筆記失敗",

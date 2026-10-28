@@ -197,13 +197,6 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   const renderNode = (node: NotesNode, depth: number): ReactNode => {
     const isDir = node.type === "dir";
     const open = expanded.has(node.path);
-    const label = isDir ? node.name : notesTitle(node.name);
-    // A note or board named exactly after its folder would otherwise read as a
-    // duplicate row under it; name the kind so the two rows differ.
-    const segments = node.path.split("/");
-    const shown = !isDir && segments[segments.length - 2] === label
-      ? `${label} · ${t(node.type === "board" ? "sidebar.notesKindBoard" : "sidebar.notesKindNote")}`
-      : label;
     return (
       <div key={node.path}>
         <div
@@ -262,7 +255,7 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
             }}
           >
             {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
-            <span className="session-tree-title">{shown}</span>
+            <span className="session-tree-title">{isDir ? node.name : notesTitle(node.name)}</span>
           </button>
           {isDir && (
             <button
