@@ -486,6 +486,12 @@ export function NotesApp({
     const selected = selectedPath === node.path;
     const children = node.children ?? [];
     const label = isDir ? node.name : titleOf(node.name);
+    // A note or board named exactly after its folder would otherwise read as a
+    // duplicate row under it; name the kind so the two rows differ.
+    const segments = node.path.split("/");
+    const shown = !isDir && segments[segments.length - 2] === label
+      ? `${label} · ${node.type === "board" ? "白板" : "笔记"}`
+      : label;
     return (
       <div key={node.path}>
         <div
@@ -578,7 +584,7 @@ export function NotesApp({
                 }}
               >
                 {isDir && <FolderIcon size={12} className="notes-tree-folder" />}
-                <span className="session-tree-title">{label}</span>
+                <span className="session-tree-title">{shown}</span>
               </button>
               {isDir && (
                 <button
