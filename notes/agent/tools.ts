@@ -324,7 +324,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         if (!shown.length) {
           return textResult(filter ? `没有匹配「${params.project}」的会话` : "还没有任何 Coding 会话", { count: 0 });
         }
-        const lines = shown.map((session) => `${session.pending ? "新 " : "已读 "}${session.projectDir}/ · 「${session.name}」 id=${session.id} · ${session.modified} · ${session.messageCount} 条`);
+        const lines = shown.map((session) => `${session.pending ? "新 " : "已读 "}来自 ${session.projectDir} · 「${session.name}」 id=${session.id} · ${session.modified} · ${session.messageCount} 条`);
         return textResult(lines.join("\n"), {
           count: shown.length,
           pending: shown.filter((session) => session.pending).length,

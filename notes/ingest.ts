@@ -162,11 +162,12 @@ export function sessionsPrompt(sessions: readonly CodingSession[], queued = 0): 
   const lines = ["本轮要读的 Coding 会话（按最近活动排序）：", ""];
   for (const session of sessions) {
     lines.push(`- 「${session.name}」（id \`${session.id}\`）`);
-    lines.push(`  项目 ${session.projectRoot} → 笔记目录 ${session.projectDir}/`);
+    lines.push(`  来自 ${session.projectDir}（${session.projectRoot}），只是出处，不要拿它当笔记目录`);
     lines.push(`  最后活动 ${session.modified}，共 ${session.messageCount} 条消息`);
   }
   lines.push("");
   lines.push("用 notes_sessions action=read session=<id> 读正文，把有价值的内容并进白板。");
+  lines.push("笔记库按场景分，不按项目分：先按内容判断这条对话属于哪个场景（项目、面试、AI、工具……）和哪个主题，再去找该主题下已有的白板。");
   if (queued > 0) lines.push(`另有 ${queued} 个会话在排队，下一轮再看。`);
   return lines.join("\n\n");
 }

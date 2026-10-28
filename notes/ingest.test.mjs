@@ -120,7 +120,7 @@ test("the prompt names each session, its project and its vault directory", () =>
     { id: "abc", path: "/p.jsonl", projectRoot: "/work/app", projectDir: "app", name: "登录改造", modified: "2026-01-01T00:10:00.000Z", messageCount: 12, pending: true },
   ], 2);
   assert.match(prompt, /「登录改造」（id `abc`）/);
-  assert.match(prompt, /项目 \/work\/app → 笔记目录 app\//);
+  assert.match(prompt, /来自 app（\/work\/app），只是出处/);
   assert.match(prompt, /notes_sessions action=read/);
   assert.match(prompt, /另有 2 个会话在排队/);
 });
