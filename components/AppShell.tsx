@@ -398,7 +398,8 @@ export function AppShell() {
     cssVariable: "--file-browser-width",
     defaultWidth: FILE_BROWSER_DEFAULT_WIDTH,
     getMaxWidth: getFileBrowserMaxWidth,
-    growthDirection: "right",
+    // The tree sits at the panel's right edge: dragging its handle left grows it.
+    growthDirection: "left",
     maxWidth: FILE_BROWSER_MAX_WIDTH,
     minWidth: FILE_BROWSER_MIN_WIDTH,
     storageKey: "pi-file-browser-width",
@@ -2943,7 +2944,7 @@ export function AppShell() {
         />
       )}
 
-      {/* Right panel: the file tree beside the viewer — always mounted, width animated via CSS */}
+      {/* Right panel: the viewer, with the files/notes tree as its rightmost column — always mounted, width animated via CSS */}
       <div
         ref={rightPanelResizer.panelRef}
         id="file-panel"
@@ -2955,47 +2956,6 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         <div className="right-panel-inner">
-          {fileBrowserShown && (
-            <>
-              <div
-                ref={fileBrowserResizer.panelRef}
-                id="file-browser"
-                className={`file-browser-column${isMobile ? " is-overlay" : ""}${fileBrowserResizer.isResizing ? " is-resizing" : ""}`}
-                style={{ "--file-browser-width": `${fileBrowserResizer.width}px` } as React.CSSProperties}
-              >
-                <FileBrowserPane
-                  activeFilePath={activeFileTab?.filePath}
-                  activeNotePath={activeNoteTab?.path ?? null}
-                  cwd={activeCwd}
-                  refreshKey={explorerRefreshKey}
-                  onOpenFile={handleOpenFile}
-                  onOpenNote={handleOpenNote}
-                  onBeforeNoteChange={flushActiveNote}
-                  onNoteMoved={handleNoteMoved}
-                  onNotesRemoved={handleNotesRemoved}
-                  onOpenTerminal={handleOpenTerminal}
-                  onAtMention={handleAtMention}
-                  onAtMentions={handleAtMentions}
-                  onRefresh={handleExplorerRefresh}
-                  onBack={isMobile ? () => setMobileFilesOpen(false) : undefined}
-                  onCollapse={isMobile ? undefined : () => {
-                    setFileTreeCollapsed(true);
-                    saveFileTreeCollapsed(true);
-                  }}
-                />
-              </div>
-              {!isMobile && (
-                <div
-                  {...fileBrowserResizer.separatorProps}
-                  aria-controls="file-browser"
-                  className={`panel-resize-handle file-browser-resize-handle${fileBrowserResizer.isResizing ? " is-resizing" : ""}`}
-                  data-resize-handle="file-browser"
-                  title={`${translate("layout.resizeFileBrowser")}: ${translate("layout.resizeHint")}`}
-                />
-              )}
-            </>
-          )}
-
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
             {/* Right panel tab bar */}
             <div style={{
@@ -3007,31 +2967,6 @@ export function AppShell() {
               background: "var(--bg-panel)",
               borderBottom: "1px solid var(--border)",
             }}>
-              {(isMobile || !fileBrowserShown) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isMobile) {
-                      setMobileFilesOpen(true);
-                      return;
-                    }
-                    setFileTreeCollapsed(false);
-                    saveFileTreeCollapsed(false);
-                  }}
-                  title={isMobile ? translate("sidebar.tabFiles") : translate("sidebar.expandTree")}
-                  aria-label={isMobile ? translate("sidebar.tabFiles") : translate("sidebar.expandTree")}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0, flexShrink: 0,
-                    background: "none", border: "none", borderRight: "1px solid var(--border)",
-                    color: "var(--text-muted)", cursor: "pointer",
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-                  </svg>
-                </button>
-              )}
               <div style={{ flex: 1, overflow: "hidden" }}>
                 <TabBar
                   tabs={panelTabs}
@@ -3050,6 +2985,27 @@ export function AppShell() {
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              </button>
+              {/* The files/notes tree: the panel's rightmost column, opened here. */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (isMobile) {
+                    setMobileFilesOpen((open) => !open);
+                    return;
+                  }
+                  const next = !fileTreeCollapsed;
+                  setFileTreeCollapsed(next);
+                  saveFileTreeCollapsed(next);
+                }}
+                aria-pressed={fileBrowserShown}
+                title={translate(fileBrowserShown ? "sidebar.collapseTree" : "sidebar.expandTree")}
+                aria-label={translate(fileBrowserShown ? "sidebar.collapseTree" : "sidebar.expandTree")}
+                className={`file-panel-terminal-button${fileBrowserShown ? " is-active" : ""}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
                 </svg>
               </button>
             </div>
@@ -3127,6 +3083,47 @@ export function AppShell() {
               )}
             </div>
           </div>
+
+          {fileBrowserShown && (
+            <>
+              {!isMobile && (
+                <div
+                  {...fileBrowserResizer.separatorProps}
+                  aria-controls="file-browser"
+                  className={`panel-resize-handle file-browser-resize-handle${fileBrowserResizer.isResizing ? " is-resizing" : ""}`}
+                  data-resize-handle="file-browser"
+                  title={`${translate("layout.resizeFileBrowser")}: ${translate("layout.resizeHint")}`}
+                />
+              )}
+              <div
+                ref={fileBrowserResizer.panelRef}
+                id="file-browser"
+                className={`file-browser-column${isMobile ? " is-overlay" : ""}${fileBrowserResizer.isResizing ? " is-resizing" : ""}`}
+                style={{ "--file-browser-width": `${fileBrowserResizer.width}px` } as React.CSSProperties}
+              >
+                <FileBrowserPane
+                  activeFilePath={activeFileTab?.filePath}
+                  activeNotePath={activeNoteTab?.path ?? null}
+                  cwd={activeCwd}
+                  refreshKey={explorerRefreshKey}
+                  onOpenFile={handleOpenFile}
+                  onOpenNote={handleOpenNote}
+                  onBeforeNoteChange={flushActiveNote}
+                  onNoteMoved={handleNoteMoved}
+                  onNotesRemoved={handleNotesRemoved}
+                  onOpenTerminal={handleOpenTerminal}
+                  onAtMention={handleAtMention}
+                  onAtMentions={handleAtMentions}
+                  onRefresh={handleExplorerRefresh}
+                  onBack={isMobile ? () => setMobileFilesOpen(false) : undefined}
+                  onCollapse={isMobile ? undefined : () => {
+                    setFileTreeCollapsed(true);
+                    saveFileTreeCollapsed(true);
+                  }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
