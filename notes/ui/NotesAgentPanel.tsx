@@ -13,16 +13,15 @@ import type { NotesAgentEvent, NotesAgentState, NotesChatMessage } from "@/notes
 
 const TOOL_LABELS: Record<string, string> = {
   read: "读取",
-  ls: "列目录",
-  notes_write: "写笔记",
+  notes_ls: "列目录",
   notes_board: "画白板",
-  notes_manage: "整理目录",
+  notes_sessions: "读会话",
 };
 
 /** Tools that change the vault: the sidebar is stale after any of them. */
-const VAULT_TOOLS = new Set(["notes_write", "notes_board", "notes_manage"]);
+const VAULT_TOOLS = new Set(["notes_board"]);
 /** Tools whose `path` holds content the open editor must read again. */
-const CONTENT_TOOLS = new Set(["notes_write", "notes_board"]);
+const CONTENT_TOOLS = new Set(["notes_board"]);
 
 function AssistantMessage({ message }: { message: NotesChatMessage }) {
   return (

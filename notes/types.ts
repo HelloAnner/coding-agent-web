@@ -140,7 +140,7 @@ export interface NotesTaskDefinition {
   systemPrompt?: string;
   /** Skill names under notes/skills; omitted loads all, [] loads none. */
   skills?: string[];
-  /** Tool allowlist; defaults to read / ls / notes_write / notes_board / notes_manage / notes_sessions. */
+  /** Tool allowlist; defaults to read / notes_ls / notes_board / notes_sessions. */
   tools?: string[];
   /** Abort a run after this many minutes. Default: 15. */
   timeoutMinutes?: number;

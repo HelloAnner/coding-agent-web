@@ -7,7 +7,7 @@ import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "@/components/Sideb
 import { SidebarMenu, type SidebarMenuAnchor } from "@/components/SidebarMenu";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { WebApp } from "@/lib/apps";
-import type { NotesBoardSettings, NotesEditorControl, NotesNode, NotesSaveState, NotesSettings, NotesTaskView } from "@/notes/types";
+import type { NotesBoardSettings, NotesEditorControl, NotesNode, NotesSaveState, NotesSettings } from "@/notes/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesAgentPanel } from "./NotesAgentPanel";
 import { NotesSettingsDialog } from "./NotesSettingsDialog";
@@ -131,9 +131,6 @@ export function NotesApp({
   const renameCancelled = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<NotesSaveState>("saved");
-  // The manual tidy run: one button, then a poll until the queue drains.
-  const [tidying, setTidying] = useState(false);
-  const [tidyNote, setTidyNote] = useState<string | null>(null);
   const [settings, setSettings] = useState<NotesSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
@@ -173,42 +170,6 @@ export function NotesApp({
       setLoading(false);
     }
   }, []);
-
-  /** Merge boards, retitle, and tidy the tree in one agent run. */
-  const tidyVault = useCallback(async () => {
-    if (tidying) return;
-    setTidying(true);
-    setTidyNote(null);
-    try {
-      const started = await fetch("/api/notes/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: "notes-tidy" }),
-      });
-      if (!started.ok) {
-        const body = await started.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error || "整理任务启动失败");
-      }
-      // The run keeps going on the server; follow it so the tree refreshes as
-      // soon as the last board lands.
-      for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-        const state = await fetch("/api/notes/tasks", { cache: "no-store" })
-          .then((response) => response.json() as Promise<{ tasks?: NotesTaskView[] }>)
-          .catch(() => null);
-        const task = state?.tasks?.find((item) => item.id === "notes-tidy");
-        if (!task) break;
-        if (task.status === "queued" || task.status === "running") continue;
-        setTidyNote(task.lastRun?.text || task.lastRun?.error || null);
-        break;
-      }
-      await refresh();
-    } catch (cause) {
-      setLoadError(cause instanceof Error ? cause.message : "整理任务启动失败");
-    } finally {
-      setTidying(false);
-    }
-  }, [refresh, tidying]);
 
   // The tree is read when the app comes into view, not at shell startup, and
   // again on every return: files can change outside the app.
@@ -665,20 +626,6 @@ export function NotesApp({
         <div className="sidebar-header">
           <AppSwitcher current={currentApp} onSwitch={onSwitchApp} />
           <span className="sidebar-header-spacer" />
-          <button
-            type="button"
-            className={`sidebar-search-toggle${tidying ? " is-active" : ""}`}
-            title={tidying ? "整理中…合并白板、理顺标题、收拾目录" : tidyNote ?? "整理笔记库：合并白板、理顺标题、收拾目录"}
-            aria-label="整理笔记库"
-            aria-busy={tidying}
-            disabled={tidying}
-            onClick={() => void tidyVault()}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
-              <circle cx="12" cy="12" r="3.2" />
-            </svg>
-          </button>
           <button
             ref={plusRef}
             type="button"

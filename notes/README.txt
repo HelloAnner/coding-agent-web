@@ -69,7 +69,7 @@ Agent 内核（pi）
   目录
     notes/agent/settings.ts      笔记设置：agent 模型、白板字体字号
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
-    notes/agent/tools.ts         自定义 tool：notes_write、notes_board、notes_manage、notes_sessions
+    notes/agent/tools.ts         自定义 tool：notes_ls、notes_board、notes_sessions
     notes/agent/skills.ts        notes/skills 下的技能清单
     notes/ingest.ts              Coding 会话 -> 笔记：扫描、待读清单、转录、标记已读
     notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
@@ -92,7 +92,7 @@ Agent 内核（pi）
         |  POST /api/notes/agent  {message}      NDJSON 逐行回事件
         v
     NotesAgent（一个进程一个 pi 会话）
-        |  read / ls / notes_write / notes_board / notes_manage / notes_sessions
+        |  read / notes_ls / notes_board / notes_sessions
         v
     data/notes 里的 .md 与 .excalidraw
 
@@ -115,20 +115,11 @@ Agent 内核（pi）
     prepare 取最新 3 个进这一轮，跑完（不管成败）把这三个的版本写回表里。
     会话有了新消息 -> modified/message_count 变了 -> 下一轮重新进清单。
     最后一条消息在 90 秒内的会话先不读：正在用的对话每轮都重读，笔记会来回改。
-    提示词 CODING_DIGEST_PROMPT：只出白板（这轮不给 notes_write）。
-    结构是「场景 / 主题目录 / 子主题白板」，场景按做什么分（项目、面试、AI、工具、运维……），
-    不是 coding 的项目目录；仓库名只写进节点和旁注，不建目录。白板名写子主题，
-    不写目录名、不加「白板」后缀；先 notes_board action=read 再 replace 重画
+    提示词 CODING_DIGEST_PROMPT：只画白板，不能新建笔记/目录，不能改名/移动/删除。
+    结构是「场景 / 主题目录 / 子主题白板」，目录由用户自己定；白板只能放进已经存在的目录，
+    没有合适的位置就跳过这条对话并在收尾说明，绝不为了安置它去建目录。仓库名只写进节点和旁注。
+    白板名写子主题，不写目录名、不加「白板」后缀；先 notes_board action=read 再 replace 重画
     （用户手改过的白板按读到的最新内容改）、同一个子主题才合并、没价值就不画。
-
-  手动任务：整理笔记库（notes-tidy）
-    没有排期，只能手动触发：Notes 侧栏右上角的整理按钮，或 POST /api/notes/tasks {id:"notes-tidy"}。
-    任务池照样排队、限并发、记状态；跑的时候按钮转圈，结束后自动刷新目录树。
-    提示词 NOTES_TIDY_PROMPT：合并同子主题白板（读原板 -> replace 重画 -> 删多余）、
-    统一标题（rename 文件名/目录名）、按「场景 / 主题 / 子主题」重排目录（move / remove）。
-    重排时 .md、白板、attachments 一起转移，不许删了目录把笔记留下；
-    手动标记的目录当锚点（不改名/不移动/不删），别处同主题内容 move 进去，
-    手动标记的笔记/白板只更新内容，只有 manual:true 时注册，永远不会自己跑。
 
   手动优先（notes_manual_ops）
     页面上的 rename / move / remove 会写一条标记进 data.db；agent 的调用不写。
@@ -136,16 +127,14 @@ Agent 内核（pi）
     末尾单独列「用户手动删除，不要重建」的路径。agent 的工具里用它替掉了 pi 自带的 ls。
     notes/files.ts 的 create/rename/move/remove 带 source: manual | agent：
       - agent 往 tombstone 路径（或它下面）建东西 -> 409「用户手动删除过」
-      - agent 改名/移动/删除带标记的条目，或动包含标记的目录 -> 409「用户手动改过」
       - 页面操作永远允许；重建同名条目会清掉 tombstone，改名/移动把标记带到新路径
-    内容不锁：带标记的笔记/白板，agent 还能更新内容。
-    这两个 agent（coding-to-notes、notes-tidy）的提示词都写明：手动标记优先级最高。
+    内容不锁：带标记的白板，agent 还能更新内容。
 
   范围
-    - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
+    - agent 只能读、列目录、画白板；不能写笔记、不能建目录，也不能改名/移动/删除。
+    - 白板只能建在已经存在的目录里；没有合适的位置就跳过，不新建目录。
     - notes_sessions 只读 Coding 的会话文件，不改任何东西。
     - 只扫 pi 的会话（~/.pi/agent/sessions）；Claude Code / dsh / grok 的转录是别的格式，暂不读。
-    - notes_manage 管目录树：mkdir / create / rename / move / remove，删非空目录要显式 recursive=true。
     - 技能只加载 notes/skills；用户自己的 coding skills、扩展、MCP 都不进笔记 agent。
     - 会话在内存里，重启清空；长期记忆是落盘的文件。
     - GET /api/notes/settings 返回设置、字体选项、技能；PUT 合并保存。

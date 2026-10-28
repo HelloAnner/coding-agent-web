@@ -1,34 +1,19 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { NotesBoardSettings, NotesNode } from "../types";
-import {
-  BOARD_EXTENSION,
-  NOTE_EXTENSION,
-  NotesError,
-  createDirectory,
-  createItem,
-  listTree,
-  moveItem,
-  readItem,
-  removeItem,
-  renameItem,
-  writeItem,
-} from "../files";
+import { BOARD_EXTENSION, NotesError, createItem, listTree, readItem, writeItem } from "../files";
 import { buildBoardScene, describeScene } from "./board";
 import { manualCreateBlock, readManualMarks } from "@/notes/manual";
 import { listCodingSessions, readCodingSession } from "../ingest";
 
 /**
- * The notes agent's own tools. `read` and `ls` come from pi; these three are
- * what the vault needs beyond files: a Markdown note, a whiteboard built from
- * shapes rather than hand-written scene JSON, and the sidebar tree itself
- * (directories, creating, renaming, moving and deleting entries). All accept
- * only vault-relative paths, so the agent stays inside data/notes.
+ * The notes agent's own tools. The agent may read the vault, list it with the
+ * user's manual marks, and draw whiteboards. It cannot create notes or
+ * directories, and cannot rename, move or delete anything: the only write is a
+ * board inside a directory that already exists.
  */
 
-export const NOTES_WRITE_TOOL = "notes_write";
 export const NOTES_BOARD_TOOL = "notes_board";
-export const NOTES_MANAGE_TOOL = "notes_manage";
 export const NOTES_SESSIONS_TOOL = "notes_sessions";
 
 function vaultPath(value: string, extension: string | null, tool: string): string {
@@ -45,25 +30,6 @@ function vaultPath(value: string, extension: string | null, tool: string): strin
 function parentOf(target: string): string {
   const cut = target.lastIndexOf("/");
   return cut < 0 ? "" : target.slice(0, cut);
-}
-
-function isExistsError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException)?.code;
-  return code === "EEXIST" || (error instanceof NotesError && error.status === 409);
-}
-
-/** Create a directory and every missing ancestor; existing ones are fine. */
-async function ensureDirectories(target: string): Promise<void> {
-  if (!target) return;
-  let dir = "";
-  for (const segment of target.split("/")) {
-    try {
-      await createDirectory(dir, segment, { source: "agent" });
-    } catch (error) {
-      if (!isExistsError(error)) throw error;
-    }
-    dir = dir ? `${dir}/${segment}` : segment;
-  }
 }
 
 /** Text a diagram could have shown instead of a paragraph. */
@@ -191,35 +157,6 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
       },
     }),
     defineTool({
-      name: NOTES_WRITE_TOOL,
-      label: "写笔记",
-      description: "创建或整体覆盖一篇 Markdown 笔记。路径相对笔记库，缺少的目录会自动创建。只写 .md；白板用 notes_board。",
-      promptSnippet: "Create or overwrite a Markdown note in the vault",
-      promptGuidelines: ["Write notes with notes_write, not bash: the path is vault-relative and directories are created for you."],
-      parameters: Type.Object({
-        path: Type.String({ description: "笔记库内的相对路径，以 .md 结尾，例如 工作/周报.md" }),
-        content: Type.String({ description: "完整 Markdown 正文；覆盖已有文件" }),
-      }),
-      async execute(_toolCallId, params) {
-        const target = vaultPath(params.path, NOTE_EXTENSION, NOTES_WRITE_TOOL);
-        const existing = await readItem(target).catch((error: unknown) => {
-          if (error instanceof NotesError && error.status === 404) return null;
-          throw error;
-        });
-        if (existing) {
-          await writeItem(target, params.content);
-          return textResult(`已更新 ${target}`, { path: target, created: false });
-        }
-        const blocked = manualCreateBlock(target);
-        if (blocked) throw new NotesError(blocked, 409);
-        const dir = parentOf(target);
-        await ensureDirectories(dir);
-        await createItem(dir, target.split("/").pop()!, "note", { source: "agent" });
-        await writeItem(target, params.content);
-        return textResult(`已创建 ${target}`, { path: target, created: true });
-      },
-    }),
-    defineTool({
       name: NOTES_BOARD_TOOL,
       label: "白板",
       description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill whiteboard-style。",
@@ -261,7 +198,11 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
           const blocked = manualCreateBlock(target);
           if (blocked) throw new NotesError(blocked, 409);
           const dir = parentOf(target);
-          await ensureDirectories(dir);
+          // Only an existing folder can take a new board. No mkdir: a run that
+          // cannot find a fitting folder skips the conversation instead.
+          if (dir && !(await findNode(dir))) {
+            throw new NotesError(`目录 ${dir} 不存在。白板只能建在已有的目录里；没有合适的位置就跳过这条对话，不要新建目录`, 400);
+          }
           await createItem(dir, target.split("/").pop()!, "board", { source: "agent" });
         }
         const scene = buildBoardScene(params.elements, board, {
@@ -290,76 +231,6 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
             ...(prose.length ? { prose } : {}),
           },
         );
-      },
-    }),
-    defineTool({
-      name: NOTES_MANAGE_TOOL,
-      label: "整理目录",
-      description: "整理笔记库的目录树：mkdir 新建目录（多级用 a/b 一次建好）、create 新建空的笔记或白板、rename 重命名、move 换目录、remove 删除。写内容用 notes_write，画图用 notes_board。",
-      promptSnippet: "Create directories and create, rename, move or delete vault entries",
-      promptGuidelines: [
-        "Use notes_manage for the sidebar tree: mkdir, create, rename, move, remove. Never touch the vault with bash.",
-        "Deleting a directory deletes everything inside it; only remove when the user asked for it.",
-      ],
-      parameters: Type.Object({
-        action: Type.Union([
-          Type.Literal("mkdir"),
-          Type.Literal("create"),
-          Type.Literal("rename"),
-          Type.Literal("move"),
-          Type.Literal("remove"),
-        ], { description: "mkdir 建目录 / create 建空文件 / rename 改名 / move 换目录 / remove 删除" }),
-        path: Type.String({
-          description: "目标路径，相对笔记库。mkdir 是要建的目录（如 工作/项目），create 是新文件名（带 .md 或 .excalidraw，缺目录自动建），rename/move/remove 是被操作的目录或文件",
-        }),
-        name: Type.Optional(Type.String({ description: "rename 的新名字；文件可以不写扩展名，会自动保留" })),
-        dir: Type.Optional(Type.String({ description: "move 的目标目录，空字符串表示根目录" })),
-        kind: Type.Optional(Type.Union([Type.Literal("note"), Type.Literal("board")], {
-          description: "create 建哪种文件：note（.md，默认）或 board（.excalidraw）",
-        })),
-        recursive: Type.Optional(Type.Boolean({
-          description: "remove 删一个非空目录时必须给 true；删单个文件或空目录不用给",
-        })),
-      }),
-      async execute(_toolCallId, params) {
-        const target = vaultPath(params.path, null, NOTES_MANAGE_TOOL);
-        if (params.action === "mkdir") {
-          const blocked = manualCreateBlock(target);
-          if (blocked) throw new NotesError(blocked, 409);
-          await ensureDirectories(target);
-          return textResult(`已创建目录 ${target}`, { action: params.action, path: target });
-        }
-        if (params.action === "create") {
-          const kind = params.kind === "board" ? "board" : "note";
-          const extension = kind === "board" ? BOARD_EXTENSION : NOTE_EXTENSION;
-          const full = vaultPath(target, extension, NOTES_MANAGE_TOOL);
-          const dir = parentOf(full);
-          await ensureDirectories(dir);
-          const node = await createItem(dir, full.split("/").pop()!, kind, { source: "agent" }).catch((error: unknown) => {
-            if (isExistsError(error)) throw new NotesError(`${full} 已存在`, 409);
-            throw error;
-          });
-          return textResult(`已创建 ${node.path}`, { action: params.action, path: node.path });
-        }
-        if (params.action === "rename") {
-          if (!params.name) throw new NotesError("rename 需要 name", 400);
-          const next = await renameItem(target, params.name, { source: "agent" });
-          return textResult(`${target} 重命名为 ${next}`, { action: params.action, path: next, from: target });
-        }
-        if (params.action === "move") {
-          if (typeof params.dir !== "string") throw new NotesError("move 需要 dir，根目录传空字符串", 400);
-          const next = await moveItem(target, params.dir.trim(), { source: "agent" });
-          return textResult(`${target} 移到 ${next}`, { action: params.action, path: next, from: target });
-        }
-        const node = await findNode(target);
-        if (node?.type === "dir" && (node.children?.length ?? 0) > 0 && params.recursive !== true) {
-          throw new NotesError(
-            `${target} 里还有 ${node.children?.length} 项，确实要连里面的内容一起删就传 recursive=true`,
-            400,
-          );
-        }
-        await removeItem(target, { source: "agent" });
-        return textResult(`已删除 ${target}`, { action: params.action, path: target });
       },
     }),
     defineTool({
