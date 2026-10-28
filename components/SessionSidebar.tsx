@@ -121,6 +121,8 @@ interface Props {
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
+  /** Archived sessions leave the tree; what the panel remembered for them goes too. */
+  onSessionsArchived?: (sessionIds: string[]) => void;
   selectedCwd?: string | null;
   onCwdChange?: (
     cwd: string | null,
@@ -391,7 +393,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onRevealFiles, currentApp: currentAppProp, onSwitchApp, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, onSessionsArchived, selectedCwd: selectedCwdProp, onCwdChange, onRevealFiles, currentApp: currentAppProp, onSwitchApp, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1344,6 +1346,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const snapshot = snapshotUiState(archivable.map((family) => family.root.id));
     // Archived means dealt with: its unread markers go, and Undo brings them back.
     const memberIds = archivable.flatMap((family) => familyIds(family));
+    onSessionsArchived?.(memberIds);
     const unreadBefore = memberIds.filter((id) => unreadSessionIds.has(id));
     // A request carries at most MAX_SESSION_UI_IDS_PER_REQUEST families, so a
     // big "Archive sessions older than 7 days" goes in parts; the write queue
@@ -1382,7 +1385,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       },
       { id: "view", label: t("sidebar.viewArchive"), onClick: () => openArchiveView() },
     ]);
-  }, [applyUiState, focusAfterCommit, familyRowButton, openArchiveView, restoreUnread, showToast, snapshotUiState, t, unreadSessionIds]);
+  }, [applyUiState, focusAfterCommit, familyRowButton, onSessionsArchived, openArchiveView, restoreUnread, showToast, snapshotUiState, t, unreadSessionIds]);
 
   // The row's archive button. A running family would come straight back, so
   // it is not archived (the row offers no button for it either).

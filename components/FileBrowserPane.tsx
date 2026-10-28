@@ -6,9 +6,7 @@ import { NotesTree, type NotesTreeHandle } from "./NotesTree";
 import { DismissButton } from "./DismissButton";
 import { getFileName } from "@/lib/file-paths";
 import {
-  loadFileTreeSource,
   loadShowIgnoredFiles,
-  saveFileTreeSource,
   saveShowIgnoredFiles,
   type FileTreeSource,
 } from "@/lib/sidebar-prefs";
@@ -79,6 +77,11 @@ function ToolbarIconButton({
 
 interface Props {
   cwd: string | null;
+  /** The tree on show: the project's files, or the notes vault (owned by the shell, per session). */
+  source: FileTreeSource;
+  onSourceChange: (source: FileTreeSource) => void;
+  /** The conversation whose notes tree position is remembered. */
+  sessionKey?: string | null;
   activeFilePath?: string | null;
   activeNotePath?: string | null;
   refreshKey?: number;
@@ -103,9 +106,8 @@ interface Props {
  * the actions on it, and the tree. A click on a file opens it in the panel's
  * viewer column.
  */
-export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onBeforeNoteChange, onNoteMoved, onNotesRemoved, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
+export function FileBrowserPane({ cwd, source, onSourceChange, sessionKey, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onBeforeNoteChange, onNoteMoved, onNotesRemoved, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
   const { t } = useI18n();
-  const [source, setSource] = useState<FileTreeSource>("project");
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
@@ -130,7 +132,6 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
 
   useEffect(() => {
     setShowIgnoredFiles(loadShowIgnoredFiles());
-    setSource(loadFileTreeSource());
   }, []);
 
   useEffect(() => {
@@ -243,10 +244,7 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
               type="button"
               role="tab"
               aria-selected={source === option}
-              onClick={() => {
-                setSource(option);
-                saveFileTreeSource(option);
-              }}
+              onClick={() => onSourceChange(option)}
               style={{
                 height: 22, padding: "0 7px", border: "none", borderRadius: 5, cursor: "pointer",
                 background: source === option ? "var(--bg-selected)" : "transparent",
@@ -369,6 +367,7 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
           <NotesTree
             ref={notesTreeRef}
             activePath={activeNotePath}
+            stateKey={sessionKey}
             refreshKey={notesRefreshKey}
             onOpenNote={onOpenNote}
             onBeforeNoteChange={onBeforeNoteChange}

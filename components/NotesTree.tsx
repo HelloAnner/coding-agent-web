@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "./SidebarIcons";
 import { useI18n } from "@/hooks/useI18n";
 import { subscribeNotesWatch } from "@/lib/notes-watch";
+import { readNotesTreePosition, saveNotesTreePosition } from "./session-panel-memory";
 import type { NotesFileKind, NotesNode } from "@/notes/types";
 
 export interface NotesTreeHandle {
@@ -13,6 +14,8 @@ export interface NotesTreeHandle {
 
 interface Props {
   activePath?: string | null;
+  /** The conversation whose tree position (open folders, scroll) is remembered. */
+  stateKey?: string | null;
   refreshKey?: number;
   onOpenNote: (path: string, name: string, kind: NotesFileKind) => void;
   /** Runs before a move or delete, so the open editor's edits are on disk. */
@@ -52,6 +55,12 @@ function directoryPaths(nodes: readonly NotesNode[]): string[] {
   return nodes.flatMap((node) => node.type === "dir" ? [node.path, ...directoryPaths(node.children ?? [])] : []);
 }
 
+/** The folders above a note: `a/b/c.md` → `["a", "a/b"]`. */
+function ancestorsOf(relative: string): string[] {
+  const parts = relative.split("/").slice(0, -1);
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
 async function mutateNotes(body: Record<string, unknown>): Promise<{ ok: boolean; body: { node?: NotesNode; path?: string; error?: string } }> {
   const response = await fetch("/api/notes", {
     method: "POST",
@@ -65,6 +74,7 @@ async function mutateNotes(body: Record<string, unknown>): Promise<{ ok: boolean
 /** The notes vault's tree: folders fold, a note or board opens beside the chat. */
 export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   activePath,
+  stateKey,
   refreshKey,
   onOpenNote,
   onBeforeNoteChange,
@@ -83,6 +93,51 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   // Folders start open once; after that the user's choices stay.
   const openedOnce = useRef(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const scrollRestoredRef = useRef(false);
+  const revealedRef = useRef<string | null>(null);
+  const treeRef = useRef<NotesNode[] | null>(null);
+  treeRef.current = tree;
+
+  // The tree keeps its own place per conversation: the folders it had open and
+  // where it was scrolled to. It is written on the way out (a switch, a folded
+  // column) and read on the way in; a conversation with no memory starts as a
+  // freshly opened tree does.
+  useEffect(() => {
+    if (!stateKey) return;
+    const saved = readNotesTreePosition(stateKey);
+    openedOnce.current = saved !== null;
+    scrollRestoredRef.current = saved !== null;
+    scrollTopRef.current = saved?.scrollTop ?? 0;
+    setExpanded(new Set(saved ? saved.expanded : directoryPaths(treeRef.current ?? [])));
+    return () => saveNotesTreePosition(stateKey, {
+      expanded: [...expandedRef.current],
+      scrollTop: scrollTopRef.current,
+    });
+  }, [stateKey]);
+
+  // The open note or board is somewhere in the vault: its folders open and the
+  // row is brought into view, so the tree shows where what you are reading lives.
+  useEffect(() => {
+    if (!activePath) return;
+    const ancestors = ancestorsOf(activePath);
+    setExpanded((current) => {
+      const missing = ancestors.filter((path) => !current.has(path));
+      return missing.length === 0 ? current : new Set([...current, ...missing]);
+    });
+  }, [activePath]);
+
+  useEffect(() => {
+    if (!activePath) return;
+    const row = scrollRef.current?.querySelector(`[data-notes-path="${CSS.escape(activePath)}"]`);
+    // Folders still opening: the next run, with them open, finds the row.
+    if (!row || revealedRef.current === activePath) return;
+    revealedRef.current = activePath;
+    row.scrollIntoView({ block: "nearest" });
+  }, [activePath, expanded]);
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +149,14 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
       if (!openedOnce.current) {
         openedOnce.current = true;
         setExpanded(new Set(directoryPaths(body.tree)));
+      }
+      // The remembered offset lands once the rows it points at exist.
+      if (!scrollRestoredRef.current) {
+        scrollRestoredRef.current = true;
+        requestAnimationFrame(() => {
+          const node = scrollRef.current;
+          if (node) node.scrollTop = scrollTopRef.current;
+        });
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("sidebar.notesLoadFailed"));
@@ -332,7 +395,11 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
           </div>
         </form>
       )}
-      <div className="session-tree-scroll">
+      <div
+        className="session-tree-scroll"
+        ref={scrollRef}
+        onScroll={(event) => { scrollTopRef.current = event.currentTarget.scrollTop; }}
+      >
         <div className="session-tree-inner">
           {tree === null && !error && <div className="session-tree-message">{t("sidebar.notesLoading")}</div>}
           {error && <div className="session-tree-message is-error">{error}</div>}

@@ -25,6 +25,7 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     sessionKey: 0,
     routerReplaced: null,
     refreshBumped: false,
+    forgotten: [],
   };
   const context = vm.createContext({
     crypto: globalThis.crypto,
@@ -36,6 +37,8 @@ function runHandleSessionDeleted(capturedSelectedSession, active) {
     activeNewSessionDraftKeyRef: { current: null },
     newSessionCarryRef: { current: false },
     invalidateWorkspaceRestore() {},
+    forgottenSessionsRef: { current: new Set() },
+    forgetSessionPanel: (id) => { state.forgotten.push(id); },
     clearTabOpenSession() {},
     setRefreshKey: () => { state.refreshBumped = true; },
     setNewSessionDraftId: (id) => { state.newSessionDraftId = id; },
@@ -62,6 +65,7 @@ test("a delete completing after the user navigated away keeps the new chat", () 
   const navigatedTo = { id: "next-session", cwd: "/project-b", projectKey: "/project-b" };
   const state = runHandleSessionDeleted(deleting, navigatedTo);
   assert.equal(state.refreshBumped, true, "sidebar list still refreshes");
+  assert.deepEqual(state.forgotten, ["gone-session"], "the deleted conversation's panel memory goes too");
   assert.deepEqual(state.setSelectedSession, [], "selection is untouched");
   assert.deepEqual(state.setNewSessionCwd, [], "no empty composer");
   assert.equal(state.newSessionDraftId, null);

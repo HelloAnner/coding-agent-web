@@ -14,7 +14,14 @@ import { NotesApp } from "@/notes/ui/NotesApp";
 import { WEB_APPS, webAppForPath, type WebApp } from "@/lib/apps";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
+import { openFileTab, saveFileViewerState } from "./file-tab-state";
+import {
+  forgetSessionPanel,
+  readSessionPanel,
+  saveSessionPanel,
+  type NoteTab,
+  type SessionPanelState,
+} from "./session-panel-memory";
 import { isNotePathUnder, noteTabIdAfterMove, remapNoteTabs } from "./note-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
@@ -88,10 +95,15 @@ import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
-import { loadFileTreeCollapsed, saveFileTreeCollapsed } from "@/lib/sidebar-prefs";
+import {
+  loadFileTreeCollapsed,
+  loadFileTreeSource,
+  saveFileTreeCollapsed,
+  saveFileTreeSource,
+  type FileTreeSource,
+} from "@/lib/sidebar-prefs";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
-type NoteTab = { path: string; name: string; kind: NotesFileKind };
 // The panel shows no save status for a note: its editor autosaves on its own.
 const ignoreNoteSaveState = () => {};
 type AutoNameStatus =
@@ -662,20 +674,22 @@ export function AppShell() {
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
-  const fileWorkspaceStatesRef = useRef(new Map<string, ParkedFileWorkspace>());
-  // Bumped on every workspace switch. The active viewer reports its state as
-  // it unmounts, tagged with the generation it rendered in, so the report of a
-  // tab just parked goes to its workspace, not to a same-path tab restored.
+  // Bumped on every conversation switch. The active viewer reports its state
+  // as it unmounts, tagged with the generation it rendered in, so a late
+  // report cannot land in the tabs restored for another conversation.
   const [fileWorkspaceGeneration, setFileWorkspaceGeneration] = useState(0);
   const fileWorkspaceGenerationRef = useRef(0);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   // Subagent work tabs are session-scoped and transient: no persistence, and
-  // they are dropped when the project changes (they belong to its sessions).
+  // they are dropped when the conversation changes (they belong to it).
   const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
-  // The notes the right panel has open, beside the chat: notes are global,
-  // not tied to the project's workspace, so they are not parked with it.
+  // The notes the right panel has open beside the chat: per conversation, as
+  // the files are.
   const [noteTabs, setNoteTabs] = useState<NoteTab[]>([]);
+  // The file column's tree: the project's files, or the notes vault.
+  const [treeSource, setTreeSource] = useState<FileTreeSource>("project");
+  useEffect(() => { setTreeSource(loadFileTreeSource()); }, []);
   const [notesBoard, setNotesBoard] = useState<NotesBoardSettings>({ fontFamily: 3, fontSize: 20 });
   // The open editor's pending keystrokes: a move or delete of its file must
   // wait for them, or the debounced save would land on a path that is gone.
@@ -707,6 +721,80 @@ export function AppShell() {
     })),
   ];
 
+  // The panel's live state, read at save time: a state-listing effect that read
+  // it from this render would write what a switch is about to replace.
+  const panelStateRef = useRef<SessionPanelState>({
+    open: false,
+    treeSource: "project",
+    treeCollapsed: false,
+    fileTabs: [],
+    noteTabs: [],
+    activeTabId: null,
+  });
+  panelStateRef.current = {
+    open: rightPanelOpen,
+    treeSource,
+    treeCollapsed: fileTreeCollapsed,
+    fileTabs,
+    noteTabs,
+    activeTabId: activeFileTabId,
+  };
+  const terminalTabIdsRef = useRef<string[]>([]);
+  terminalTabIdsRef.current = terminalTabs.map((tab) => tab.id);
+  // Every conversation keeps its own right panel: switching restores its open
+  // state, its tree, its tabs and the tab it had focused. The fresh composer is
+  // its own key too, so a New in another project starts with an empty panel.
+  const panelKey = selectedSession ? `session:${selectedSession.id}` : `new:${newSessionCwd ?? ""}`;
+  const panelKeyRef = useRef<string | null>(null);
+  // The conversation just left: its viewer reports its last scroll offset as it
+  // unmounts, after the switch, and that report belongs to that memory.
+  const leavingSessionRef = useRef<string | null>(null);
+  // Conversations deleted or archived in this visit: their memory must not be
+  // written back by a switch that happens right after.
+  const forgottenSessionsRef = useRef(new Set<string>());
+  const sessionCwdRef = useRef<string | null>(null);
+  sessionCwdRef.current = selectedSession?.cwd ?? null;
+  useEffect(() => {
+    const previous = panelKeyRef.current;
+    if (previous === panelKey) return;
+    panelKeyRef.current = panelKey;
+    const leaving = previous?.startsWith("session:") ? previous.slice("session:".length) : null;
+    leavingSessionRef.current = leaving;
+    // The ref still holds the panel being left: it is saved under its own key.
+    if (leaving && !forgottenSessionsRef.current.has(leaving)) saveSessionPanel(leaving, panelStateRef.current);
+    const sessionId = panelKey.startsWith("session:") ? panelKey.slice("session:".length) : null;
+    // A session restores its panel. A fresh composer has no memory yet, so it
+    // starts empty — except that the panel it grew while composing is kept
+    // when it becomes the session it was writing to.
+    const composing = previous === `new:${sessionCwdRef.current ?? ""}`;
+    const memory = (sessionId ? readSessionPanel(sessionId) : null)
+      ?? (sessionId && composing ? panelStateRef.current : null);
+    fileWorkspaceGenerationRef.current += 1;
+    setFileWorkspaceGeneration(fileWorkspaceGenerationRef.current);
+    setFileTabs(memory?.fileTabs ?? []);
+    setNoteTabs(memory?.noteTabs ?? []);
+    // Terminals outlive conversations and keep the panel while they are active.
+    setActiveFileTabId((current) => current && terminalTabIdsRef.current.includes(current)
+      ? current
+      : memory?.activeTabId ?? null);
+    setRightPanelOpen(memory?.open ?? false);
+    setFileTreeCollapsed(memory?.treeCollapsed ?? false);
+    setTreeSource(memory?.treeSource ?? loadFileTreeSource());
+    setAgentTabs([]);
+  }, [panelKey]);
+
+  // Remembered as the user works, so a reload lands on the same panel. The ref
+  // is read at fire time: the render a switch starts from must not save over
+  // the memory it is about to restore.
+  useEffect(() => {
+    if (!panelKey.startsWith("session:")) return;
+    const sessionId = panelKey.slice("session:".length);
+    const timer = setTimeout(() => {
+      if (!forgottenSessionsRef.current.has(sessionId)) saveSessionPanel(sessionId, panelStateRef.current);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [panelKey, rightPanelOpen, treeSource, fileTreeCollapsed, fileTabs, noteTabs, activeFileTabId]);
+
   useEffect(() => {
     try {
       const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
@@ -737,31 +825,19 @@ export function AppShell() {
     viewerState: FileViewerState,
   ) => {
     if (generation !== fileWorkspaceGenerationRef.current) {
-      saveParkedFileViewerState(fileWorkspaceStatesRef.current, generation, tabId, viewerRevision, viewerState);
+      // The viewer of the conversation just left reports as it unmounts: the
+      // offset goes to that conversation's memory, never to the live tabs.
+      const left = leavingSessionRef.current;
+      const memory = left ? readSessionPanel(left) : null;
+      if (!memory || !left) return;
+      saveSessionPanel(left, {
+        ...memory,
+        fileTabs: saveFileViewerState(memory.fileTabs, tabId, viewerRevision, viewerState),
+      });
       return;
     }
     setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
   }, []);
-
-  const changeFileWorkspace = useCallback((currentKey: string | null, nextKey: string) => {
-    if (currentKey === nextKey) return;
-    const activeFileId = activeFileTabId?.startsWith("file:") ? activeFileTabId : null;
-    const next = switchFileWorkspace(fileWorkspaceStatesRef.current, currentKey, nextKey, {
-      tabs: fileTabs,
-      activeTabId: activeFileId,
-      open: rightPanelOpen && Boolean(activeFileId),
-    }, fileWorkspaceGenerationRef.current);
-    fileWorkspaceGenerationRef.current += 1;
-    setFileWorkspaceGeneration(fileWorkspaceGenerationRef.current);
-    setFileTabs(next.tabs);
-    // Subagent tabs belong to the previous project's sessions: dropped, not parked.
-    setAgentTabs([]);
-    // Terminal tabs span workspaces and keep control of the panel while active.
-    // The panel itself stays open: the file browser lives beside the tabs now.
-    if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:")) {
-      setActiveFileTabId(next.activeTabId);
-    }
-  }, [activeFileTabId, fileTabs, rightPanelOpen]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -987,15 +1063,12 @@ export function AppShell() {
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (currentProject !== newProject) {
-      // Keep #281's project isolation, but park each workspace's file tabs
-      // instead of discarding them so they return when the user switches back.
-      changeFileWorkspace(currentProject, newProject);
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
       if (!skipWorkspaceRestore) restoreWorkspaceContext(newProject, cwd);
     }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
-  }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
+  }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
@@ -1008,10 +1081,7 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = null;
     // Adopt an explicitly selected session before the sidebar reports its cwd.
     const projectKey = workspaceKeyOf(session);
-    if (activeProjectKeyRef.current !== projectKey) {
-      changeFileWorkspace(activeProjectKeyRef.current, projectKey);
-      setActiveTopPanel(null);
-    }
+    if (activeProjectKeyRef.current !== projectKey) setActiveTopPanel(null);
     activeProjectKeyRef.current = projectKey;
     // Re-clicking the already-open session must not remount the chat and
     // re-run the full load/positioning cycle. Only skip when the effective
@@ -1051,7 +1121,7 @@ export function AppShell() {
     if (!isRestore || new URLSearchParams(window.location.search).get("session") !== session.id) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
+  }, [activeCwd, invalidateWorkspaceRestore, router, isMobile, newSessionCwd, selectedSession]);
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
     invalidateWorkspaceRestore();
@@ -1075,9 +1145,6 @@ export function AppShell() {
     // explicit session pick does. Without a key (Ctrl+Alt+N) the current cwd
     // keeps its project.
     const targetProject = projectKey ?? (cwd === activeCwd ? activeProjectKeyRef.current : null) ?? cwd;
-    if (activeProjectKeyRef.current !== targetProject) {
-      changeFileWorkspace(activeProjectKeyRef.current, targetProject);
-    }
     activeProjectKeyRef.current = targetProject;
     // A draft parked in this cwd comes back, unless one was carried here: it
     // stays parked for the next time, never merged into what was carried.
@@ -1106,7 +1173,7 @@ export function AppShell() {
         chatInputRef.current?.focus();
       });
     }
-  }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, isMobile, newSessionCwd, router, selectedSession]);
+  }, [activeCwd, invalidateWorkspaceRestore, isMobile, newSessionCwd, router, selectedSession]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -1450,6 +1517,9 @@ export function AppShell() {
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     invalidateWorkspaceRestore();
+    // A deleted conversation's panel memory goes with it.
+    forgottenSessionsRef.current.add(sessionId);
+    forgetSessionPanel(sessionId);
     setRefreshKey((k) => k + 1);
     // The DELETE can outlive a session switch: this callback's captured
     // selectedSession is from the delete click. Read the latest selection
@@ -1478,6 +1548,14 @@ export function AppShell() {
       router.replace(cwd ? `?cwd=${encodeURIComponent(cwd)}` : (typeof window !== "undefined" ? window.location.pathname : "/"), { scroll: false });
     }
   }, [invalidateWorkspaceRestore, router]);
+
+  // Archived conversations leave the sidebar: their memory goes with them.
+  const handleSessionsArchived = useCallback((sessionIds: string[]) => {
+    for (const sessionId of sessionIds) {
+      forgottenSessionsRef.current.add(sessionId);
+      forgetSessionPanel(sessionId);
+    }
+  }, []);
 
   const handleOpenFile = useCallback((
     filePath: string,
@@ -1846,6 +1924,7 @@ export function AppShell() {
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
+        onSessionsArchived={handleSessionsArchived}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onRevealFiles={() => {
@@ -3105,6 +3184,12 @@ export function AppShell() {
                   activeFilePath={activeFileTab?.filePath}
                   activeNotePath={activeNoteTab?.path ?? null}
                   cwd={activeCwd}
+                  source={treeSource}
+                  onSourceChange={(next) => {
+                    setTreeSource(next);
+                    saveFileTreeSource(next);
+                  }}
+                  sessionKey={selectedSession?.id ?? null}
                   refreshKey={explorerRefreshKey}
                   onOpenFile={handleOpenFile}
                   onOpenNote={handleOpenNote}
