@@ -102,7 +102,12 @@ const boardShape = Type.Object({
   fontSize: Type.Optional(Type.Number({ description: "文字大小，默认用设置里的白板字号" })),
 });
 
-export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
+/**
+ * `appendTo` pins the only writable board: the digest run may add elements to
+ * that one board and nothing else — no replace, no new board, no other path.
+ */
+export function notesAgentTools(board: NotesBoardSettings, options: { appendTo?: string } = {}): ToolDefinition[] {
+  const appendTo = options.appendTo;
   return [
     defineTool({
       name: NOTES_LS_TOOL,
@@ -182,6 +187,12 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
       }),
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, BOARD_EXTENSION, NOTES_BOARD_TOOL);
+        if (appendTo && target !== appendTo) {
+          throw new NotesError(`这次只能往 ${appendTo} 里追加内容，不能动 ${target}`, 403);
+        }
+        if (appendTo && params.action === "draw" && params.replace) {
+          throw new NotesError("这次只能追加，不能重画：replace 必须是 false", 400);
+        }
         const existing = await readItem(target).catch((error: unknown) => {
           if (error instanceof NotesError && error.status === 404) return null;
           throw error;
@@ -197,6 +208,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         }
         if (!params.elements?.length) throw new NotesError("draw 需要 elements", 400);
         if (!existing) {
+          if (appendTo) throw new NotesError(`${target} 还不存在。这次只能往已有白板里追加内容`, 404);
           const blocked = manualCreateBlock(target);
           if (blocked) throw new NotesError(blocked, 409);
           const dir = parentOf(target);

@@ -487,6 +487,9 @@ export function AppShell() {
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   // "Save to notes": one session at a time, resolved on the server.
   const [digestStatus, setDigestStatus] = useState<{ kind: "idle" | "running" | "success" | "error"; message?: string }>({ kind: "idle" });
+  // The dialog where the user writes what this run must focus on.
+  const [digestDialogOpen, setDigestDialogOpen] = useState(false);
+  const [digestFocus, setDigestFocus] = useState("");
   const autoNameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoNameOnFirstMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSessionIdRef = useRef<string | null>(selectedSession?.id ?? null);
@@ -1441,15 +1444,16 @@ export function AppShell() {
     setDigestStatus({ kind: "idle" });
   }, [selectedSession?.id]);
 
-  const handleDigestToNotes = useCallback(async () => {
+  const handleDigestToNotes = useCallback(async (boardPath: string, focus: string) => {
     const session = selectedSessionRef.current;
     if (!session || session.transient || digestStatus.kind === "running") return;
+    setDigestDialogOpen(false);
     setDigestStatus({ kind: "running" });
     try {
       const response = await fetch("/api/notes/digest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: session.id }),
+        body: JSON.stringify({ sessionId: session.id, boardPath, focus }),
       });
       const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
       if (!response.ok) throw new Error(body.error || translate("notes.digestFailed"));
@@ -2146,11 +2150,12 @@ export function AppShell() {
         })()}
         {(() => {
           const running = digestStatus.kind === "running";
+          const boardPath = activeNoteTab?.kind === "board" ? activeNoteTab.path : "";
           const hasMessages = Boolean(
             selectedSession
             && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
           );
-          const disabled = !selectedSession || selectedSession.transient || !hasMessages || running;
+          const disabled = !selectedSession || selectedSession.transient || !hasMessages || running || !boardPath;
           const label = running
             ? translate("notes.digesting")
             : digestStatus.kind === "success"
@@ -2163,9 +2168,12 @@ export function AppShell() {
           return (
             <button
               type="button"
-              onClick={() => void handleDigestToNotes()}
+              onClick={() => {
+                setDigestFocus("");
+                setDigestDialogOpen(true);
+              }}
               disabled={disabled}
-              title={digestStatus.message || translate("notes.digestTooltip")}
+              title={digestStatus.message || translate(boardPath ? "notes.digestTooltip" : "notes.digestNoBoard")}
               aria-label={label}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
@@ -3341,6 +3349,55 @@ export function AppShell() {
         onConfirm={() => void handleTrustProject()}
         onStatus={setProjectTrust}
       />
+    )}
+    {/* Save to notes: the user says what to focus on, the run only appends to the open board. */}
+    {digestDialogOpen && activeNoteTab?.kind === "board" && (
+      <div
+        className="settings-dialog-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label={translate("notes.digest")}
+        onClick={(event) => { if (event.target === event.currentTarget) setDigestDialogOpen(false); }}
+        onKeyDown={(event) => { if (event.key === "Escape") setDigestDialogOpen(false); }}
+      >
+        <form
+          className="settings-dialog-surface notes-settings-surface"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (digestFocus.trim()) void handleDigestToNotes(activeNoteTab.path, digestFocus);
+          }}
+        >
+          <div className="settings-dialog-header">
+            <strong className="settings-dialog-title">{translate("notes.digest")}</strong>
+            <button type="button" className="notes-agent-icon notes-settings-close" onClick={() => setDigestDialogOpen(false)} aria-label={translate("notes.digestCancel")}>×</button>
+          </div>
+          <div className="notes-settings-body">
+            <p className="notes-settings-hint">{translate("notes.digestDialogHint")}</p>
+            <p className="notes-settings-note notes-digest-board">{activeNoteTab.path}</p>
+            <textarea
+              className="notes-digest-input"
+              autoFocus
+              value={digestFocus}
+              placeholder={translate("notes.digestFocusPlaceholder")}
+              onChange={(event) => setDigestFocus(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && digestFocus.trim()) {
+                  event.preventDefault();
+                  void handleDigestToNotes(activeNoteTab.path, digestFocus);
+                }
+              }}
+            />
+            <div className="notes-settings-footer">
+              <button type="button" className="notes-agent-settings" onClick={() => setDigestDialogOpen(false)}>
+                {translate("notes.digestCancel")}
+              </button>
+              <button type="submit" className="notes-agent-send" disabled={!digestFocus.trim()}>
+                {translate("notes.digestConfirm")}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     )}
     </>
   );

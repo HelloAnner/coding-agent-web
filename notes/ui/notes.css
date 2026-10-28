@@ -790,6 +790,31 @@ button.notes-tree-toggle:hover {
   max-height: min(660px, calc(100dvh - 32px));
 }
 
+.notes-digest-input {
+  width: 100%;
+  min-height: 132px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.notes-digest-input:focus {
+  border-color: var(--accent);
+}
+
+.notes-digest-board {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
 .notes-settings-close {
   position: absolute;
   top: 13px;

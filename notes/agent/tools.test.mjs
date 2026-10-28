@@ -79,3 +79,22 @@ test("the tree tool lists the vault", async () => {
   const tree = await run(ls, {});
   assert.match(tree.content[0].text, /已有\//);
 });
+
+test("a pinned board tool only appends to that one board", async () => {
+  const pinnedTools = notesAgentTools({ fontFamily: 3, fontSize: 20 }, { appendTo: "方案/链路.excalidraw" });
+  const pinned = pinnedTools.find((tool) => tool.name === NOTES_BOARD_TOOL);
+  const shape = [{ type: "rectangle", x: 600, y: 600, label: "只追加" }];
+
+  await run(pinned, { action: "draw", path: "方案/链路.excalidraw", elements: shape });
+  const read = await run(pinned, { action: "read", path: "方案/链路.excalidraw" });
+  // The hand-edited box from the earlier test is still there: appending keeps everything.
+  assert.match(read.content[0].text, /「浏览器（用户改过）」/);
+  assert.match(read.content[0].text, /「只追加」/);
+
+  await assert.rejects(() => run(pinned, { action: "draw", path: "方案/链路.excalidraw", replace: true, elements: shape }), /只能追加/);
+  await assert.rejects(() => run(pinned, { action: "draw", path: "已有/新板.excalidraw", elements: shape }), /只能往 方案\/链路\.excalidraw/);
+  await assert.rejects(
+    () => run(pinned, { action: "draw", path: "已有/另一块.excalidraw", elements: shape }),
+    /只能往 方案\/链路\.excalidraw/,
+  );
+});
