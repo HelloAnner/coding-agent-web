@@ -3,7 +3,7 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { NotesBoardSettings, NotesNode } from "../types";
 import { BOARD_EXTENSION, NotesError, createItem, listTree, readItem, writeItem } from "../files";
 import { buildBoardScene, describeScene } from "./board";
-import { manualCreateBlock, readManualMarks } from "@/notes/manual";
+import { manualCreateBlock, readManualMarks } from "../manual";
 import { listCodingSessions, readCodingSession } from "../ingest";
 
 /**
