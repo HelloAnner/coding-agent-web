@@ -124,9 +124,11 @@ Agent 内核（pi）
   手动任务：整理笔记库（notes-tidy）
     没有排期，只能手动触发：Notes 侧栏右上角的整理按钮，或 POST /api/notes/tasks {id:"notes-tidy"}。
     任务池照样排队、限并发、记状态；跑的时候按钮转圈，结束后自动刷新目录树。
-    提示词 NOTES_TIDY_PROMPT：合并同主题白板（读原板 -> replace 重画 -> 删多余）、
-    统一标题（rename 文件名/目录名）、按「项目 → 主题」收拢目录（move / remove），
-    正文不重写，归属不确定的不挪；只在 manual:true 时注册，永远不会自己跑。
+    提示词 NOTES_TIDY_PROMPT：合并同子主题白板（读原板 -> replace 重画 -> 删多余）、
+    统一标题（rename 文件名/目录名）、按「场景 / 主题 / 子主题」重排目录（move / remove）。
+    重排时 .md、白板、attachments 一起转移，不许删了目录把笔记留下；
+    手动标记的目录当锚点（不改名/不移动/不删），别处同主题内容 move 进去，
+    手动标记的笔记/白板只更新内容，只有 manual:true 时注册，永远不会自己跑。
 
   手动优先（notes_manual_ops）
     页面上的 rename / move / remove 会写一条标记进 data.db；agent 的调用不写。
