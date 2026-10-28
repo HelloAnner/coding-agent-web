@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
+import { subscribeNotesWatch } from "@/lib/notes-watch";
 import type { NotesBoardSettings, NotesBoardView, NotesEditorControl, NotesSaveState } from "@/notes/types";
 
 const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
@@ -29,6 +30,9 @@ export function Whiteboard({
   const [content, setContent] = useState<string | null>(null);
   const [view, setView] = useState<NotesBoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when someone else rewrote the file: the canvas only reads its
+  // scene on mount, so a new key is what makes it re-parse.
+  const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<{ path: string; scene: string } | null>(null);
   // The last scene on disk. Excalidraw may report the same scene again after a
@@ -119,6 +123,32 @@ export function Whiteboard({
     };
   }, [path, onSaveState]);
 
+  // The file can change under us (an agent rewriting the board). Our own
+  // saves echo back through the same stream, so a reload only happens when
+  // the file differs from what was last saved. ponytail: unsaved strokes win —
+  // a change that lands mid-draw is skipped, not merged; add a conflict
+  // prompt if agents start editing boards a person is drawing on.
+  useEffect(() => subscribeNotesWatch((paths) => {
+    if (paths && !paths.includes(path)) return;
+    void (async () => {
+      // Nothing is loaded yet: the initial read has the newest file anyway.
+      if (pending.current || lastSaved.current === null) return;
+      try {
+        const response = await fetch(`/api/notes/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const text = (await response.json() as { content?: string }).content;
+        if (typeof text !== "string" || text === lastSaved.current) return;
+        lastSaved.current = text;
+        // Keep the viewport the user is looking at, not the one on disk.
+        setView((current) => lastView.current ?? current);
+        setContent(text);
+        setRevision((value) => value + 1);
+      } catch {
+        // Keep the board as it is; the next change tries again.
+      }
+    })();
+  }), [path]);
+
   // A board leaves the screen (file switch, app switch, reload) with up to
   // one debounce window of edits: send them with keepalive on the way out.
   useEffect(() => () => {
@@ -196,7 +226,7 @@ export function Whiteboard({
   if (content === null) return <div className="dashboard-empty">加载白板…</div>;
   return (
     <Canvas
-      key={path}
+      key={`${path}:${revision}`}
       content={content}
       view={view}
       theme={isDark ? "dark" : "light"}

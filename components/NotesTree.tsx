@@ -3,6 +3,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "./SidebarIcons";
 import { useI18n } from "@/hooks/useI18n";
+import { subscribeNotesWatch } from "@/lib/notes-watch";
 import type { NotesFileKind, NotesNode } from "@/notes/types";
 
 export interface NotesTreeHandle {
@@ -105,7 +106,6 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   // click here. The stream tells us, and the read is debounced so a save's
   // write-then-rename pair costs one tree.
   useEffect(() => {
-    const source = new EventSource("/api/notes/watch");
     let timer: ReturnType<typeof setTimeout> | null = null;
     const reload = () => {
       if (timer) return;
@@ -114,17 +114,10 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
         void load();
       }, 200);
     };
-    // A reconnect means changes may have been missed while it was down; the
-    // first connect follows this panel's own read, so only later ones reload.
-    let firstConnect = true;
-    source.addEventListener("connected", () => {
-      if (firstConnect) firstConnect = false;
-      else reload();
-    });
-    source.addEventListener("change", reload);
+    const unsubscribe = subscribeNotesWatch(reload);
     return () => {
       if (timer) clearTimeout(timer);
-      source.close();
+      unsubscribe();
     };
   }, [load]);
 

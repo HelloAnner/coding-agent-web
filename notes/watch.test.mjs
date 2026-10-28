@@ -35,8 +35,9 @@ test("a note an agent writes reaches the tree's stream", async () => {
     assert.match(await readUntil(reader, "event: connected"), /event: connected/);
     // A folder first: the watch has to be recursive, not just the root level.
     await notes.createDirectory("", "工作");
-    await notes.createItem("工作", "agent note", "note");
-    assert.match(await readUntil(reader, "event: change"), /event: change/);
+    const note = await notes.createItem("工作", "agent note", "note");
+    // The event names the file, so an open board can ignore a note's save.
+    assert.match(await readUntil(reader, note.path), /event: change/);
   } finally {
     await reader.cancel();
   }

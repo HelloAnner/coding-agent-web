@@ -374,6 +374,10 @@ export async function watchNotes(): Promise<Response> {
   await mkdir(root, { recursive: true });
   let watcher: FSWatcher | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // Which files changed in the window: the tree reloads, the board filters to
+  // its own path. A platform that reports no name leaves the list unknown.
+  let changed = new Set<string>();
+  let unknown = false;
   const stop = () => {
     if (timer) clearTimeout(timer);
     timer = null;
@@ -391,11 +395,16 @@ export async function watchNotes(): Promise<Response> {
         }
       };
       try {
-        watcher = watchDirectory(root, { recursive: true }, () => {
+        watcher = watchDirectory(root, { recursive: true }, (_event, filename) => {
+          if (filename) changed.add(String(filename).replaceAll("\\", "/"));
+          else unknown = true;
           if (timer) return;
           timer = setTimeout(() => {
             timer = null;
-            send("change", { at: Date.now() });
+            const paths = unknown ? null : [...changed];
+            changed = new Set();
+            unknown = false;
+            send("change", { paths, at: Date.now() });
           }, WATCH_COALESCE_MS);
         });
         watcher.on("error", () => {
