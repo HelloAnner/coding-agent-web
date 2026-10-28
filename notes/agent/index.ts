@@ -1,7 +1,7 @@
 import type { NotesAgentEvent, NotesAgentState } from "../types";
+import { piDefaultModelLabel } from "./profile";
 import { getNotesAgent, listNotesSkills, peekNotesAgent, resetNotesAgent } from "./runtime";
-import { NOTES_TASK_CONCURRENCY, NotesTaskError, listNotesTasks, runNotesTaskNow } from "./scheduler";
-import { BOARD_FONT_OPTIONS, publicNotesSettings, readNotesSettings, updateNotesSettings } from "./settings";
+import { BOARD_FONT_OPTIONS, notesSettingsPath, publicNotesSettings, readNotesSettings, updateNotesSettings } from "./settings";
 
 /**
  * /api/notes/agent and /api/notes/settings: the notes agent's two endpoints.
@@ -96,10 +96,24 @@ export async function abortNotesAgent(): Promise<Response> {
   return Response.json({ ok: true });
 }
 
+/**
+ * Which model the notes agent actually runs on right now: the notes one when
+ * both base URL and model are set, otherwise pi's default.
+ */
+function effectiveNotesModel(): string | null {
+  const agent = peekNotesAgent();
+  const settings = readNotesSettings();
+  if (agent?.modelLabel) return agent.modelLabel;
+  if (settings.agent.model) return `notes/${settings.agent.model}`;
+  return piDefaultModelLabel();
+}
+
 /** GET /api/notes/settings: the settings (API key masked), the fonts, the skills. */
 export async function getNotesSettings(): Promise<Response> {
   return Response.json({
     ...publicNotesSettings(readNotesSettings()),
+    effective: effectiveNotesModel(),
+    file: notesSettingsPath(),
     fonts: BOARD_FONT_OPTIONS,
     skills: listNotesSkills(),
   });
@@ -120,28 +134,5 @@ export async function saveNotesSettings(request: Request): Promise<Response> {
   if (JSON.stringify(before.agent) !== JSON.stringify(settings.agent)) {
     await resetNotesAgent({ clearHistory: true });
   }
-  return Response.json({ ...publicNotesSettings(settings), skills: listNotesSkills() });
-}
-
-/** GET /api/notes/tasks: the scheduled pool and where each task stands. */
-export async function getNotesTasks(): Promise<Response> {
-  return Response.json({ tasks: listNotesTasks(), concurrency: NOTES_TASK_CONCURRENCY });
-}
-
-/** POST /api/notes/tasks { id }: run one task now. */
-export async function runNotesTask(request: Request): Promise<Response> {
-  let id = "";
-  try {
-    const body = await request.json() as { id?: unknown };
-    id = typeof body.id === "string" ? body.id.trim() : "";
-  } catch {
-    return Response.json({ error: "请求格式错误" }, { status: 400 });
-  }
-  if (!id) return Response.json({ error: "缺少 id" }, { status: 400 });
-  try {
-    return Response.json({ task: runNotesTaskNow(id) });
-  } catch (error) {
-    const status = error instanceof NotesTaskError ? error.status : 500;
-    return Response.json({ error: error instanceof Error ? error.message : "任务启动失败" }, { status });
-  }
+  return Response.json({ ...publicNotesSettings(settings), effective: effectiveNotesModel(), skills: listNotesSkills() });
 }

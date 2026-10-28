@@ -73,11 +73,9 @@ Agent 内核（pi）
     notes/agent/skills.ts        notes/skills 下的技能清单
     notes/ingest.ts              Coding 会话 -> 笔记：扫描、待读清单、转录、标记已读
     notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
-    notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每个任务自己的提示词/技能/工具
-    notes/agent/schedule.ts      下一次触发时间（纯函数，可单测）
-    notes/agent/scheduler.ts     定时线程池：FIFO、并发上限、超时、运行记录
-    notes/agent/tasks.ts         定时任务清单（在这里加任务）
-    notes/agent/index.ts         /api/notes/agent 与 /api/notes/tasks 的处理
+    notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每次运行的提示词/技能/工具
+    notes/agent/digest.ts        Coding 页的「存入笔记」按钮：一条对话 -> 一块白板
+    notes/agent/index.ts         /api/notes/agent 与 /api/notes/settings 的处理
     notes/skills/<名字>/SKILL.md 技能（frontmatter 里写 name、description）
 
   内置技能
@@ -108,18 +106,15 @@ Agent 内核（pi）
     baseUrl 或 model 留空 = 用本机 pi 已配好的默认模型。
     改模型会重建会话并清空对话：新会话看不到旧上下文。
 
-  定时任务：Coding 对话 -> 笔记（coding-to-notes）
-    everySeconds 30，prepare 先扫会话；没有新内容就不建会话、不调模型（状态 skipped）。
-    候选 = Coding 里非归档、有消息的会话（family 根），带 subagent 的一起算一个。
-    每个候选的状态存在 notes_session_ingest 表（modified + message_count 就是版本），
-    prepare 取最新 3 个进这一轮，跑完（不管成败）把这三个的版本写回表里。
-    会话有了新消息 -> modified/message_count 变了 -> 下一轮重新进清单。
-    最后一条消息在 90 秒内的会话先不读：正在用的对话每轮都重读，笔记会来回改。
-    提示词 CODING_DIGEST_PROMPT：只画白板，不能新建笔记/目录，不能改名/移动/删除。
-    结构是「场景 / 主题目录 / 子主题白板」，目录由用户自己定；白板只能放进已经存在的目录，
-    没有合适的位置就跳过这条对话并在收尾说明，绝不为了安置它去建目录。仓库名只写进节点和旁注。
-    白板名写子主题，不写目录名、不加「白板」后缀；先 notes_board action=read 再 replace 重画
-    （用户手改过的白板按读到的最新内容改）、同一个子主题才合并、没价值就不画。
+  存入笔记：Coding 页顶栏的按钮（digest.ts）
+    没有定时任务，只有人点。按钮把**当前打开的这条对话**交给一个一次性的 notes agent：
+      POST /api/notes/digest { sessionId } -> 读转录 -> 建会话 -> 合并/新建白板 -> 返回一段结论
+    唯一的写入是白板，而且只能放进已经存在的目录：先 notes_ls 找位置，没有明显合适的位置
+    就跳过，并在返回里说明这条对话大概属于什么主题，绝不为了安置它建目录。
+    已存在的同子主题白板先 action=read 再 replace=true 合并；用户手改过的坐标和文字保留。
+    贴边保护：同一条对话正在跑时再点返回 409；单次运行 5 分钟自动 abort。
+    结构是「场景 / 主题目录 / 子主题白板」，目录由用户自己定；仓库名只写进节点和旁注。
+    白板名写子主题，不写目录名、不加「白板」后缀。
 
   手动优先（notes_manual_ops）
     页面上的 rename / move / remove 会写一条标记进 data.db；agent 的调用不写。

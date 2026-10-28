@@ -24,12 +24,6 @@ export function registerNodeInstrumentation(): void {
   import("@/lib/catalog-sync")
     .then(({ repairCatalogSessionPaths }) => repairCatalogSessionPaths())
     .catch(() => {});
-  // Timed notes jobs: the interval lives in the process, so it starts with the
-  // server rather than on the first page view.
-  import("@/notes/agent/scheduler")
-    .then(({ startNotesScheduler }) => startNotesScheduler())
-    .catch(() => {});
-
   // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
   // for every connection to end, without a timeout. SSE streams only end when
   // the client disconnects, so close them here or the process never exits.
