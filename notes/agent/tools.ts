@@ -65,6 +65,18 @@ async function ensureDirectories(target: string): Promise<void> {
   }
 }
 
+/** Text a diagram could have shown instead of a paragraph. */
+function proseWarnings(elements: readonly { type: string; label?: string }[]): string[] {
+  return elements.flatMap((element) => {
+    const label = (element.label ?? "").trim();
+    if (!label) return [];
+    const lines = label.split("\n").length;
+    const length = label.replace(/\s/g, "").length;
+    if (lines <= 2 && length <= 24) return [];
+    return [`${JSON.stringify(label.slice(0, 18))}（${lines} 行 ${length} 字）`];
+  });
+}
+
 function textResult(text: string, details: Record<string, unknown> = {}) {
   return { content: [{ type: "text" as const, text }], details };
 }
@@ -95,7 +107,7 @@ const boardShape = Type.Object({
   y: Type.Number({ description: "上边 y，场景坐标" }),
   width: Type.Optional(Type.Number({ description: "宽度，默认 200（rectangle）/160（ellipse、diamond）；arrow、line 不用给" })),
   height: Type.Optional(Type.Number({ description: "高度，默认 100 / 100 / 120；arrow、line 不用给" })),
-  label: Type.Optional(Type.String({ description: "形状里的文字；text 形状就是正文，可用 \\n 换行" })),
+  label: Type.Optional(Type.String({ description: "形状里的短标签：节点名、箭头短语、一句旁注；text 不是段落，最多两行、24 字" })),
   to: Type.Optional(Type.Object({ x: Type.Number(), y: Type.Number() }, { description: "arrow、line 的终点，绝对坐标" })),
   strokeColor: Type.Optional(Type.String({ description: "描边色，默认 #1b1b1f" })),
   backgroundColor: Type.Optional(Type.String({ description: "填充色，默认透明" })),
@@ -180,11 +192,19 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         });
         await writeItem(target, scene);
         const total = (JSON.parse(scene) as { elements: unknown[] }).elements.length;
-        return textResult(`白板 ${target} 现有 ${total} 个元素`, {
-          path: target,
-          drawn: params.elements.length,
-          created: !existing,
-        });
+        const prose = proseWarnings(params.elements);
+        return textResult(
+          `白板 ${target} 现有 ${total} 个元素`
+            + (prose.length
+              ? `\n注意：${prose.join("、")} 超过「一条 text 两行、24 字」。能画成结构的关系画成形状和箭头，成段的话不要上白板。`
+              : ""),
+          {
+            path: target,
+            drawn: params.elements.length,
+            created: !existing,
+            ...(prose.length ? { prose } : {}),
+          },
+        );
       },
     }),
     defineTool({
