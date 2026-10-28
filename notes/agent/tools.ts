@@ -162,9 +162,11 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
       description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill whiteboard-style。",
       promptSnippet: "Read or draw an Excalidraw whiteboard in the vault",
       promptGuidelines: [
-        "Read a board with notes_board action=read before changing it: the user edits boards by hand.",
+        "Read every same-topic board with notes_board action=read before changing one: the user edits boards by hand.",
+        "Decide per element first — keep, delete, change, add — then redraw the whole board once with replace=true.",
+        "One board holds 2-4 regions (heading text, ≥240 gaps); a second board only for a different theme.",
+        "When several boards need the change, do them one at a time and read each back.",
         "Draw boards with notes_board: pass shapes, never raw Excalidraw JSON.",
-        "Lay shapes out on a grid: 200 wide boxes at y=0, 60px gaps, text under or inside boxes.",
       ],
       parameters: Type.Object({
         path: Type.String({ description: "笔记库内的相对路径，以 .excalidraw 结尾，例如 方案/架构图.excalidraw" }),
@@ -176,7 +178,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
           minItems: 1,
           maxItems: 200,
         })),
-        replace: Type.Optional(Type.Boolean({ description: "draw 时 true 清空已有内容后重画，默认追加" })),
+        replace: Type.Optional(Type.Boolean({ description: "draw 时 true 清空已有内容后重画。改已有白板用它，并把要保留的旧元素一起重画进去；默认追加只用于新开板" })),
       }),
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, BOARD_EXTENSION, NOTES_BOARD_TOOL);
