@@ -30,9 +30,6 @@ export function Whiteboard({
   const [content, setContent] = useState<string | null>(null);
   const [view, setView] = useState<NotesBoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Bumped when someone else rewrote the file: the canvas only reads its
-  // scene on mount, so a new key is what makes it re-parse.
-  const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<{ path: string; scene: string } | null>(null);
   // The last scene on disk. Excalidraw may report the same scene again after a
@@ -139,10 +136,9 @@ export function Whiteboard({
         const text = (await response.json() as { content?: string }).content;
         if (typeof text !== "string" || text === lastSaved.current) return;
         lastSaved.current = text;
-        // Keep the viewport the user is looking at, not the one on disk.
-        setView((current) => lastView.current ?? current);
+        // Keep the viewport the user is looking at, not the one on disk: the
+        // canvas takes the new scene in place and never re-reads it.
         setContent(text);
-        setRevision((value) => value + 1);
       } catch {
         // Keep the board as it is; the next change tries again.
       }
@@ -226,7 +222,7 @@ export function Whiteboard({
   if (content === null) return <div className="dashboard-empty">加载白板…</div>;
   return (
     <Canvas
-      key={`${path}:${revision}`}
+      key={path}
       content={content}
       view={view}
       theme={isDark ? "dark" : "light"}

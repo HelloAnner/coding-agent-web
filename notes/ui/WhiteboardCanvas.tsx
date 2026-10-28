@@ -1,11 +1,13 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
+  CaptureUpdateAction,
   Excalidraw,
+  restoreElements,
   serializeAsJSON,
 } from "@excalidraw/excalidraw";
-import type { ExcalidrawInitialDataState, NormalizedZoomValue } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, NormalizedZoomValue } from "@excalidraw/excalidraw/types";
 import type { NotesBoardSettings, NotesBoardView } from "@/notes/types";
 import "@excalidraw/excalidraw/index.css";
 type NormalizedTheme = "light" | "dark";
@@ -33,6 +35,15 @@ function defaultAppState(board: NotesBoardSettings) {
   } as const;
 }
 
+/** A board file as JSON, or null while it is not one (a half-written file). */
+function parseFile(content: string): Partial<ExcalidrawInitialDataState> | null {
+  try {
+    return (JSON.parse(content) ?? {}) as Partial<ExcalidrawInitialDataState>;
+  } catch {
+    return null;
+  }
+}
+
 function parseScene(content: string, board: NotesBoardSettings, view: NotesBoardView | null): ExcalidrawInitialDataState {
   const defaults = defaultAppState(board);
   // The file has no viewport (Excalidraw strips scroll and zoom from a saved
@@ -40,18 +51,14 @@ function parseScene(content: string, board: NotesBoardSettings, view: NotesBoard
   const viewport = view
     ? { scrollX: view.scrollX, scrollY: view.scrollY, zoom: { value: view.zoom as NormalizedZoomValue } }
     : {};
-  try {
-    const parsed = JSON.parse(content) as Partial<ExcalidrawInitialDataState> | null;
-    return {
-      elements: parsed?.elements ?? [],
-      appState: { ...defaults, ...(parsed?.appState ?? {}), ...viewport },
-      files: parsed?.files ?? {},
-    };
-  } catch {
-    // A board edited outside the app can be broken; start empty rather than
-    // crashing the page, and the next change rewrites it as valid JSON.
-    return { elements: [], appState: { ...defaults, ...viewport }, files: {} };
-  }
+  const parsed = parseFile(content);
+  // A board edited outside the app can be broken; start empty rather than
+  // crashing the page, and the next change rewrites it as valid JSON.
+  return {
+    elements: parsed?.elements ?? [],
+    appState: { ...defaults, ...(parsed?.appState ?? {}), ...viewport },
+    files: parsed?.files ?? {},
+  };
 }
 
 /**
@@ -79,6 +86,26 @@ function WhiteboardCanvas({
   // Mounted with one board's content by Whiteboard's key, so the scene is
   // parsed once per open file and per font change.
   const initialData = useMemo(() => parseScene(content, board, view), [content, board, view]);
+  const api = useRef<ExcalidrawImperativeAPI | null>(null);
+  const takeApi = useCallback((instance: ExcalidrawImperativeAPI) => { api.current = instance; }, []);
+  const shown = useRef(content);
+  // Someone else rewrote the file (an agent, "存入笔记"). Swap the elements in
+  // place: remounting Excalidraw flashes the canvas and re-measures every text
+  // with freshly loaded fonts, which is the jolt you see while it redraws.
+  useEffect(() => {
+    const scene = api.current;
+    if (!scene || content === shown.current) return;
+    const parsed = parseFile(content);
+    // A file caught mid-write: keep what is on screen, the next write is whole.
+    if (!parsed) return;
+    shown.current = content;
+    scene.updateScene({
+      elements: restoreElements(parsed.elements, null, { repairBindings: true }),
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+    const files = Object.values(parsed.files ?? {});
+    if (files.length) scene.addFiles(files);
+  }, [content]);
   // Excalidraw parks its element properties panel over the canvas as soon as
   // something is selected. The board keeps it collapsed until the styles
   // button in the top bar asks for it.
@@ -108,6 +135,7 @@ function WhiteboardCanvas({
   return (
     <div className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
       <Excalidraw
+        excalidrawAPI={takeApi}
         initialData={initialData}
         langCode="zh-CN"
         theme={theme}
