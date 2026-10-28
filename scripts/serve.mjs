@@ -318,10 +318,16 @@ function prepareEnv() {
 }
 
 function buildInto(distDir, baseEnv) {
-  // If `next dev` ever ran against this dist dir it left dev/types behind, and
-  // `next build` never refreshes them. A stale validator.ts then fails the
-  // production type check as soon as a route moves, so drop them before building.
-  fs.rmSync(path.join(root, distDir, "dev"), { recursive: true, force: true });
+  // tsconfig.json includes the generated types of every dist dir (and .next),
+  // but `next build` only rewrites the one it is building into and never drops
+  // what it finds there. A route that moved or was deleted therefore leaves a
+  // validator pointing at a missing file, and the type check fails on the very
+  // next build. Clear them all before building; the running server does not
+  // need them, only its compiled output.
+  for (const dir of [...distDirs, ".next"]) {
+    fs.rmSync(path.join(root, dir, "dev"), { recursive: true, force: true });
+    fs.rmSync(path.join(root, dir, "types"), { recursive: true, force: true });
+  }
 
   console.log(`building ${distDir}`);
   const startedAt = Date.now();
