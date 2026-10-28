@@ -1,4 +1,5 @@
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { watch as watchDirectory, type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { NotesFileKind, NotesIndexRow, NotesNode } from "./types";
 
@@ -358,4 +359,67 @@ export async function writeNotesFile(request: Request): Promise<Response> {
   } catch (error) {
     return notesErrorResponse(error);
   }
+}
+
+/** A save is several events (write, rename, temp file); tell the tree once. */
+const WATCH_COALESCE_MS = 200;
+
+/**
+ * GET /api/notes/watch: every change under the vault root, as it happens.
+ * The tree is files on disk, so an agent writing a note has no other way to
+ * say "something appeared".
+ */
+export async function watchNotes(): Promise<Response> {
+  const root = notesRoot();
+  await mkdir(root, { recursive: true });
+  let watcher: FSWatcher | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const stop = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    try { watcher?.close(); } catch { /* already closed */ }
+    watcher = null;
+  };
+  const stream = new ReadableStream({
+    start(controller) {
+      const send = (event: string, data: Record<string, unknown>) => {
+        const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+        try {
+          controller.enqueue(new TextEncoder().encode(payload));
+        } catch {
+          // client disconnected
+        }
+      };
+      try {
+        watcher = watchDirectory(root, { recursive: true }, () => {
+          if (timer) return;
+          timer = setTimeout(() => {
+            timer = null;
+            send("change", { at: Date.now() });
+          }, WATCH_COALESCE_MS);
+        });
+        watcher.on("error", () => {
+          stop();
+          try { controller.close(); } catch { /* already closed */ }
+        });
+        // The client reads the tree once this arrives, so it is sent only
+        // after the watcher exists: nothing changes unseen between the two.
+        send("connected", { root });
+      } catch {
+        send("error", { message: "无法监听笔记目录" });
+        controller.close();
+      }
+    },
+    cancel() {
+      stop();
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

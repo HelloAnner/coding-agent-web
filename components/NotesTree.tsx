@@ -101,6 +101,33 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
 
   useEffect(() => { void load(); }, [load, refreshKey]);
 
+  // The vault is files: an agent writing a note changes the tree with no
+  // click here. The stream tells us, and the read is debounced so a save's
+  // write-then-rename pair costs one tree.
+  useEffect(() => {
+    const source = new EventSource("/api/notes/watch");
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reload = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void load();
+      }, 200);
+    };
+    // A reconnect means changes may have been missed while it was down; the
+    // first connect follows this panel's own read, so only later ones reload.
+    let firstConnect = true;
+    source.addEventListener("connected", () => {
+      if (firstConnect) firstConnect = false;
+      else reload();
+    });
+    source.addEventListener("change", reload);
+    return () => {
+      if (timer) clearTimeout(timer);
+      source.close();
+    };
+  }, [load]);
+
   const toggleFolder = (path: string) => setExpanded((current) => {
     const next = new Set(current);
     if (next.has(path)) next.delete(path);
