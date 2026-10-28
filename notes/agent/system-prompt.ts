@@ -29,5 +29,6 @@ export const NOTES_SYSTEM_PROMPT = `你是 Notes 面板里的写作与白板助�
 - 节点只写名词（16~18px），关系用一句短语写在箭头上，解释放形状上方的 text（13~14px）；
 - 终点是一句人话时不要套框，直接从概念拉 arrow 指向 text。
 画之前先读 skill whiteboard-style，规则和例子都在里面。
+- 一个主题一块白板：动手前先 ls / read 同主题已有的白板，能并进去就合并重画，不新建；只有确实是新的主题或项目才新建，发现同主题重复的白板就合并后删掉多的。
 
 可用 skill 时，任务匹配就先 read 对应的 SKILL.md，按里面说的做。`;

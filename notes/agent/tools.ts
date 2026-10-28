@@ -94,6 +94,15 @@ async function findNode(target: string): Promise<NotesNode | null> {
   return walk(await listTree());
 }
 
+/** Other whiteboards in the folder a new board would land in. */
+async function siblingBoards(target: string): Promise<string[]> {
+  const parent = parentOf(target);
+  const children = parent ? (await findNode(parent))?.children ?? [] : await listTree();
+  return children
+    .filter((child) => child.type === "board" && child.path !== target)
+    .map((child) => child.path);
+}
+
 const boardShape = Type.Object({
   type: Type.Union([
     Type.Literal("rectangle"),
@@ -193,8 +202,14 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
         await writeItem(target, scene);
         const total = (JSON.parse(scene) as { elements: unknown[] }).elements.length;
         const prose = proseWarnings(params.elements);
+        // A new board beside an existing one is almost always a theme that
+        // should have been merged: say so while the model can still redraw it.
+        const siblings = existing ? [] : await siblingBoards(target);
         return textResult(
           `白板 ${target} 现有 ${total} 个元素`
+            + (siblings.length
+              ? `\n注意：同目录已有白板 ${siblings.join("、")}。同主题应合并进其中一块（read 后一次 replace=true 重画），不要另开新板；只有确实是一个新主题/新项目才新建。`
+              : "")
             + (prose.length
               ? `\n注意：${prose.join("、")} 超过「一条 text 两行、24 字」。能画成结构的关系画成形状和箭头，成段的话不要上白板。`
               : ""),
@@ -202,6 +217,7 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
             path: target,
             drawn: params.elements.length,
             created: !existing,
+            ...(siblings.length ? { siblings } : {}),
             ...(prose.length ? { prose } : {}),
           },
         );
