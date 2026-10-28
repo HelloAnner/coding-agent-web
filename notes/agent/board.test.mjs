@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { buildBoardScene, readSceneElements } = await import("./board.ts");
+const { buildBoardScene, describeScene, readSceneElements } = await import("./board.ts");
 
 const board = { fontFamily: 3, fontSize: 20 };
 
@@ -62,4 +62,21 @@ test("a text shape is sized from its content", () => {
   assert.equal(text.autoResize, true);
   assert.ok(text.height >= 20 * 1.25 * 2);
   assert.ok(text.width > text.height);
+});
+
+test("a board reads back as one line per element, labels from their shapes", () => {
+  const scene = buildBoardScene([
+    { type: "rectangle", x: 0, y: 0, width: 200, height: 100, label: "浏览器" },
+    { type: "text", x: 0, y: -40, label: "先渲染\n再对齐" },
+    { type: "arrow", x: 200, y: 50, to: { x: 400, y: 50 } },
+    { type: "ellipse", x: 400, y: 0, label: "后端" },
+  ], board);
+  assert.deepEqual(describeScene(scene), [
+    "- rectangle 0,0 200x100「浏览器」",
+    "- text 0,-40 60x50「先渲染 / 再对齐」",
+    "- arrow 200,50 -> 400,50",
+    "- ellipse 400,0 160x100「后端」",
+  ]);
+  assert.deepEqual(describeScene(null), []);
+  assert.deepEqual(describeScene("{ broken"), []);
 });

@@ -14,7 +14,7 @@ import {
   renameItem,
   writeItem,
 } from "../files";
-import { buildBoardScene } from "./board";
+import { buildBoardScene, describeScene } from "./board";
 import { listCodingSessions, readCodingSession } from "../ingest";
 
 /**
@@ -133,17 +133,25 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
     }),
     defineTool({
       name: NOTES_BOARD_TOOL,
-      label: "画白板",
-      description: "在 Excalidraw 白板上画图形：给一组 rectangle / ellipse / diamond / text / arrow / line，工具生成合法的 scene JSON 写进 .excalidraw。默认追加到已有白板，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill whiteboard-style。",
-      promptSnippet: "Draw shapes on an Excalidraw whiteboard in the vault",
+      label: "白板",
+      description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill whiteboard-style。",
+      promptSnippet: "Read or draw an Excalidraw whiteboard in the vault",
       promptGuidelines: [
-        "Draw whiteboards with notes_board: pass shapes, never raw Excalidraw JSON.",
+        "Read a board with notes_board action=read before changing it: the user edits boards by hand.",
+        "Draw boards with notes_board: pass shapes, never raw Excalidraw JSON.",
         "Lay shapes out on a grid: 200 wide boxes at y=0, 60px gaps, text under or inside boxes.",
       ],
       parameters: Type.Object({
         path: Type.String({ description: "笔记库内的相对路径，以 .excalidraw 结尾，例如 方案/架构图.excalidraw" }),
-        elements: Type.Array(boardShape, { description: "要画的形状，按绘制顺序；后面的盖住前面的", minItems: 1, maxItems: 200 }),
-        replace: Type.Optional(Type.Boolean({ description: "true 清空已有内容后重画，默认追加" })),
+        action: Type.Optional(Type.Union([Type.Literal("read"), Type.Literal("draw")], {
+          description: "read 读现有内容（默认），draw 画",
+        })),
+        elements: Type.Optional(Type.Array(boardShape, {
+          description: "action=draw 时要画的形状，按绘制顺序；后面的盖住前面的",
+          minItems: 1,
+          maxItems: 200,
+        })),
+        replace: Type.Optional(Type.Boolean({ description: "draw 时 true 清空已有内容后重画，默认追加" })),
       }),
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, BOARD_EXTENSION, NOTES_BOARD_TOOL);
@@ -151,6 +159,16 @@ export function notesAgentTools(board: NotesBoardSettings): ToolDefinition[] {
           if (error instanceof NotesError && error.status === 404) return null;
           throw error;
         });
+        if (params.action !== "draw") {
+          if (!existing) throw new NotesError(`${target} 还不存在`, 404);
+          const lines = describeScene(existing.content);
+          const body = lines.length ? lines.join("\n") : "（空白板）";
+          return textResult(`${target} 现有 ${lines.length} 个元素：\n${body}`, {
+            path: target,
+            elements: lines.length,
+          });
+        }
+        if (!params.elements?.length) throw new NotesError("draw 需要 elements", 400);
         if (!existing) {
           const dir = parentOf(target);
           await ensureDirectories(dir);

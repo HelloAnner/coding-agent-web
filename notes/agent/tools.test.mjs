@@ -14,6 +14,7 @@ const { notesAgentTools, NOTES_MANAGE_TOOL, NOTES_SESSIONS_TOOL, NOTES_WRITE_TOO
 
 const tools = notesAgentTools({ fontFamily: 3, fontSize: 20 });
 const manage = tools.find((tool) => tool.name === NOTES_MANAGE_TOOL);
+const board = tools.find((tool) => tool.name === "notes_board");
 const write = tools.find((tool) => tool.name === NOTES_WRITE_TOOL);
 
 /** A tool call as pi makes it; these tools ignore the id, signal and context. */
@@ -62,6 +63,39 @@ test("rename keeps the extension, move changes the directory, remove deletes", a
   const removed = await run(manage, { action: "remove", path: "工作/归档", recursive: true });
   assert.match(removed.content[0].text, /已删除 工作\/归档/);
   assert.equal((await notes.listTree()).some((node) => node.name === "归档"), false);
+});
+
+test("a board is read back before it is redrawn, so a hand edit survives", async () => {
+  await run(board, {
+    path: "方案/链路.excalidraw",
+    action: "draw",
+    elements: [
+      { type: "rectangle", x: 0, y: 0, label: "浏览器" },
+      { type: "arrow", x: 200, y: 50, to: { x: 360, y: 50 } },
+    ],
+  });
+
+  const read = await run(board, { action: "read", path: "方案/链路.excalidraw" });
+  assert.match(read.content[0].text, /rectangle 0,0 200x100「浏览器」/);
+  assert.match(read.content[0].text, /arrow 200,50 -> 360,50/);
+
+  // The user moves a box by hand; the redraw starts from what is on the board.
+  await run(board, {
+    path: "方案/链路.excalidraw",
+    action: "draw",
+    replace: true,
+    elements: [
+      { type: "rectangle", x: 0, y: 0, label: "浏览器（用户改过）" },
+      { type: "arrow", x: 200, y: 50, to: { x: 360, y: 50 } },
+      { type: "text", x: 0, y: -40, label: "结论：走同一条路由" },
+    ],
+  });
+  const after = await run(board, { action: "read", path: "方案/链路.excalidraw" });
+  assert.match(after.content[0].text, /「浏览器（用户改过）」/);
+  assert.match(after.content[0].text, /「结论：走同一条路由」/);
+
+  await assert.rejects(() => run(board, { action: "read", path: "方案/没有.excalidraw" }), /还不存在/);
+  await assert.rejects(() => run(board, { action: "draw", path: "方案/链路.excalidraw" }), /需要 elements/);
 });
 
 test("the tree tool refuses paths outside the vault and the wrong extension", async () => {

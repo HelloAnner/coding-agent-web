@@ -115,8 +115,9 @@ Agent 内核（pi）
     prepare 取最新 3 个进这一轮，跑完（不管成败）把这三个的版本写回表里。
     会话有了新消息 -> modified/message_count 变了 -> 下一轮重新进清单。
     最后一条消息在 90 秒内的会话先不读：正在用的对话每轮都重读，笔记会来回改。
-    提示词 CODING_DIGEST_PROMPT：项目目录一一对应、按主题子目录、白板优先、
-    同一主题改旧的不另起一篇、没价值就不写。
+    提示词 CODING_DIGEST_PROMPT：只出白板（这轮不给 notes_write），项目目录一一对应、
+    按主题子目录、长文字放白板里的 text、先 notes_board action=read 再 replace 重画
+    （用户手改过的白板按读到的最新内容改）、没价值就不画。
 
   范围
     - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。

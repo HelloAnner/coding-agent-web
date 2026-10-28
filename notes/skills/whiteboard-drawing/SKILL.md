@@ -7,6 +7,8 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 
 `notes_board` 接收形状列表，工具生成合法的 Excalidraw scene。**不要手写 scene JSON。**
 
+改已有的白板之前，先用 `notes_board` `action: "read"` 读它现在的元素（每行一个：类型、坐标、尺寸、文字）。用户可能自己手改过，以读到的为准。
+
 风格（几个节点、多大字、怎么留白）不在这里，先读 `whiteboard-style`。
 
 ## 形状
@@ -47,4 +49,5 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 ## 边界
 
 - 同一块白板重复画时，`replace: true` 重画，否则会追加到已有内容后面。
-- 一次画完一整张图，不要分几次补：改一次 `replace` 重画，避免新旧元素叠在一起。
+- 改已有的白板：先 `action: "read"`，再把整张图（包括要保留的旧元素）一次 `replace: true` 重画。只补一部分就追加，不要半张图换一半。
+- 大段文字也画在白板上：用 `text`，每行 20~26 个汉字自己用 `\n` 换行，一段一个 text，别拉成一根长条。

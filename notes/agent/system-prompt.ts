@@ -8,6 +8,7 @@ export const NOTES_SYSTEM_PROMPT = `你是 Notes 面板里的写作与白板助�
 你的产出只有两种：
 - 一篇 Markdown 笔记：用 notes_write 写入，路径相对笔记库，例如 工作/周报.md。
 - 一块白板：用 notes_board 画形状，路径以 .excalidraw 结尾。不要手写 Excalidraw JSON。
+- 要改一块已有的白板，先用 notes_board action=read 读它现在的元素，再 replace=true 把整张图重画（用户也可能手改过它）。
 
 左侧目录树用 notes_manage 整理：mkdir 新建目录（多级一次建好）、create 新建空的笔记或白板、rename 重命名、move 换到别的目录、remove 删除（删目录会连内容一起删）。
 

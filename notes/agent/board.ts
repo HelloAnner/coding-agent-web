@@ -181,6 +181,65 @@ export function readSceneElements(content: string | null): unknown[] {
   }
 }
 
+interface SceneElement {
+  id?: unknown;
+  type?: unknown;
+  x?: unknown;
+  y?: unknown;
+  width?: unknown;
+  height?: unknown;
+  text?: unknown;
+  fontSize?: unknown;
+  containerId?: unknown;
+  points?: unknown;
+}
+
+function numberAt(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function oneLine(text: string): string {
+  return text.trim().split("\n").map((line) => line.trim()).filter(Boolean).join(" / ");
+}
+
+/**
+ * A stored board as one line per element: what it is, where it sits, what it
+ * says. Text bound to a shape shows up as that shape's label, and coordinates
+ * are exact so an edited board can be redrawn without moving anything. Raw
+ * scene JSON is mostly ids and bindings; the agent needs the layout, not those.
+ */
+export function describeScene(content: string | null): string[] {
+  const elements = readSceneElements(content) as SceneElement[];
+  const bound = new Map<string, SceneElement>();
+  for (const element of elements) {
+    if (typeof element.containerId === "string") bound.set(element.containerId, element);
+  }
+  const lines: string[] = [];
+  for (const element of elements) {
+    if (typeof element.containerId === "string") continue;
+    const type = typeof element.type === "string" ? element.type : "element";
+    const x = numberAt(element.x);
+    const y = numberAt(element.y);
+    if (type === "arrow" || type === "line") {
+      const points = Array.isArray(element.points) ? element.points as unknown[] : [];
+      const last = Array.isArray(points[points.length - 1]) ? points[points.length - 1] as unknown[] : [0, 0];
+      const to = `${x + numberAt(last[0])},${y + numberAt(last[1])}`;
+      const own = typeof element.text === "string" ? oneLine(element.text) : "";
+      lines.push(`- ${type} ${x},${y} -> ${to}${own ? `「${own}」` : ""}`);
+      continue;
+    }
+    const size = `${numberAt(element.width)}x${numberAt(element.height)}`;
+    const ownText = typeof element.text === "string" ? oneLine(element.text) : "";
+    const boundId = typeof element.id === "string" ? element.id : "";
+    const boundElement = boundId ? bound.get(boundId) : undefined;
+    const boundText = typeof boundElement?.text === "string" ? oneLine(boundElement.text) : "";
+    const text = ownText || boundText;
+    const label = text ? `「${text}」` : "";
+    lines.push(`- ${type} ${x},${y} ${size}${label}`);
+  }
+  return lines;
+}
+
 /**
  * The scene JSON to write: the shapes, appended to what the board already has
  * (or replacing it), with the vault's whiteboard style as the app state.

@@ -166,7 +166,7 @@ export function sessionsPrompt(sessions: readonly CodingSession[], queued = 0): 
     lines.push(`  最后活动 ${session.modified}，共 ${session.messageCount} 条消息`);
   }
   lines.push("");
-  lines.push("用 notes_sessions action=read session=<id> 读正文，按规则把有价值的内容并进笔记。");
+  lines.push("用 notes_sessions action=read session=<id> 读正文，把有价值的内容并进白板。");
   if (queued > 0) lines.push(`另有 ${queued} 个会话在排队，下一轮再看。`);
   return lines.join("\n\n");
 }
