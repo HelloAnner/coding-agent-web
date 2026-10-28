@@ -1,4 +1,7 @@
 // Settings shows these as swatches: System, then one row of four palettes.
+// Adding a palette requires an entry in lib/terminal-theme.ts and
+// lib/syntax-theme.ts; both are Record<ResolvedTheme, ...>, so tsc names any
+// surface left behind.
 export const THEME_OPTIONS = [
   { id: "auto", label: "settings.themeSystem", scheme: null },
   { id: "light", label: "settings.themeLight", scheme: "light" },

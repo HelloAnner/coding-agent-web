@@ -288,29 +288,48 @@ button.notes-tree-toggle:hover {
 }
 
 /*
- * The whiteboard look the notes vault has been tuned to: JetBrains Mono for
- * Excalidraw's own UI and the magenta dark palette. Element defaults (Cascadia
- * text, thin round strokes) live in WhiteboardCanvas.tsx.
+ * Excalidraw's own chrome follows the app palette, so a board belongs to the
+ * same theme as the notes around it. The canvas itself stays scene data:
+ * Excalidraw's dark mode filters it, and a saved background is the drawing's.
  */
+.notes-board .excalidraw,
 .notes-board .excalidraw.theme--dark {
-  --ui-font: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "OPPO Sans 4.0", "PingFang SC", monospace;
-  --color-surface-lowest: #121212;
-  --color-surface-low: #17161f;
-  --color-surface-mid: #1c1b25;
-  --color-surface-high: #2a2936;
-  --color-on-surface: #ffffff;
-  --color-primary: #ed5bdc;
-  --color-primary-darker: #f38bdc;
-  --color-primary-darkest: #fba3ea;
-  --color-primary-light: #3a2236;
-  --color-primary-light-darker: #332031;
-  --color-primary-hover: #f38bdc;
-  --color-brand-hover: #f38bdc;
-  --color-brand-active: #fba3ea;
-  --color-on-primary-container: #ffffff;
-  --color-surface-primary-container: #3a2236;
-  --color-border-outline: #8b90a2;
-  --color-border-outline-variant: #3e3b4c;
+  --ui-font: var(--font-mono);
+  --color-surface-lowest: var(--bg);
+  --color-surface-low: var(--bg-panel);
+  --color-surface-mid: var(--bg-panel);
+  --color-surface-high: var(--bg-hover);
+  --color-on-surface: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-darker: var(--accent-hover);
+  --color-primary-darkest: var(--accent-hover);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-light: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  --color-primary-light-darker: color-mix(in srgb, var(--accent) 26%, var(--bg));
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-active: var(--accent-hover);
+  --color-on-primary-container: var(--accent-contrast);
+  --color-surface-primary-container: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  --color-border-outline: var(--text-dim);
+  --color-border-outline-variant: var(--border);
+  --island-bg-color: var(--bg-panel);
+  --default-bg-color: var(--bg);
+  --default-border-color: var(--border);
+  --text-primary-color: var(--text);
+  --popup-bg-color: var(--bg-panel);
+  --popup-secondary-bg-color: var(--bg-hover);
+  --popup-text-color: var(--text);
+  --popup-text-inverted-color: var(--bg);
+  --sidebar-bg-color: var(--bg-panel);
+  --sidebar-border-color: var(--border);
+  --input-bg-color: var(--bg);
+  --input-border-color: var(--border);
+  --input-hover-bg-color: var(--bg-hover);
+  --input-label-color: var(--text-muted);
+  --dialog-border-color: var(--border);
+  --button-hover-bg: var(--bg-hover);
+  --button-active-bg: var(--bg-hover);
+  --icon-fill-color: var(--text);
 }
 
 @media (max-width: 640px) {

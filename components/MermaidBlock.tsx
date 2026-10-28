@@ -2,14 +2,14 @@
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { copyText } from "@/lib/clipboard";
 import { takeHighlightBudget, waitForHighlight } from "@/lib/highlight-queue";
+import { mermaidTheme } from "@/lib/mermaid-theme";
 import { prismLanguagesLoaded } from "@/lib/prism-languages";
+import { SYNTAX_THEMES } from "@/lib/syntax-theme";
 
 interface MermaidBlockProps {
   code: string;
@@ -38,13 +38,15 @@ type RenderState =
   | { key: string; status: "ready"; svg: string };
 
 export function MermaidBlock({ code, isStreaming, defaultPreview = false }: MermaidBlockProps) {
-  const { isDark } = useTheme();
+  const { theme, isDark } = useTheme();
   const { t } = useI18n();
   const [showPreview, setShowPreview] = useState(defaultPreview);
   const [renderState, setRenderState] = useState<RenderState | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
   const previewRef = useRef<HTMLButtonElement>(null);
-  const currentKey = `${isDark ? "dark" : "light"}\n${code}`;
+  // The palette is part of the key: switching between two dark themes must
+  // re-render a diagram that was painted with the other one.
+  const currentKey = `${theme}\n${code}`;
   const previewVisible = showPreview && !isStreaming;
 
   useEffect(() => {
@@ -55,11 +57,12 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
 
     const render = async () => {
       const { default: mermaid } = await import("mermaid");
+      const style = getComputedStyle(document.documentElement);
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
         suppressErrorRendering: true,
-        theme: isDark ? "dark" : "default",
+        ...mermaidTheme((name) => style.getPropertyValue(name).trim(), isDark),
       });
 
       const parsed = await mermaid.parse(code, { suppressErrors: true });
@@ -259,16 +262,9 @@ interface CodeBlockProps {
   isStreaming?: boolean;
 }
 
-// Prism's light theme uses backgroundColor, while its dark theme uses the
-// background shorthand. Keep the pre background solely in customStyle so a
-// theme switch cannot remove/update one and reset the other in React's diff.
-const codeBlockDarkTheme = {
-  ...vscDarkPlus,
-  'pre[class*="language-"]': {
-    ...vscDarkPlus['pre[class*="language-"]'],
-  },
-};
-delete codeBlockDarkTheme['pre[class*="language-"]'].background;
+// Prism's light themes use backgroundColor, while its dark themes use the
+// background shorthand; SYNTAX_THEMES normalizes that away. Keep the pre
+// background solely in customStyle so a theme switch never resets the frame.
 
 /**
  * Syntax-highlighted code block with copy button.
@@ -285,7 +281,7 @@ delete codeBlockDarkTheme['pre[class*="language-"]'].background;
  * box, no tokens) until an idle slice lets it take its language.
  */
 export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isStreaming }: CodeBlockProps) {
-  const { isDark } = useTheme();
+  const { theme } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   // Loading starts with the first block, streaming or not, so a streamed
@@ -337,7 +333,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
       ) : (
         <SyntaxHighlighter
           language={highlighted ? lang || "text" : "text"}
-          style={isDark ? codeBlockDarkTheme : vs}
+          style={SYNTAX_THEMES[theme]}
           showLineNumbers
           lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
           customStyle={{
@@ -346,7 +342,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
             fontSize: "calc(12.5px + var(--chat-font-size-offset, 0px))",
             lineHeight: 1.62,
             fontWeight: "var(--font-mono-weight)",
-            // The light `vs` theme puts its own 1px #ddd border on <pre>; the
+            // The light Prism themes put their own 1px #ddd border on <pre>; the
             // block's wrapper already draws the frame.
             border: "none",
             borderRadius: 0,

@@ -385,22 +385,13 @@ html.dark .web-login-error {
   cursor: not-allowed;
 }
 
-/* The terminal follows the app theme's light/dark choice. Its backgrounds
-   match the xterm palettes in lib/terminal-theme.ts. */
+/* The terminal chrome is the app chrome for every theme; only the xterm
+   surface has a palette of its own. TerminalPanel sets --terminal-bg from
+   that palette, so the panel and xterm always paint the same background. */
 .terminal-panel {
-  --terminal-bg: #111318;
-  --terminal-header-bg: #181b21;
-  --terminal-border: #2f3540;
-  --terminal-button-border: #343a46;
-  --terminal-hover-bg: #242932;
-  --terminal-muted: #9ca3af;
-  --terminal-strong: #e5e7eb;
-  --terminal-key: #d7dce5;
-  --terminal-accent: #60a5fa;
-  --terminal-error-border: #5f2424;
-  --terminal-error-bg: #321b1b;
-  --terminal-error-text: #fca5a5;
-  --terminal-scrollbar: 156, 163, 175;
+  --terminal-error-border: color-mix(in srgb, var(--border) 55%, #ef4444);
+  --terminal-error-bg: color-mix(in srgb, var(--bg-panel) 88%, #ef4444);
+  --terminal-error-text: color-mix(in srgb, var(--text) 45%, #ef4444);
   display: grid;
   grid-template-rows: 38px auto minmax(0, 1fr);
   width: 100%;
@@ -408,24 +399,6 @@ html.dark .web-login-error {
   min-width: 0;
   min-height: 0;
   background: var(--terminal-bg);
-  color-scheme: dark;
-}
-
-.terminal-panel[data-terminal-theme="light"] {
-  --terminal-bg: #fbfbfc;
-  --terminal-header-bg: #f3f4f6;
-  --terminal-border: #e5e7eb;
-  --terminal-button-border: #d1d5db;
-  --terminal-hover-bg: #e5e7eb;
-  --terminal-muted: #6b7280;
-  --terminal-strong: #111827;
-  --terminal-key: #1f2937;
-  --terminal-accent: #2563eb;
-  --terminal-error-border: #fecaca;
-  --terminal-error-bg: #fef2f2;
-  --terminal-error-text: #b91c1c;
-  --terminal-scrollbar: 107, 114, 128;
-  color-scheme: light;
 }
 
 .terminal-panel-header {
@@ -434,9 +407,9 @@ html.dark .web-login-error {
   justify-content: space-between;
   min-width: 0;
   padding: 0 10px 0 13px;
-  border-bottom: 1px solid var(--terminal-border);
-  background: var(--terminal-header-bg);
-  color: var(--terminal-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
 }
@@ -480,24 +453,24 @@ html.dark .web-login-error {
   height: 27px;
   flex-shrink: 0;
   padding: 0 8px;
-  border: 1px solid var(--terminal-button-border);
+  border: 1px solid var(--border);
   border-radius: 5px;
   background: transparent;
-  color: var(--terminal-muted);
+  color: var(--text-muted);
   cursor: pointer;
   font: inherit;
 }
 
 .terminal-panel-exit {
   padding: 7px 12px;
-  color: var(--terminal-muted);
+  color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
 }
 
 .terminal-panel-header button:hover {
-  background: var(--terminal-hover-bg);
-  color: var(--terminal-strong);
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .terminal-panel-error {
@@ -527,8 +500,8 @@ html.dark .web-login-error {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: 36px;
   padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid var(--terminal-border);
-  background: var(--terminal-header-bg);
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .terminal-xterm:has(+ .terminal-extra-keys) {
@@ -544,7 +517,7 @@ html[data-keyboard-open] .terminal-extra-keys {
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--terminal-key);
+  color: var(--text);
   font-family: var(--font-mono);
   font-size: 12px;
   touch-action: manipulation;
@@ -555,7 +528,7 @@ html[data-keyboard-open] .terminal-extra-keys {
 }
 
 .terminal-extra-keys button:active {
-  background: var(--terminal-hover-bg);
+  background: var(--bg-hover);
 }
 
 .terminal-extra-keys .is-rotated {
@@ -564,7 +537,7 @@ html[data-keyboard-open] .terminal-extra-keys {
 }
 
 .terminal-extra-keys button.is-active {
-  color: var(--terminal-accent);
+  color: var(--accent);
 }
 
 .terminal-xterm-host {
@@ -648,13 +621,13 @@ html[data-keyboard-open] .terminal-extra-keys {
 /* The terminal picks its surface apart from the app theme, so --text-dim
    could disappear against it. */
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
-  background-color: rgba(var(--terminal-scrollbar), 0.45);
+  background-color: color-mix(in srgb, var(--text-dim) 45%, transparent);
 }
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(var(--terminal-scrollbar), 0.72);
+  background-color: color-mix(in srgb, var(--text-dim) 72%, transparent);
 }
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
-  background-color: rgb(var(--terminal-scrollbar));
+  background-color: var(--text-dim);
 }
 
 :root {

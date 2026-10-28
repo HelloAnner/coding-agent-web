@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { terminalFontSize, useChatAppearance } from "@/hooks/useChatAppearance";
@@ -18,7 +18,7 @@ import {
   type TerminalModifiers,
 } from "@/lib/terminal-extra-keys";
 import type { TerminalEvent } from "@/lib/terminal-manager";
-import { TERMINAL_XTERM_THEMES, type TerminalTheme } from "@/lib/terminal-theme";
+import { TERMINAL_XTERM_THEMES } from "@/lib/terminal-theme";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";
 
@@ -46,8 +46,11 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   const [modifiers, setModifiers] = useState<TerminalModifiers>(NO_TERMINAL_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const showExtraKeys = useTerminalExtraKeysVisible();
-  // The terminal shares the app's light/dark theme; its palettes live in lib/terminal-theme.ts.
-  const theme: TerminalTheme = useTheme().isDark ? "dark" : "light";
+  // The terminal follows the resolved app palette; its palettes live in lib/terminal-theme.ts.
+  const theme = useTheme().theme;
+  const terminalTheme = TERMINAL_XTERM_THEMES[theme];
+  // The creation effect must not rebuild xterm when the palette changes;
+  // this ref gives it the current palette without becoming a dependency.
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const fontSize = terminalFontSize(useChatAppearance().fontSize);
@@ -269,7 +272,12 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   }, [id, tab.closing]);
 
   return (
-    <section className="terminal-panel" data-terminal-theme={theme} aria-label={t("terminal.title")}>
+    <section
+      className="terminal-panel"
+      data-terminal-theme={theme}
+      style={{ "--terminal-bg": terminalTheme.background ?? "transparent" } as CSSProperties}
+      aria-label={t("terminal.title")}
+    >
       <header className="terminal-panel-header">
         <div className="terminal-panel-path">
           <span className={`terminal-status-dot is-${status}`} title={t(`terminal.${status}`)} />

@@ -4,8 +4,6 @@ import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, 
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
@@ -25,6 +23,7 @@ import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } 
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { SYNTAX_THEMES } from "@/lib/syntax-theme";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
@@ -77,19 +76,6 @@ const FILE_CODE_STYLE: CSSProperties = {
   fontSize: 13,
   lineHeight: 1.6,
 };
-
-// Prism's light theme colors <pre> with backgroundColor, its dark theme with
-// the background shorthand. The source view sets backgroundColor itself and the
-// dark theme's shorthand is dropped, as CodeBlock does: a theme switch then never
-// makes React remove one beside the other (it warned, and the view lost its
-// background).
-const fileViewerDarkTheme = {
-  ...vscDarkPlus,
-  'pre[class*="language-"]': {
-    ...vscDarkPlus['pre[class*="language-"]'],
-  },
-};
-delete fileViewerDarkTheme['pre[class*="language-"]'].background;
 
 // `lineHeight` is FILE_CODE_STYLE's 13px * 1.6, so both columns share one line
 // box; a code-font change must move it with fontSize.
@@ -1123,7 +1109,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
             src={previewUrl}
             sandbox={isPdf ? undefined : "allow-same-origin"}
             title={t("i18n.previewFile", { file: getFileName(filePath) })}
-            style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
+            style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
           />
         )}
       </div>
@@ -1192,7 +1178,7 @@ function TextFileViewer({
   onStateChange,
   watchEnabled = true,
 }: Props) {
-  const { isDark } = useTheme();
+  const { theme } = useTheme();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
@@ -1503,7 +1489,7 @@ function TextFileViewer({
       <SyntaxHighlighter
         className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
         language={language === "text" || !prismReady ? "plaintext" : language}
-        style={isDark ? fileViewerDarkTheme : vs}
+        style={SYNTAX_THEMES[theme]}
         showLineNumbers={false}
         customStyle={{
           margin: 0,
@@ -1531,7 +1517,7 @@ function TextFileViewer({
         {viewerContent}
       </SyntaxHighlighter>
     ),
-    [isDark, language, prismReady, viewerContent, wrapLines],
+    [theme, language, prismReady, viewerContent, wrapLines],
   );
   const lightweightSourceLines = useMemo(
     () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
