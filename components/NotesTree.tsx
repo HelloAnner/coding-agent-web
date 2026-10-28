@@ -8,7 +8,7 @@ import { readNotesTreePosition, saveNotesTreePosition } from "./session-panel-me
 import type { NotesFileKind, NotesNode } from "@/notes/types";
 
 export interface NotesTreeHandle {
-  /** Opens the name form; `dir` is the folder the note goes into ("" is the root). */
+  /** Opens the board name form; `dir` is the folder the board goes into ("" is the root). */
   startCreate: (dir?: string) => void;
 }
 
@@ -214,13 +214,13 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
     const dir = creating.dir;
     setCreateError(null);
     try {
-      const { ok, body } = await mutateNotes({ action: "create", dir, name, kind: "note" });
-      if (!ok || !body.node) throw new Error(body.error || t("sidebar.notesCreateFailed"));
+      const { ok, body } = await mutateNotes({ action: "create", dir, name, kind: "board" });
+      if (!ok || !body.node) throw new Error(body.error || t("sidebar.notesCreateBoardFailed"));
       cancelCreate();
       await load();
-      onOpenNote(body.node.path, notesTitle(body.node.name), "note");
+      onOpenNote(body.node.path, notesTitle(body.node.name), "board");
     } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : t("sidebar.notesCreateFailed"));
+      setCreateError(cause instanceof Error ? cause.message : t("sidebar.notesCreateBoardFailed"));
     }
   };
 
@@ -324,8 +324,8 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
             <button
               type="button"
               className="notes-row-plus"
-              title={t("sidebar.notesNewNoteIn", { name: node.name })}
-              aria-label={t("sidebar.notesNewNoteIn", { name: node.name })}
+              title={t("sidebar.notesNewBoardIn", { name: node.name })}
+              aria-label={t("sidebar.notesNewBoardIn", { name: node.name })}
               onClick={(event) => {
                 event.stopPropagation();
                 startCreate(node.path);
@@ -375,14 +375,14 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
       {creating && (
         <form className="notes-create" onSubmit={(event) => void submitCreate(event)}>
           <div className="notes-create-head">
-            <span>{t("sidebar.notesNewNote")}</span>
+            <span>{t("sidebar.notesNewBoard")}</span>
             <span className="notes-create-target">{creating.dir || t("sidebar.tabNotes")}</span>
           </div>
           <input
             autoFocus
             value={draftName}
-            aria-label={t("sidebar.notesNewNote")}
-            placeholder={t("sidebar.notesNoteTitle")}
+            aria-label={t("sidebar.notesNewBoard")}
+            placeholder={t("sidebar.notesBoardTitle")}
             onChange={(event) => setDraftName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Escape") cancelCreate();

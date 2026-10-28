@@ -279,7 +279,7 @@ export function FileBrowserPane({ cwd, source, onSourceChange, sessionKey, activ
           <>
         <ToolbarIconButton
           onClick={() => notesTreeRef.current?.startCreate()}
-          title={t("sidebar.notesNewNote")}
+          title={t("sidebar.notesNewBoard")}
         >
           <PlusIcon size={14} />
         </ToolbarIconButton>
