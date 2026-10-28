@@ -71,6 +71,9 @@ export async function digestSession(
   try {
     const transcript = await readCodingSession(sessionId);
     if (!transcript) throw new Error("找不到这条对话的正文，会话文件可能已经不在了");
+    // A harness whose file is missing (grok) reads as an empty transcript, not
+    // an error: the run would silently draw nothing.
+    if (!transcript.trim()) throw new Error("这条对话读出来是空的（会话文件里没有正文），没有内容可写");
 
     const { session } = await createNotesSession({
       systemPrompt: sessionDigestPrompt(boardPath, focus),
@@ -79,8 +82,22 @@ export async function digestSession(
       onlyBoard: boardPath,
     });
     let text = "";
+    // pi turns API failures into an assistant message ending the run instead of
+    // a throw, so the error has to be read off the events.
+    let modelError = "";
+    let aborted = false;
     const unsubscribe = session.subscribe((event) => {
-      const delta = (event as { assistantMessageEvent?: { type?: string; delta?: unknown } }).assistantMessageEvent;
+      const typed = event as {
+        type?: string;
+        aborted?: boolean;
+        message?: { role?: string; errorMessage?: string };
+        assistantMessageEvent?: { type?: string; delta?: unknown };
+      };
+      if (typed.type === "message_end" && typed.message?.role === "assistant" && typed.message.errorMessage) {
+        modelError = typed.message.errorMessage;
+      }
+      if (typed.type === "agent_settled" && typed.aborted) aborted = true;
+      const delta = typed.assistantMessageEvent;
       if (delta?.type === "text_delta" && typeof delta.delta === "string") text += delta.delta;
     });
     const timer = setTimeout(() => {
@@ -92,6 +109,16 @@ export async function digestSession(
       clearTimeout(timer);
       unsubscribe();
       session.dispose();
+    }
+    if (modelError) throw new Error(`模型报错：${modelError}`);
+    // The only proof of a write is the file. "The run finished" is not one, and
+    // with no write the user gets the reason instead of a green check.
+    const after = await readItem(boardPath);
+    if (after.content === board.content) {
+      const why = text.trim();
+      throw new Error(aborted
+        ? `写入超时被中断，白板没有变化${why ? `：${why}` : ""}`
+        : `白板没有变化${why ? `：${why}` : ""}`);
     }
     return { message: text.trim() || "已处理完，没有可汇报的内容", board: boardPath };
   } finally {

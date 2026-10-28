@@ -25,6 +25,7 @@ import {
 import { isNotePathUnder, noteTabIdAfterMove, remapNoteTabs } from "./note-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
+import { SidebarToast, type SidebarToastData } from "./SidebarToast";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
@@ -487,6 +488,9 @@ export function AppShell() {
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   // "Save to notes": one session at a time, resolved on the server.
   const [digestStatus, setDigestStatus] = useState<{ kind: "idle" | "running" | "success" | "error"; message?: string }>({ kind: "idle" });
+  // A failed write says why in a toast; the toolbar button alone was too quiet.
+  const [digestToast, setDigestToast] = useState<SidebarToastData | null>(null);
+  const digestToastIdRef = useRef(0);
   // The dialog where the user writes what this run must focus on.
   const [digestDialogOpen, setDigestDialogOpen] = useState(false);
   const [digestFocus, setDigestFocus] = useState("");
@@ -1442,6 +1446,7 @@ export function AppShell() {
 
   useEffect(() => {
     setDigestStatus({ kind: "idle" });
+    setDigestToast(null);
   }, [selectedSession?.id]);
 
   const handleDigestToNotes = useCallback(async (boardPath: string, focus: string) => {
@@ -1449,6 +1454,7 @@ export function AppShell() {
     if (!session || session.transient || digestStatus.kind === "running") return;
     setDigestDialogOpen(false);
     setDigestStatus({ kind: "running" });
+    setDigestToast(null);
     try {
       const response = await fetch("/api/notes/digest", {
         method: "POST",
@@ -1459,7 +1465,10 @@ export function AppShell() {
       if (!response.ok) throw new Error(body.error || translate("notes.digestFailed"));
       setDigestStatus({ kind: "success", message: body.message });
     } catch (error) {
-      setDigestStatus({ kind: "error", message: error instanceof Error ? error.message : translate("notes.digestFailed") });
+      const message = error instanceof Error ? error.message : translate("notes.digestFailed");
+      setDigestStatus({ kind: "error", message });
+      digestToastIdRef.current += 1;
+      setDigestToast({ id: digestToastIdRef.current, message: `${translate("notes.digestFailed")}：${message}`, actions: [] });
     }
   }, [digestStatus.kind, translate]);
 
@@ -3397,6 +3406,17 @@ export function AppShell() {
             </div>
           </div>
         </form>
+      </div>
+    )}
+    {/* A failed "save to notes" shows up here, not only in the toolbar tooltip. */}
+    {digestToast && (
+      <div style={{ position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)", width: "min(560px, calc(100vw - 24px))", zIndex: 950, pointerEvents: "none" }}>
+        <SidebarToast
+          toast={digestToast}
+          onDismiss={() => setDigestToast(null)}
+          dismissLabel={translate("sidebar.dismiss")}
+          durationMs={15_000}
+        />
       </div>
     )}
     </>
