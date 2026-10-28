@@ -3408,14 +3408,15 @@ export function AppShell() {
         </form>
       </div>
     )}
-    {/* A failed "save to notes" shows up here, not only in the toolbar tooltip. */}
+    {/* A failed "save to notes" says why until dismissed: 15s was easy to miss
+        while looking at the board, and the toolbar only kept it in a tooltip. */}
     {digestToast && (
       <div style={{ position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)", width: "min(560px, calc(100vw - 24px))", zIndex: 950, pointerEvents: "none" }}>
         <SidebarToast
           toast={digestToast}
           onDismiss={() => setDigestToast(null)}
           dismissLabel={translate("sidebar.dismiss")}
-          durationMs={15_000}
+          durationMs={10 * 60_000}
         />
       </div>
     )}
