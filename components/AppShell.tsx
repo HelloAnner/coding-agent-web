@@ -15,6 +15,7 @@ import { WEB_APPS, webAppForPath, type WebApp } from "@/lib/apps";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
+import { isNotePathUnder, noteTabIdAfterMove, remapNoteTabs } from "./note-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
@@ -79,7 +80,7 @@ import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import { NoteEditor } from "@/notes/ui/NoteEditor";
 import { Whiteboard } from "@/notes/ui/Whiteboard";
-import type { NotesBoardSettings, NotesFileKind } from "@/notes/types";
+import type { NotesBoardSettings, NotesEditorControl, NotesFileKind } from "@/notes/types";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
@@ -93,7 +94,6 @@ type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktre
 type NoteTab = { path: string; name: string; kind: NotesFileKind };
 // The panel shows no save status for a note: its editor autosaves on its own.
 const ignoreNoteSaveState = () => {};
-const ignoreNoteFlushReady = () => {};
 type AutoNameStatus =
   | { kind: "idle" }
   | { kind: "naming" }
@@ -676,6 +676,13 @@ export function AppShell() {
   // not tied to the project's workspace, so they are not parked with it.
   const [noteTabs, setNoteTabs] = useState<NoteTab[]>([]);
   const [notesBoard, setNotesBoard] = useState<NotesBoardSettings>({ fontFamily: 3, fontSize: 20 });
+  // The open editor's pending keystrokes: a move or delete of its file must
+  // wait for them, or the debounced save would land on a path that is gone.
+  const noteEditorRef = useRef<NotesEditorControl | null>(null);
+  const registerNoteEditor = useCallback((control: NotesEditorControl | null) => {
+    noteEditorRef.current = control;
+  }, []);
+  const flushActiveNote = useCallback(async () => (await noteEditorRef.current?.flush()) ?? true, []);
   const panelTabs: Tab[] = [
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
@@ -1511,6 +1518,27 @@ export function AppShell() {
       setMobileFilesOpen(false);
     }
   }, [isMobile]);
+
+  // A note or folder the notes tree moved: the open tabs follow the file.
+  const handleNoteMoved = useCallback((from: string, to: string) => {
+    setNoteTabs((tabs) => remapNoteTabs(tabs, from, to));
+    setActiveFileTabId((current) => noteTabIdAfterMove(current, from, to));
+  }, []);
+
+  // A note or folder the notes tree deleted: its tabs close; the last one
+  // left in the panel becomes active, as it does when a tab closes by hand.
+  const handleNotesRemoved = useCallback((path: string) => {
+    const gone = noteTabs.filter((tab) => isNotePathUnder(tab.path, path));
+    if (!gone.length) return;
+    const remaining = noteTabs.filter((tab) => !isNotePathUnder(tab.path, path));
+    setNoteTabs(remaining);
+    setActiveFileTabId((current) => {
+      if (!current || !gone.some((tab) => `note:${tab.path}` === current)) return current;
+      const lastNote = remaining.at(-1);
+      return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs)
+        ?? (lastNote ? `note:${lastNote.path}` : null);
+    });
+  }, [noteTabs, fileTabs, terminalTabs, agentTabs]);
 
   // A whiteboard draws with the vault's tuned defaults; read them on first open.
   useEffect(() => {
@@ -2942,6 +2970,9 @@ export function AppShell() {
                   refreshKey={explorerRefreshKey}
                   onOpenFile={handleOpenFile}
                   onOpenNote={handleOpenNote}
+                  onBeforeNoteChange={flushActiveNote}
+                  onNoteMoved={handleNoteMoved}
+                  onNotesRemoved={handleNotesRemoved}
                   onOpenTerminal={handleOpenTerminal}
                   onAtMention={handleAtMention}
                   onAtMentions={handleAtMentions}
@@ -3033,14 +3064,14 @@ export function AppShell() {
                       path={activeNoteTab.path}
                       board={notesBoard}
                       onSaveState={ignoreNoteSaveState}
-                      onFlushReady={ignoreNoteFlushReady}
+                      onFlushReady={registerNoteEditor}
                     />
                   ) : (
                     <NoteEditor
                       key={activeNoteTab.path}
                       path={activeNoteTab.path}
                       onSaveState={ignoreNoteSaveState}
-                      onFlushReady={ignoreNoteFlushReady}
+                      onFlushReady={registerNoteEditor}
                     />
                   )}
                 </div>

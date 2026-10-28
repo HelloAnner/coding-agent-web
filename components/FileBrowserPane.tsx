@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type Ref, type ReactNode } from "react";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
-import { NotesTree } from "./NotesTree";
+import { NotesTree, type NotesTreeHandle } from "./NotesTree";
 import { DismissButton } from "./DismissButton";
 import { getFileName } from "@/lib/file-paths";
 import {
@@ -19,6 +19,7 @@ import {
   CheckIcon,
   EyeIcon,
   FolderIcon,
+  PlusIcon,
   RefreshIcon,
   SearchIcon,
   TerminalIcon,
@@ -83,6 +84,9 @@ interface Props {
   refreshKey?: number;
   onOpenFile: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
   onOpenNote: (path: string, name: string, kind: NotesFileKind) => void;
+  onBeforeNoteChange?: () => Promise<boolean>;
+  onNoteMoved?: (from: string, to: string) => void;
+  onNotesRemoved?: (path: string) => void;
   onOpenTerminal?: (cwd: string) => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
@@ -99,7 +103,7 @@ interface Props {
  * the actions on it, and the tree. A click on a file opens it in the panel's
  * viewer column.
  */
-export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
+export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onBeforeNoteChange, onNoteMoved, onNotesRemoved, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
   const { t } = useI18n();
   const [source, setSource] = useState<FileTreeSource>("project");
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
@@ -114,6 +118,7 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileExplorerRef = useRef<FileExplorerHandle>(null);
+  const notesTreeRef = useRef<NotesTreeHandle>(null);
 
   useEffect(() => {
     if (refreshKey !== undefined) setExplorerKey((key) => key + 1);
@@ -273,13 +278,21 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, padding: "2px 6px", borderBottom: "1px solid var(--border)" }}>
         {source === "notes" ? (
-          <ToolbarIconButton
-            onClick={refresh}
-            title={t("sidebar.refreshNotes")}
-            done={explorerRefreshDone}
-          >
-            {explorerRefreshDone ? <CheckIcon size={14} /> : <RefreshIcon size={14} />}
-          </ToolbarIconButton>
+          <>
+        <ToolbarIconButton
+          onClick={() => notesTreeRef.current?.startCreate()}
+          title={t("sidebar.notesNewNote")}
+        >
+          <PlusIcon size={14} />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          onClick={refresh}
+          title={t("sidebar.refreshNotes")}
+          done={explorerRefreshDone}
+        >
+          {explorerRefreshDone ? <CheckIcon size={14} /> : <RefreshIcon size={14} />}
+        </ToolbarIconButton>
+          </>
         ) : (
           <>
         <ToolbarIconButton
@@ -353,7 +366,15 @@ export function FileBrowserPane({ cwd, activeFilePath, activeNotePath, refreshKe
       )}
       <div className="sidebar-files-scroll scrollbar-subtle" style={{ flex: 1, minHeight: 0 }}>
         {source === "notes" ? (
-          <NotesTree activePath={activeNotePath} refreshKey={notesRefreshKey} onOpenNote={onOpenNote} />
+          <NotesTree
+            ref={notesTreeRef}
+            activePath={activeNotePath}
+            refreshKey={notesRefreshKey}
+            onOpenNote={onOpenNote}
+            onBeforeNoteChange={onBeforeNoteChange}
+            onNoteMoved={onNoteMoved}
+            onNotesRemoved={onNotesRemoved}
+          />
         ) : cwd && (
           <FileExplorer
             activeFilePath={activeFilePath}
