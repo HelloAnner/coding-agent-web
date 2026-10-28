@@ -34,8 +34,8 @@ export interface NotesSessionProfile {
   skills?: string[];
   /** Tool allowlist; defaults to NOTES_AGENT_TOOLS. [] disables every tool. */
   tools?: string[];
-  /** Pin notes_board to this one board, append-only: no replace, no new board. */
-  appendTo?: string;
+  /** Pin notes_board to this one board: edit it however the prompt says, nothing else. */
+  onlyBoard?: string;
 }
 
 export interface NotesSessionHandle {
@@ -147,7 +147,7 @@ export async function createNotesSession(profile: NotesSessionProfile = {}): Pro
     services,
     sessionManager: SessionManager.inMemory(vault),
     tools: profile.tools ?? NOTES_AGENT_TOOLS,
-    customTools: notesAgentTools(settings.board, { appendTo: profile.appendTo }),
+    customTools: notesAgentTools(settings.board, { onlyBoard: profile.onlyBoard }),
     ...(model ? { model } : {}),
   });
 

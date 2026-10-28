@@ -239,7 +239,7 @@ export const zhCNLocale: LocalePlugin = {
     "notes.digestFailed": "写入失败",
     "notes.digestTooltip": "把你写的重点追加到右侧这块白板上，不动已有内容",
     "notes.digestNoBoard": "先在右侧打开一块白板",
-    "notes.digestDialogHint": "只会把这条对话里跟下面重点有关的内容，追加到右侧这块白板。不会新建白板，也不会删改已有内容。",
+    "notes.digestDialogHint": "按你写的来改右侧这块白板。只会写这一块板：不新建白板，也不动别的文件。",
     "notes.digestFocusPlaceholder": "比如：只补这次定的四道闸门各自能证明什么",
     "notes.digestConfirm": "追加",
     "notes.digestCancel": "取消",

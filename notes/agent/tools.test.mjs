@@ -80,21 +80,29 @@ test("the tree tool lists the vault", async () => {
   assert.match(tree.content[0].text, /已有\//);
 });
 
-test("a pinned board tool only appends to that one board", async () => {
-  const pinnedTools = notesAgentTools({ fontFamily: 3, fontSize: 20 }, { appendTo: "方案/链路.excalidraw" });
+test("a pinned board tool writes that one board and nothing else", async () => {
+  const pinnedTools = notesAgentTools({ fontFamily: 3, fontSize: 20 }, { onlyBoard: "方案/链路.excalidraw" });
   const pinned = pinnedTools.find((tool) => tool.name === NOTES_BOARD_TOOL);
-  const shape = [{ type: "rectangle", x: 600, y: 600, label: "只追加" }];
+  const shape = [{ type: "rectangle", x: 600, y: 600, label: "后来画的" }];
 
   await run(pinned, { action: "draw", path: "方案/链路.excalidraw", elements: shape });
   const read = await run(pinned, { action: "read", path: "方案/链路.excalidraw" });
   // The hand-edited box from the earlier test is still there: appending keeps everything.
   assert.match(read.content[0].text, /「浏览器（用户改过）」/);
-  assert.match(read.content[0].text, /「只追加」/);
+  assert.match(read.content[0].text, /「后来画的」/);
 
-  await assert.rejects(() => run(pinned, { action: "draw", path: "方案/链路.excalidraw", replace: true, elements: shape }), /只能追加/);
-  await assert.rejects(() => run(pinned, { action: "draw", path: "已有/新板.excalidraw", elements: shape }), /只能往 方案\/链路\.excalidraw/);
+  // The user's instruction may say "redraw it": replace is allowed on the pinned board.
+  await run(pinned, { action: "draw", path: "方案/链路.excalidraw", replace: true, elements: shape });
+  const redrawn = await run(pinned, { action: "read", path: "方案/链路.excalidraw" });
+  assert.doesNotMatch(redrawn.content[0].text, /「浏览器（用户改过）」/);
+
+  // Every other path stays out of reach.
+  await assert.rejects(
+    () => run(pinned, { action: "draw", path: "已有/新板.excalidraw", elements: shape }),
+    /只能改 方案\/链路\.excalidraw/,
+  );
   await assert.rejects(
     () => run(pinned, { action: "draw", path: "已有/另一块.excalidraw", elements: shape }),
-    /只能往 方案\/链路\.excalidraw/,
+    /只能改 方案\/链路\.excalidraw/,
   );
 });

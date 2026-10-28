@@ -239,7 +239,7 @@ export const enLocale: LocalePlugin = {
     "notes.digestFailed": "Save failed",
     "notes.digestTooltip": "Append your focus to the whiteboard open on the right, leaving existing content alone",
     "notes.digestNoBoard": "Open a whiteboard on the right first",
-    "notes.digestDialogHint": "Only what this conversation says about the focus below is appended to the whiteboard on the right. No new boards, nothing existing removed or changed.",
+    "notes.digestDialogHint": "This whiteboard is changed the way you write below. Only this board: no new boards, no other files.",
     "notes.digestFocusPlaceholder": "e.g. only add what each of the four gates can prove",
     "notes.digestConfirm": "Append",
     "notes.digestCancel": "Cancel",

@@ -239,7 +239,7 @@ export const zhTWLocale: LocalePlugin = {
     "notes.digestFailed": "寫入失敗",
     "notes.digestTooltip": "把你寫的重點追加到右側這塊白板上，不動已有內容",
     "notes.digestNoBoard": "先在右側開啟一塊白板",
-    "notes.digestDialogHint": "只會把這段對話裡跟下面重點有關的內容，追加到右側這塊白板。不會新建白板，也不會刪改已有內容。",
+    "notes.digestDialogHint": "按你寫的來改右側這塊白板。只會寫這一塊板：不新建白板，也不動別的檔案。",
     "notes.digestFocusPlaceholder": "例如：只補這次定的四道閘門各自能證明什麼",
     "notes.digestConfirm": "追加",
     "notes.digestCancel": "取消",

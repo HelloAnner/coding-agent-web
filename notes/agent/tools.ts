@@ -103,11 +103,11 @@ const boardShape = Type.Object({
 });
 
 /**
- * `appendTo` pins the only writable board: the digest run may add elements to
- * that one board and nothing else — no replace, no new board, no other path.
+ * `onlyBoard` pins the only writable board: the run may edit that one board any
+ * way the user asked, and nothing else — no new board, no other path.
  */
-export function notesAgentTools(board: NotesBoardSettings, options: { appendTo?: string } = {}): ToolDefinition[] {
-  const appendTo = options.appendTo;
+export function notesAgentTools(board: NotesBoardSettings, options: { onlyBoard?: string } = {}): ToolDefinition[] {
+  const onlyBoard = options.onlyBoard;
   return [
     defineTool({
       name: NOTES_LS_TOOL,
@@ -187,11 +187,8 @@ export function notesAgentTools(board: NotesBoardSettings, options: { appendTo?:
       }),
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, BOARD_EXTENSION, NOTES_BOARD_TOOL);
-        if (appendTo && target !== appendTo) {
-          throw new NotesError(`这次只能往 ${appendTo} 里追加内容，不能动 ${target}`, 403);
-        }
-        if (appendTo && params.action === "draw" && params.replace) {
-          throw new NotesError("这次只能追加，不能重画：replace 必须是 false", 400);
+        if (onlyBoard && target !== onlyBoard) {
+          throw new NotesError(`这次只能改 ${onlyBoard}，不能动 ${target}`, 403);
         }
         const existing = await readItem(target).catch((error: unknown) => {
           if (error instanceof NotesError && error.status === 404) return null;
@@ -208,7 +205,7 @@ export function notesAgentTools(board: NotesBoardSettings, options: { appendTo?:
         }
         if (!params.elements?.length) throw new NotesError("draw 需要 elements", 400);
         if (!existing) {
-          if (appendTo) throw new NotesError(`${target} 还不存在。这次只能往已有白板里追加内容`, 404);
+          if (onlyBoard) throw new NotesError(`${target} 还不存在。这次只能改已有的白板`, 404);
           const blocked = manualCreateBlock(target);
           if (blocked) throw new NotesError(blocked, 409);
           const dir = parentOf(target);

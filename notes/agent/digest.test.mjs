@@ -7,11 +7,11 @@ const { sessionDigestPrompt } = await jiti.import("./digest.ts");
 
 const prompt = sessionDigestPrompt("方案/发布.excalidraw", "只补四道闸门各自能证明什么");
 
-test("the run is pinned to the open board and to the user's focus", () => {
-  // The board path and the focus are the whole brief: no free rein left.
+test("the user's sentence is the instruction, the board is the only limit", () => {
+  // The typed prompt is the brief; editing the board (even replace) is allowed.
   assert.ok(prompt.includes("方案/发布.excalidraw"));
   assert.ok(prompt.includes("只补四道闸门各自能证明什么"));
-  for (const rule of ["replace 一律 false", "不许新建白板", "一个字都不写", "没提到"]) {
+  for (const rule of ["优先级最高", "replace=true", "不许新建白板", "没提的内容不要自己加", "什么都不写"]) {
     assert.ok(prompt.includes(rule), rule);
   }
 });

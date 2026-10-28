@@ -4,35 +4,38 @@ import { BOARD_EXTENSION, NotesError, readItem } from "../files";
 
 /**
  * The "file this conversation" button on the Coding page. One click opens a
- * dialog: the user writes what this run must focus on, and the agent appends
- * only that to the whiteboard already open in the right panel.
+ * dialog: the user writes what this run must do, and the agent does it on the
+ * whiteboard already open in the right panel.
  *
- * Nothing else is possible by construction: the run gets one tool, pinned to
- * that one board, and the tool refuses replace, new boards and other paths.
- * The prompt is the user's focus plus the two drawing skills — no room for the
- * model to decide what the conversation is about.
+ * The user's sentence is the instruction; the only thing the run cannot do is
+ * leave that board. The tool is pinned to it, so no new board and no other
+ * file can be touched whatever the model decides.
  */
 
 /** The whole run; a hung pass is aborted here. */
 const RUN_BUDGET_MS = 6 * 60_000;
 
 export function sessionDigestPrompt(boardPath: string, focus: string): string {
-  return `把一条 Coding 对话里跟下面「重点」有关的部分，补进白板 ${boardPath}。
+  return `你要在白板 ${boardPath} 上做事。这是用户此刻打开的那块板，也是你唯一能写的地方。
 
-用户这次只关心这些，他说了算：
-<重点>
+下面是用户的原话，就是这次的指令。它优先级最高，压过下面的默认做法，也压过你自己对这条对话的判断：
+<指令>
 ${focus.trim()}
-</重点>
+</指令>
 
-## 只做这些
+## 边界
 
-1. notes_board action=read ${boardPath}，看板上已有的元素、坐标和留白，找空位。
-2. 只从对话里挑跟「重点」直接相关、板上还没有的事实，按 whiteboard-style / whiteboard-drawing 画上去。
-3. 只能追加：replace 一律 false。已有元素一个都不许删、不许挪、不许改名、不许重画。
-4. 只写 ${boardPath} 这一块板。不许新建白板或目录，不许改名、移动、删除任何东西。
-5. 「重点」没提到的内容一律不画，哪怕你觉得重要。重点在对话里没有对应事实、板上已经画过、这次没有新东西可加，就一个字都不写，直接说为什么。
+- 只写 ${boardPath}。不许新建白板或目录，不许改名、移动、删除任何东西，别的文件一个字都不写。
+- 这块板里怎么改全听上面那句：要删就删、要改就改、要整块重画就用 replace=true；用户没让动的地方保持原样。
+- 指令里没提的内容不要自己加，哪怕你觉得重要。指令在这条对话里找不到依据、或者做不了，就什么都不写，直接说为什么。
 
-做完用两三句话说：加了什么；或者为什么没加。`;
+## 怎么做
+
+- 先 notes_board action=read ${boardPath}，看现有元素、坐标和留白，不要凭记忆。
+- replace=true 重画时，把用户手改过的文字、坐标和要保留的旧元素一起重画进去。
+- 画之前先读 skill whiteboard-style 和 whiteboard-drawing。
+
+做完用两三句话说：改了什么；或者为什么没改。`;
 }
 
 export interface SessionDigestResult {
@@ -73,7 +76,7 @@ export async function digestSession(
       systemPrompt: sessionDigestPrompt(boardPath, focus),
       skills: ["whiteboard-style", "whiteboard-drawing"],
       tools: ["notes_board"],
-      appendTo: boardPath,
+      onlyBoard: boardPath,
     });
     let text = "";
     const unsubscribe = session.subscribe((event) => {
