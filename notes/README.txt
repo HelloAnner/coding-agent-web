@@ -119,6 +119,13 @@ Agent 内核（pi）
     按主题子目录、长文字放白板里的 text、先 notes_board action=read 再 replace 重画
     （用户手改过的白板按读到的最新内容改）、没价值就不画。
 
+  手动任务：整理笔记库（notes-tidy）
+    没有排期，只能手动触发：Notes 侧栏右上角的整理按钮，或 POST /api/notes/tasks {id:"notes-tidy"}。
+    任务池照样排队、限并发、记状态；跑的时候按钮转圈，结束后自动刷新目录树。
+    提示词 NOTES_TIDY_PROMPT：合并同主题白板（读原板 -> replace 重画 -> 删多余）、
+    统一标题（rename 文件名/目录名）、按「项目 → 主题」收拢目录（move / remove），
+    正文不重写，归属不确定的不挪；只在 manual:true 时注册，永远不会自己跑。
+
   范围
     - 工具只碰笔记库：notes_write 只写 .md，notes_board 只写 .excalidraw，路径一律相对。
     - notes_sessions 只读 Coding 的会话文件，不改任何东西。

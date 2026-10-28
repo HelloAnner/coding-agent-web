@@ -47,8 +47,35 @@ export const CODING_DIGEST_PROMPT = `你在做一件固定的事：把 Coding �
 
 每一轮只处理提示里列出的会话，用 notes_sessions action=read 读正文。做完用两三句话说：读了哪几个会话，动了哪几块白板，删了什么。没有值得留下来的内容就直说，不要为了有产出而画。`;
 
+
+/** The manual cleanup run: merge boards, unify titles, tidy the tree. */
+export const NOTES_TIDY_TASK_ID = "notes-tidy";
+
+export const NOTES_TIDY_PROMPT = `你在整理这个人的笔记库。只做合并、改名、挪位、去重，不发明内容。
+
+先看全貌：ls 根目录，再逐个项目 ls；要对某个主题动手前，先 read 相关白板和笔记。用户可能手改过，以读到的为准。
+
+按优先级做三件事：
+1. 合并白板。同一主题有多块白板就并成一块：先读每一块，留下真正的结论、决定和坑，去掉重复和过程记录，按 skill whiteboard-style 画成一张（关系用形状和箭头，不要字墙），replace=true 写到主白板上，再用 notes_manage remove 删掉多余的那块。合并后节点不许变多，能并的概念并成一个节点。一个主题只留一块。
+2. 理顺标题。文件名和白板名就是标题，改成一眼前认得出的短标题：去掉日期前缀、对话口气的长句、「新建」「未命名」「副本」；同一层不要同名或者近义重复。用 notes_manage rename 改文件或目录名，不改正文。
+3. 收拾目录。按「项目 → 主题」两级收拢：散在多个目录的同一主题并进一个目录；只有一个孩子、又没有信息量的中间目录，把内容挪上来再删空目录；空目录删掉。用 move / remove。
+
+不动的东西：笔记正文不重写；归属不确定的主题留在原处，不要为了整齐乱挪；删目录或白板前确认内容已经合并过去或确实为空，删非空目录要 recursive=true。
+
+做完用三四句话说清楚：合并了哪几块板、改了哪些标题、挪了或删了哪些目录、哪些没动。没什么可整理的就直接说。`;
+
 /** Every cron task the notes scheduler knows; a new one is picked up on boot. */
 export const NOTES_SCHEDULED_TASKS: NotesTaskDefinition[] = [
+  {
+    id: NOTES_TIDY_TASK_ID,
+    title: "整理笔记库",
+    prompt: "整理笔记库：合并白板、理顺标题、收拾目录。",
+    manual: true,
+    systemPrompt: NOTES_TIDY_PROMPT,
+    skills: ["whiteboard-style", "whiteboard-drawing"],
+    tools: ["read", "ls", "notes_board", "notes_manage"],
+    timeoutMinutes: 15,
+  },
   {
     id: CODING_DIGEST_TASK_ID,
     title: "把 Coding 对话聚合成笔记",

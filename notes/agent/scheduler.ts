@@ -57,7 +57,9 @@ class NotesTaskScheduler {
   /** Add or replace one definition; run state survives a definition update. */
   register(task: NotesTaskDefinition): void {
     const nextAt = nextRunAt(task, new Date());
-    if (task.enabled === false || nextAt === null) {
+    // A manual task never fires on its own, but stays registered so the panel
+    // can start it by id.
+    if (task.enabled === false || (nextAt === null && task.manual !== true)) {
       this.entries.delete(task.id);
       return;
     }

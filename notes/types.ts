@@ -134,6 +134,8 @@ export interface NotesTaskDefinition {
   dailyAt?: string;
   /** false keeps the definition out of the pool. Default: enabled. */
   enabled?: boolean;
+  /** No schedule: registered for the manual-run endpoint only. */
+  manual?: boolean;
   /** Replaces NOTES_SYSTEM_PROMPT for this task. */
   systemPrompt?: string;
   /** Skill names under notes/skills; omitted loads all, [] loads none. */
