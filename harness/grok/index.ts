@@ -74,6 +74,23 @@ export function grokPermissionMode(): string {
   return process.env.PI_WEB_GROK_PERMISSION_MODE?.trim() || "bypassPermissions";
 }
 
+/**
+ * Headless `grok -p` takes text only, so attached images are written next to
+ * the run and named in the prompt. The marker is stripped again when the
+ * transcript is read, so a reload shows the text the user typed.
+ */
+const ATTACHMENT_MARKER = /\n*\[attached images\][^\n]*\n(?:\S+\n?)*$/i;
+
+export function grokPromptWithImages(text: string, files: string[]): string {
+  if (files.length === 0) return text;
+  const body = ["[attached images] open each file below before answering", ...files].join("\n");
+  return text.trim() ? `${text.trim()}\n\n${body}` : body;
+}
+
+export function stripGrokAttachments(text: string): string {
+  return text.replace(ATTACHMENT_MARKER, "").trim();
+}
+
 export const grokHarness: HarnessDescriptor = {
   id: "grok",
   label: "grok",

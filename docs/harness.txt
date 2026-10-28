@@ -119,7 +119,9 @@ grok：官方模型生态，不是通用 provider 路由器
   每问启动一次原生 grok，传 --model。已有会话可为下一轮选择另一个官方模型，
   不复制上下文、不切 harness；恢复依靠同一 cwd 下的 grok 原生日志。
   用 streaming-json/NDJSON，不走 ACP，也不能套用 Claude 的 stream-json 控制协议。
-  目前未接图片、原生斜杠命令、思考档位和用量/成本统计。
+  图片：headless 没有图片参数，附件先写到临时目录，再在提问末尾列出路径，
+  让 grok 自己的文件工具打开；读历史时这段标记会去掉。
+  目前未接原生斜杠命令、思考档位和用量/成本统计。
 
   可复用：官方目录只读、每轮 CLI、按原生 id 恢复、NDJSON 转换。
   不照搬：因为按钮长得一样，就给官方型 harness 加通用 provider 编辑器。
@@ -253,6 +255,8 @@ grok：
        --permission-mode <模式> -s <新 UUID>，已有会话用 -r <UUID>
   子进程 cwd 必须保持原会话目录，CLI 通过它定位恢复日志。
   stdout 一行一个事件；text/thought/tool_call/tool_call_update 转成正文、思考与工具事件。
+  附件写到 <tmp>/pi-web-grok-images/<sessionId>/，提问里附「[attached images]」+ 绝对路径；
+  只发图片不发文字时，提问就只有这一段。
   SIGINT 中断，3 秒不退再 SIGTERM；进程关闭后才最终结算这一轮。
   PI_WEB_GROK_BIN 可指定二进制；默认找 ~/.local/bin/grok，再找 ~/.grok/bin/grok。
   GROK_DEFAULT_MODEL 未设置时回退 grok-4.7。

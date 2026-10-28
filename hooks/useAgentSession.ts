@@ -1969,14 +1969,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!cwd) addNotice({ type: "error", message: "Pick a folder first" });
       return;
     }
-    if (images?.length) {
-      restoreSubmission(text, images, composerDraftKey);
-      addNotice({ type: "error", message: "The grok harness sends text only for now" });
-      return;
-    }
     const sid = sessionIdRef.current ?? newGrokSessionId();
     sessionIdRef.current = sid;
-    const userMessage: AgentMessage = { role: "user", content: text, timestamp: Date.now() };
+    const imageBlocks = images?.map((img) => ({
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: img.mimeType, data: img.data },
+    }));
+    const userMessage: AgentMessage = {
+      role: "user",
+      content: imageBlocks?.length
+        ? [...(text.trim() ? [{ type: "text" as const, text }] : []), ...imageBlocks]
+        : text,
+      timestamp: Date.now(),
+    };
 
     dispatch({ type: "start" });
     agentRunningRef.current = true;
@@ -1993,6 +1998,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "prompt",
         message: text,
         cwd,
+        ...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
         ...(grokModelRef.current?.modelId ? { model: grokModelRef.current.modelId } : {}),
       });
       promoteNewSession(1, text, result?.sessionFile ?? "");

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/lib/types";
-import { resolveGrokHistoryFile } from "./index";
+import { resolveGrokHistoryFile, stripGrokAttachments } from "./index";
 
 /**
  * Grok's own transcript (`chat_history.jsonl`) -> the message list this app renders.
@@ -25,9 +25,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function userText(text: string): string | null {
   const query = /<user_query>([\s\S]*?)<\/user_query>/.exec(text);
-  if (query) return query[1].trim() || null;
-  const trimmed = text.trim();
-  if (!trimmed || SYNTHETIC_ENVELOPE.test(trimmed)) return null;
+  if (query) return stripGrokAttachments(query[1]) || query[1].trim() || null;
+  const trimmed = stripGrokAttachments(text);
+  if (!trimmed) return null;
+  if (SYNTHETIC_ENVELOPE.test(trimmed)) return null;
   return trimmed;
 }
 

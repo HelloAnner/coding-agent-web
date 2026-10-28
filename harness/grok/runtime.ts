@@ -1,9 +1,18 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import type { AgentEventLike } from "@/lib/agent-event-wire";
 import type { AssistantMessage } from "@/lib/types";
 import { GrokEventMapper } from "./events";
-import { grokBin, grokHistoryFile, grokPermissionMode, resolveGrokHistoryFile } from "./index";
+import {
+  grokBin,
+  grokHistoryFile,
+  grokPermissionMode,
+  grokPromptWithImages,
+  resolveGrokHistoryFile,
+} from "./index";
 
 /**
  * The grok runtime. One `grok -p` child per prompt, nothing long-lived:
@@ -20,6 +29,8 @@ export interface GrokPrompt {
   cwd: string;
   text: string;
   model?: string | null;
+  /** Attached images, base64 without a data URL prefix. */
+  images?: Array<{ data: string; mimeType: string }>;
 }
 
 type Listener = (event: AgentEventLike) => void;
@@ -106,15 +117,41 @@ function defaultModel(): string {
  * Grok resolves `-r <id>` inside the folder's own session root, so the child
  * has to run in the folder the session was started in.
  */
-function argsFor({ sessionId, cwd, text, model }: GrokPrompt): string[] {
-  const resume = resolveGrokHistoryFile(cwd, sessionId) !== null;
+function argsFor(prompt: GrokPrompt, text: string): string[] {
+  const resume = resolveGrokHistoryFile(prompt.cwd, prompt.sessionId) !== null;
   return [
     "-p", text,
     "--output-format", "streaming-json",
     "--permission-mode", grokPermissionMode(),
-    "--model", model?.trim() || defaultModel(),
-    ...(resume ? ["-r", sessionId] : ["-s", sessionId]),
+    "--model", prompt.model?.trim() || defaultModel(),
+    ...(resume ? ["-r", prompt.sessionId] : ["-s", prompt.sessionId]),
   ];
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/avif": "avif",
+};
+
+/**
+ * `grok -p` has no image flag, so the bytes go to a temp file and the prompt
+ * names the paths for grok's own file tools to open.
+ */
+function writeImages(prompt: GrokPrompt): string[] {
+  const images = prompt.images ?? [];
+  if (images.length === 0) return [];
+  const dir = path.join(tmpdir(), "pi-web-grok-images", prompt.sessionId);
+  mkdirSync(dir, { recursive: true });
+  return images.map((image, index) => {
+    const extension = IMAGE_EXTENSIONS[image.mimeType] ?? "png";
+    const file = path.join(dir, `${Date.now()}-${index}.${extension}`);
+    writeFileSync(file, Buffer.from(image.data, "base64"));
+    return file;
+  });
 }
 
 /** Where grok keeps this session's transcript. The catalog row stores it. */
@@ -129,7 +166,10 @@ export function grokSessionFile(cwd: string, sessionId: string): string {
 export async function sendGrokPrompt(prompt: GrokPrompt): Promise<void> {
   const run = getGrokEventSource(prompt.sessionId, prompt.model ?? defaultModel());
   if (run.isStreaming) throw new Error("grok is already answering in this session");
-  if (!prompt.text.trim()) throw new Error("empty prompt");
+  if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
+
+  const files = writeImages(prompt);
+  const text = grokPromptWithImages(prompt.text, files);
 
   run.isStreaming = true;
   run.aborted = false;
@@ -150,7 +190,7 @@ export async function sendGrokPrompt(prompt: GrokPrompt): Promise<void> {
 
   let child: ChildProcess;
   try {
-    child = spawn(grokBin(), argsFor(prompt), { cwd: prompt.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    child = spawn(grokBin(), argsFor(prompt, text), { cwd: prompt.cwd, stdio: ["ignore", "pipe", "pipe"] });
   } catch (error) {
     finish(`grok could not start: ${error instanceof Error ? error.message : String(error)}`);
     return;

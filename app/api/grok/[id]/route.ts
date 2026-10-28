@@ -1,5 +1,6 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "@/lib/tool-result-images";
 import {
   abortGrokPrompt,
   grokSessionFile,
@@ -10,10 +11,24 @@ import { readGrokTranscript } from "@/harness/grok/transcript";
 
 export const dynamic = "force-dynamic";
 
+/** Attached images, base64 without a prefix. Same limits as the other harnesses. */
+function readImages(raw: unknown): Array<{ data: string; mimeType: string }> {
+  if (!Array.isArray(raw)) return [];
+  const images: Array<{ data: string; mimeType: string }> = [];
+  for (const item of raw.slice(0, 8)) {
+    const image = item as { data?: unknown; mimeType?: unknown } | null;
+    if (!image || typeof image.data !== "string" || typeof image.mimeType !== "string") continue;
+    if (!TOOL_RESULT_IMAGE_MIMES.has(image.mimeType)) throw new Error(`Unsupported image type: ${image.mimeType}`);
+    if (image.data.length > Math.ceil(MAX_TOOL_RESULT_IMAGE_BYTES * 4 / 3) || !/^[A-Za-z0-9+/]*={0,2}$/.test(image.data)) throw new Error("Invalid image attachment");
+    images.push({ data: image.data, mimeType: image.mimeType });
+  }
+  return images;
+}
+
 /**
  * POST /api/grok/[id] - one command for a grok session.
  *
- *   { type: "prompt", message, cwd, model? }
+ *   { type: "prompt", message, cwd, model?, images? }
  *   { type: "abort" }
  *   { type: "get_state" }
  *
@@ -36,12 +51,21 @@ export async function POST(
       const message = typeof body.message === "string" ? body.message : "";
       const cwd = typeof body.cwd === "string" ? body.cwd : "";
       const model = typeof body.model === "string" ? body.model : undefined;
-      if (!message.trim()) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
       if (!cwd || !path.isAbsolute(cwd)) {
         return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
       }
+      let images: Array<{ data: string; mimeType: string }>;
       try {
-        await sendGrokPrompt({ sessionId: id, cwd, text: message, model });
+        images = readImages(body.images);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 400 },
+        );
+      }
+      if (!message.trim() && images.length === 0) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
+      try {
+        await sendGrokPrompt({ sessionId: id, cwd, text: message, model, images });
       } catch (error) {
         return NextResponse.json(
           { error: error instanceof Error ? error.message : String(error) },
