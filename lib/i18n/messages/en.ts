@@ -405,7 +405,6 @@ export const enLocale: LocalePlugin = {
     "sidebar.notesCancel": "Cancel",
     "sidebar.notesCreateFailed": "Could not create the note",
     "sidebar.notesDelete": "Delete",
-    "sidebar.notesDeleteConfirm": "Delete \"{name}\"?",
     "sidebar.notesDeleteDirConfirm": "Delete the folder \"{name}\" with every note and board in it?",
     "sidebar.notesDeleteFailed": "Could not delete",
     "sidebar.notesMoveFailed": "Could not move",

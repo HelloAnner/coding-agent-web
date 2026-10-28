@@ -179,10 +179,9 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
     }
   };
 
+  // A note goes on one click; a folder takes every note in it, so it asks.
   const removeNode = async (node: NotesNode) => {
-    const isDir = node.type === "dir";
-    const name = isDir ? node.name : notesTitle(node.name);
-    if (!window.confirm(t(isDir ? "sidebar.notesDeleteDirConfirm" : "sidebar.notesDeleteConfirm", { name }))) return;
+    if (node.type === "dir" && !window.confirm(t("sidebar.notesDeleteDirConfirm", { name: node.name }))) return;
     setActionError(null);
     try {
       if ((await onBeforeNoteChange?.()) === false) return;

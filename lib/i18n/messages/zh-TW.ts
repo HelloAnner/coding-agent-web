@@ -405,7 +405,6 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.notesCancel": "取消",
     "sidebar.notesCreateFailed": "建立筆記失敗",
     "sidebar.notesDelete": "刪除",
-    "sidebar.notesDeleteConfirm": "刪除「{name}」？",
     "sidebar.notesDeleteDirConfirm": "刪除目錄「{name}」和裡面的全部筆記與白板？",
     "sidebar.notesDeleteFailed": "刪除失敗",
     "sidebar.notesMoveFailed": "移動失敗",

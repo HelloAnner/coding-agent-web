@@ -405,7 +405,6 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.notesCancel": "取消",
     "sidebar.notesCreateFailed": "创建笔记失败",
     "sidebar.notesDelete": "删除",
-    "sidebar.notesDeleteConfirm": "删除「{name}」？",
     "sidebar.notesDeleteDirConfirm": "删除目录「{name}」和里面的全部笔记与白板？",
     "sidebar.notesDeleteFailed": "删除失败",
     "sidebar.notesMoveFailed": "移动失败",
