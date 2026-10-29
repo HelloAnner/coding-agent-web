@@ -949,9 +949,9 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
-  const pageFragment = isPdf && initialPage && initialPage > 0 ? `#page=${initialPage}` : "";
+  const pageFragment = initialPage && initialPage > 0 ? `page=${initialPage}&` : "";
   const previewUrl = isPdf
-    ? `${getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)}${pageFragment}`
+    ? `${getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)}#${pageFragment}toolbar=0&navpanes=0&view=FitH`
     : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   useEffect(() => {
@@ -1062,42 +1062,44 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 16px",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg)",
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
-        {size != null && <span>{formatSize(size)}</span>}
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
-        <span
-          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
+      {!isPdf && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "4px 16px",
+            borderBottom: "1px solid var(--border)",
+            fontSize: 11,
+            color: "var(--text-dim)",
+            background: "var(--bg)",
+            flexShrink: 0,
+          }}
         >
+          <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
+            {getRelativeFilePath(filePath, cwd)}
+          </span>
+          <span style={{ marginLeft: "auto" }}>docx preview</span>
+          {size != null && <span>{formatSize(size)}</span>}
+          <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
           <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: watching ? "#4ade80" : "var(--border)",
-              display: "inline-block",
-              boxShadow: watching ? "0 0 4px #4ade80" : "none",
-            }}
-          />
-          {watching ? "live" : "static"}
-        </span>
-      </div>
+            title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+            style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: watching ? "#4ade80" : "var(--border)",
+                display: "inline-block",
+                boxShadow: watching ? "0 0 4px #4ade80" : "none",
+              }}
+            />
+            {watching ? "live" : "static"}
+          </span>
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
         {error ? (
           <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "#f87171", fontSize: 13, textAlign: "center" }}>
@@ -1109,7 +1111,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, initialPage, watchEnab
             src={previewUrl}
             sandbox={isPdf ? undefined : "allow-same-origin"}
             title={t("i18n.previewFile", { file: getFileName(filePath) })}
-            style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
+            style={{ display: "block", width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
           />
         )}
       </div>

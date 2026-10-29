@@ -1,4 +1,4 @@
-// Focused e2e check for PDF `#page=` markdown links.
+// Focused e2e check for content-only PDF previews and `#page=` markdown links.
 //
 //   node e2e/pdf-page-fragment.mjs
 //
@@ -100,10 +100,8 @@ const entries = [
     message: { role: "user", content: `[PDF page 1](${pdfPath})` },
   },
 ];
-writeFileSync(
-  join(sessionDir, `2026-08-23T00-00-00-000Z_${SESSION}.jsonl`),
-  `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
-);
+const sessionPath = join(sessionDir, `2026-08-23T00-00-00-000Z_${SESSION}.jsonl`);
+writeFileSync(sessionPath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 
 let server;
 let browser;
@@ -126,6 +124,39 @@ async function waitForViewerSrc(page, predicate, label) {
     await delay(200);
   }
   assert.fail(`${label}: viewer iframe never matched (last src: ${last})`);
+}
+
+/** Check the real browser viewer, not just its requested URL parameters. */
+async function checkContentOnlyPreview(page, expectedPage) {
+  const iframe = page.locator('#file-panel iframe[src*="type=read"]');
+  const params = new URLSearchParams((await iframe.getAttribute("src")).split("#")[1]);
+  assert.equal(params.get("toolbar"), "0");
+  assert.equal(params.get("navpanes"), "0");
+  assert.equal(params.get("view"), "FitH");
+  await iframe.evaluate((frame) => {
+    const shell = frame.parentElement.parentElement;
+    if (shell.textContent.trim() || shell.children.length !== 1) throw new Error("PDF preview must have no metadata or controls");
+    if (frame.clientHeight !== shell.clientHeight || frame.clientWidth !== shell.clientWidth) throw new Error("PDF must fill the preview area");
+  });
+
+  const native = page.frames().find((frame) => frame.url().startsWith("chrome-extension://"));
+  assert.ok(native, "Chromium's PDF viewer must render the document");
+  await native.waitForFunction((pageNumber) => {
+    const viewer = document.querySelector("pdf-viewer");
+    return viewer?.documentDimensions && viewer.viewport_.getMostVisiblePage() === pageNumber - 1;
+  }, expectedPage);
+  const layout = await native.locator("pdf-viewer").evaluate((viewer) => ({
+    toolbarHidden: viewer.$.toolbar.hidden,
+    sidenavHidden: viewer.$["sidenav-container"].hidden,
+    fitting: viewer.viewport_.fittingType,
+    width: viewer.documentDimensions.width * viewer.viewport_.getZoom(),
+    viewportWidth: viewer.viewport_.size.width,
+  }));
+  assert.equal(layout.toolbarHidden, true);
+  assert.equal(layout.sidenavHidden, true);
+  assert.equal(layout.fitting, "fit-to-width");
+  assert.ok(Math.abs(layout.width - layout.viewportWidth) <= 1, "PDF must fit the available width without horizontal scrolling");
+  return native;
 }
 
 /** Screenshot just the PDF iframe so the rendered page can be inspected on its own. */
@@ -152,7 +183,7 @@ try {
     [join(root, "node_modules/next/dist/bin/next"), mode, "-H", "127.0.0.1", "-p", String(port)],
     {
       cwd: root,
-      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_WEB_PASSWORD: "", NEXT_TELEMETRY_DISABLED: "1" },
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, CODING_AGENT_WEB_DATA: join(agentDir, "data.db"), PI_WEB_PASSWORD: "", NEXT_TELEMETRY_DISABLED: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -167,6 +198,13 @@ try {
     assert.ok(Date.now() < readyDeadline, "Server readiness timed out; see pdf-server.log");
     await delay(250);
   }
+
+  const seeded = await fetch(`${base}/api/catalog/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: SESSION, cwd: project, harness: "pi", title: "PDF preview", sessionPath }),
+  });
+  assert.equal(seeded.status, 200, "Fixture session must be indexed");
 
   // The headless shell has no PDF viewer (it downloads the file instead), so the
   // full Chromium build is required to observe the page the viewer lands on.
@@ -187,6 +225,7 @@ try {
   const withFragment = await waitForViewerSrc(page, (src) => src.includes(`#page=${PAGE}`), "page fragment link");
   console.log(`PASS: #page=${PAGE} reached the viewer\n      ${withFragment}`);
   await delay(3000);
+  await checkContentOnlyPreview(page, PAGE);
   await page.screenshot({ path: join(artifacts, "pdf-page-183.png") });
   await shootViewer(page, "pdf-viewer-183.png");
 
@@ -195,12 +234,27 @@ try {
   const withoutFragment = await waitForViewerSrc(page, (src) => !src.includes("#page="), "plain link");
   console.log(`PASS: plain link cleared the fragment\n      ${withoutFragment}`);
   await delay(3000);
+  const native = await checkContentOnlyPreview(page, 1);
   await page.screenshot({ path: join(artifacts, "pdf-page-1.png") });
   await shootViewer(page, "pdf-viewer-1.png");
+
+  // Resizing keeps fit-to-width, and the mouse wheel scrolls continuously.
+  const iframe = page.locator('#file-panel iframe[src*="type=read"]');
+  const width = await iframe.evaluate((frame) => frame.clientWidth);
+  await page.locator('[data-resize-handle="right-panel"]').press("ArrowLeft");
+  await page.waitForFunction((previous) => document.querySelector('#file-panel iframe[src*="type=read"]').clientWidth > previous, width);
+  await checkContentOnlyPreview(page, 1);
+  await iframe.hover();
+  await page.mouse.wheel(0, 120);
+  await native.waitForFunction(() => document.querySelector("pdf-viewer").viewport_.position.y > 0);
+  assert.equal(await native.locator("pdf-viewer").evaluate((viewer) => viewer.viewport_.position.x), 0);
+  console.log("PASS: content-only PDF fills the panel, resizes and scrolls vertically");
 
   // 3. Going back to a fragment link must jump again (revision bump, not a stale iframe).
   await pageLink.click();
   await waitForViewerSrc(page, (src) => src.includes(`#page=${PAGE}`), "fragment link after remount");
+  await delay(3000);
+  await checkContentOnlyPreview(page, PAGE);
   console.log("PASS: fragment jump works again after remount");
 
   assert.deepEqual(errors, [], "Browser console must stay clean");

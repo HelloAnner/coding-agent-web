@@ -96,7 +96,7 @@ test("source previews hide line numbers while diff gutters retain their sizing",
       const FILE_LINE_NUMBER_STYLE = gutterStyle;
       const FILE_PINNED_LINE_NUMBER_STYLE = pinnedStyle;
       // Stand-ins for what the highlighted element only passes on.
-      const [usePrismLanguages, SyntaxHighlighter, SourceCodeRenderer, isDark, vs, fileViewerDarkTheme, FILE_CODE_STYLE] = [() => true, "pre", "span", false, {}, {}, {}];
+      const [usePrismLanguages, SyntaxHighlighter, SourceCodeRenderer, theme, SYNTAX_THEMES, FILE_CODE_STYLE] = [() => true, "pre", "span", "light", { light: {} }, {}];
       ${calculations}
       return { lightweightSourceLines, highlightedSource };
     };
