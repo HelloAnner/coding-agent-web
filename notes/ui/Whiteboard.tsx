@@ -125,25 +125,40 @@ export function Whiteboard({
   // the file differs from what was last saved. ponytail: unsaved strokes win —
   // a change that lands mid-draw is skipped, not merged; add a conflict
   // prompt if agents start editing boards a person is drawing on.
+  const pull = useCallback(async () => {
+    // Nothing is loaded yet: the initial read has the newest file anyway.
+    if (pending.current || lastSaved.current === null) return;
+    try {
+      const response = await fetch(`/api/notes/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const text = (await response.json() as { content?: string }).content;
+      if (typeof text !== "string" || text === lastSaved.current) return;
+      lastSaved.current = text;
+      // Keep the viewport the user is looking at, not the one on disk: the
+      // canvas takes the new scene in place and never re-reads it.
+      setContent(text);
+    } catch {
+      // Keep the board as it is; the next change tries again.
+    }
+  }, [path]);
+
   useEffect(() => subscribeNotesWatch((paths) => {
     if (paths && !paths.includes(path)) return;
-    void (async () => {
-      // Nothing is loaded yet: the initial read has the newest file anyway.
-      if (pending.current || lastSaved.current === null) return;
-      try {
-        const response = await fetch(`/api/notes/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
-        if (!response.ok) return;
-        const text = (await response.json() as { content?: string }).content;
-        if (typeof text !== "string" || text === lastSaved.current) return;
-        lastSaved.current = text;
-        // Keep the viewport the user is looking at, not the one on disk: the
-        // canvas takes the new scene in place and never re-reads it.
-        setContent(text);
-      } catch {
-        // Keep the board as it is; the next change tries again.
-      }
-    })();
-  }), [path]);
+    void pull();
+  }), [path, pull]);
+
+  // fs.watch reports nothing at all on some volumes (an external disk mount),
+  // so the stream alone leaves the open board stale: the agent's draft is on
+  // disk, the canvas still shows the old scene, and the next autosave writes
+  // that stale scene back over it. Poll as a backstop, only while the page is
+  // visible: where the watcher works the answer is already equal and the poll
+  // costs one small GET.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void pull();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [pull]);
 
   // A board leaves the screen (file switch, app switch, reload) with up to
   // one debounce window of edits: send them with keepalive on the way out.
