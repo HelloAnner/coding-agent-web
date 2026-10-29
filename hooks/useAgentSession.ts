@@ -215,6 +215,8 @@ export interface UseAgentSessionOptions {
   initialNewSessionChoices?: NewSessionChoices | null;
   /** A fresh composer reports its own model and reasoning picks, on mount and as they change. */
   onNewSessionChoicesChange?: (choices: NewSessionChoices) => void;
+  /** The loaded, idle session's settings for starting over without its history. */
+  onSessionConfigChange?: (sessionId: string, choices: NewSessionChoices | null) => void;
   /**
    * Harness this composer is driving. Only `pi` may open a pi AgentSession.
    * Any other harness leaves the pi runtime alone.
@@ -230,12 +232,15 @@ type ConcreteThinkingLevel = Exclude<ThinkingLevelOption, "auto">;
 /**
  * What a fresh composer was told to use instead of the automatic choice. The
  * bar above it moves the composer to another folder by remounting it; these
- * go along with the draft. (The tool preset needs no carrying: a pick is the
- * browser's preference, which every fresh composer starts from.)
+ * go along with the draft. Starting over also carries the session's tool selection.
  */
 export interface NewSessionChoices {
   model: { provider: string; modelId: string } | null;
+  /** Starting over keeps an existing model even if it is no longer in enabledModels. */
+  preserveModel?: boolean;
   thinkingLevel: ConcreteThinkingLevel | null;
+  toolPreset?: ToolPreset;
+  toolNames?: string[];
 }
 
 function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel | null {
@@ -403,6 +408,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const [data, setData] = useState<SessionData | null>(null);
   const [loading, setLoading] = useState(Boolean(session));
+  const [sessionConfigLoaded, setSessionConfigLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -426,7 +432,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
-  const [toolPreset, setToolPreset] = useState<ToolPreset>(CONFIGURED_TOOL_PRESET);
+  const initialToolPresetRef = useRef(initialChoices?.toolPreset);
+  const newSessionToolNamesRef = useRef(initialChoices?.toolNames);
+  const [toolPreset, setToolPreset] = useState<ToolPreset>(() => initialChoices?.toolPreset ?? CONFIGURED_TOOL_PRESET);
   const [newSessionThinkingLevel, setNewSessionThinkingLevel] = useState<ConcreteThinkingLevel | null>(() => initialChoices?.thinkingLevel ?? null);
   const [newSessionDefaultThinkingLevel, setNewSessionDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
   const [savedDefaultThinkingLevel, setSavedDefaultThinkingLevel] = useState<ConcreteThinkingLevel | null>(null);
@@ -511,6 +519,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialChoices?.model ?? null);
+  const preserveInitialModelRef = useRef(initialChoices?.preserveModel ?? false);
   // What /api/models says a fresh chat starts on: the folder's last pick, else
   // the first offered model. Sent only when the user has not picked one.
   const newSessionDefaultModelRef = useRef<SelectedModel | null>(null);
@@ -576,13 +585,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   useLayoutEffect(() => {
     if (!existingSessionId && (!isNew || sessionIdRef.current)) return;
-    setToolPresetState(getPreferredToolPreset());
+    setToolPresetState(initialToolPresetRef.current ?? getPreferredToolPreset());
   }, [existingSessionId, isNew, setToolPresetState]);
 
   const onNewSessionChoicesChange = opts.onNewSessionChoicesChange;
   useEffect(() => {
-    if (isNew && usesPiRuntime) onNewSessionChoicesChange?.({ model: newSessionModel, thinkingLevel: newSessionThinkingLevel });
-  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange, usesPiRuntime]);
+    if (isNew && usesPiRuntime) onNewSessionChoicesChange?.({
+      model: newSessionModel,
+      thinkingLevel: newSessionThinkingLevel,
+      toolPreset,
+      toolNames: newSessionToolNamesRef.current,
+    });
+  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange, toolPreset, usesPiRuntime]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
@@ -609,6 +623,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ? (newSessionThinkingLevel ?? newSessionDefaultThinkingLevel)
     : currentThinkingLevel ?? (data?.context.messages.length === 0 ? newSessionDefaultThinkingLevel : null);
   const composerDraftKey = session?.id ?? newSessionDraftKey ?? undefined;
+
+  const configModel = usesPiRuntime ? currentModel : grokModel;
+  const configProvider = configModel?.provider;
+  const configModelId = configModel?.modelId;
+  const configThinkingLevel = currentThinkingLevel ?? asConcreteThinkingLevel(data?.context.thinkingLevel);
+  const onSessionConfigChange = opts.onSessionConfigChange;
+  const configSessionId = session?.id;
+  const configToolNames = data?.toolNames;
+  useEffect(() => {
+    if (!configSessionId) return;
+    const ready = sessionConfigLoaded && !loading && !error && !modelSwitching && !agentRunning && !bashRunning && !isCompacting;
+    onSessionConfigChange?.(configSessionId, ready ? {
+      model: configProvider && configModelId ? { provider: configProvider, modelId: configModelId } : null,
+      thinkingLevel: usesPiRuntime ? configThinkingLevel : null,
+      toolPreset,
+      toolNames: configToolNames !== undefined && getPresetFromToolNames(configToolNames) === toolPreset
+        ? configToolNames
+        : getToolNamesForPreset(toolPreset),
+    } : null);
+    return () => onSessionConfigChange?.(configSessionId, null);
+  }, [agentRunning, bashRunning, configModelId, configProvider, configSessionId, configThinkingLevel, configToolNames, error, isCompacting, loading, modelSwitching, onSessionConfigChange, sessionConfigLoaded, toolPreset, usesPiRuntime]);
 
   const syncLiveModel = useCallback((state?: AgentStateResponse) => {
     setLiveModel(state?.model
@@ -745,6 +780,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setActiveLeafId(null);
         if (loaded.context.model) setLiveModel(loaded.context.model);
         setError(null);
+        setSessionConfigLoaded(true);
         return includeState ? { running: loaded.running, state: loaded.state } : null;
       } catch (error) {
         if (sessionIdRef.current === sid) setError(error instanceof Error ? error.message : String(error));
@@ -784,6 +820,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setActiveLeafId(null);
         setError(null);
         if (loaded.context.model) setLiveModel(loaded.context.model);
+        setSessionConfigLoaded(true);
         setLoading(false);
         return null;
       } catch (e) {
@@ -879,6 +916,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // Tool-preset state is independent of the view cache: it must be applied
       // on every read, cached window or not (#700).
       sessionToolsPinnedRef.current = d.toolNames !== undefined;
+      setSessionConfigLoaded(true);
       setToolPresetState(d.toolNames !== undefined ? getPresetFromToolNames(d.toolNames) : CONFIGURED_TOOL_PRESET);
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setCurrentThinkingOverride(null);
@@ -1052,7 +1090,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (selectedModel) setPendingModel(selectedModel);
       // Undefined means the user never overrode the loadout: omit the field entirely
       // so pi resolves settings.json defaultTools instead of being pinned to ours (#700).
-      const toolNames = getToolNamesForPreset(toolPreset);
+      const toolNames = newSessionToolNamesRef.current ?? getToolNamesForPreset(toolPreset);
       sessionToolsPinnedRef.current = toolNames !== undefined;
       const res = await fetch("/api/agent/new", {
         method: "POST",
@@ -2520,10 +2558,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (isNew && !sessionIdRef.current) {
       // A picked model this folder does not offer (one carried over from the
       // composer this one replaced, or since scoped out) goes back to automatic.
-      // An empty list offers nothing to compare with (a failed load answers
-      // with one): the pick stays.
+      // Starting over keeps its existing model. An empty list offers nothing
+      // to compare with (a failed load answers with one): the pick stays.
       const picked = newSessionModelOverrideRef.current;
-      const kept = picked && (nextModelList.length === 0
+      const kept = picked && (preserveInitialModelRef.current || nextModelList.length === 0
         || nextModelList.some((m) => m.provider === picked.provider && m.id === picked.modelId));
       if (picked && !kept) {
         newSessionModelOverrideRef.current = null;
@@ -2901,6 +2939,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
+    newSessionToolNamesRef.current = toolNames;
     setPreferredToolPreset(preset);
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;

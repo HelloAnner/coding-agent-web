@@ -310,6 +310,14 @@ export function AppShell() {
   // A pick the user makes while the folder's preference is still loading wins.
   const projectPreferenceInteractionRef = useRef(0);
   const [carriedNewSessionChoices, setCarriedNewSessionChoices] = useState<NewSessionChoices | null>(null);
+  const [resetSessionConfig, setResetSessionConfig] = useState<{ sessionId: string; choices: NewSessionChoices } | null>(null);
+  const handleSessionConfigChange = useCallback((sessionId: string, choices: NewSessionChoices | null) => {
+    setResetSessionConfig(choices ? { sessionId, choices } : null);
+  }, []);
+  const [preservedPanelContext, setPreservedPanelContext] = useState<{ draftId: string; sessionId: string | null } | null>(null);
+  const preservePanel = preservedPanelContext !== null && (selectedSession
+    ? preservedPanelContext.sessionId === selectedSession.id
+    : preservedPanelContext.draftId === newSessionDraftId);
   const handleNewSessionChoicesChange = useCallback((choices: NewSessionChoices) => {
     newSessionChoicesRef.current = choices;
     setCarriedNewSessionChoices(null);
@@ -772,12 +780,11 @@ export function AppShell() {
     // The ref still holds the panel being left: it is saved under its own key.
     if (leaving && !forgottenSessionsRef.current.has(leaving)) saveSessionPanel(leaving, panelStateRef.current);
     const sessionId = panelKey.startsWith("session:") ? panelKey.slice("session:".length) : null;
-    // A session restores its panel. A fresh composer has no memory yet, so it
-    // starts empty — except that the panel it grew while composing is kept
-    // when it becomes the session it was writing to.
+    // Starting over and promoting a fresh composer keep the live viewers:
+    // remounting them would reset scroll offsets and the whiteboard's viewport.
     const composing = previous === `new:${sessionCwdRef.current ?? ""}`;
-    const memory = (sessionId ? readSessionPanel(sessionId) : null)
-      ?? (sessionId && composing ? panelStateRef.current : null);
+    if (preservePanel || (sessionId && composing)) return;
+    const memory = sessionId ? readSessionPanel(sessionId) : null;
     fileWorkspaceGenerationRef.current += 1;
     setFileWorkspaceGeneration(fileWorkspaceGenerationRef.current);
     setFileTabs(memory?.fileTabs ?? []);
@@ -790,7 +797,7 @@ export function AppShell() {
     setFileTreeCollapsed(memory?.treeCollapsed ?? false);
     setTreeSource(memory?.treeSource ?? loadFileTreeSource());
     setAgentTabs([]);
-  }, [panelKey]);
+  }, [panelKey, preservePanel]);
 
   // Remembered as the user works, so a reload lands on the same panel. The ref
   // is read at fire time: the render a switch starts from must not save over
@@ -989,6 +996,7 @@ export function AppShell() {
       // present: useAgentSession loads content in a mount-only effect, so
       // the null-session welcome mount from the switch would never load
       // the restored session's messages.
+      setPreservedPanelContext(null);
       setSelectedSession(s);
       setSessionKey((k) => k + 1);
       if (new URLSearchParams(window.location.search).get("session") !== s.id) {
@@ -1047,6 +1055,7 @@ export function AppShell() {
     }
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
+    setPreservedPanelContext(null);
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
       rekeyDraft(previousDraftKey, parkedNewSessionDraftKey(currentFreshCwd));
@@ -1104,6 +1113,7 @@ export function AppShell() {
         return;
       }
     }
+    setPreservedPanelContext(null);
     setNewSessionCwd(null);
     setSelectedSession(session);
     setSessionKey((k) => k + 1);
@@ -1134,7 +1144,8 @@ export function AppShell() {
 
   const handleNewSession = useCallback((sessionId: string, cwd: string, projectKey?: string | null, options?: NewSessionOptions) => {
     invalidateWorkspaceRestore();
-    newSessionCarryRef.current = Boolean(options?.carryComposer);
+    newSessionCarryRef.current = Boolean(options?.carryComposer || options?.keepContext);
+    setPreservedPanelContext(options?.keepContext ? { draftId: sessionId, sessionId: null } : null);
     const draftKey = `new:${sessionId}:${cwd}`;
     // Leaving a fresh composer for another cwd parks its draft there, as a
     // workspace switch does; New in the same cwd still starts empty. The bar
@@ -1157,7 +1168,7 @@ export function AppShell() {
     activeProjectKeyRef.current = targetProject;
     // A draft parked in this cwd comes back, unless one was carried here: it
     // stays parked for the next time, never merged into what was carried.
-    if (!getDraft(draftKey)) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
+    if (!options?.keepContext && !getDraft(draftKey)) rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
     activeNewSessionDraftKeyRef.current = draftKey;
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
@@ -1170,7 +1181,7 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
-    if (isMobile) setSidebarOpen(false);
+    if (isMobile && !options?.keepContext) setSidebarOpen(false);
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
     // The fresh composer takes the caret once it renders (#1313), unless the
     // move came from the new-session bar, whose control keeps focus instead
@@ -1273,6 +1284,7 @@ export function AppShell() {
       invalidateWorkspaceRestore();
       activeNewSessionDraftKeyRef.current = null;
       setNewSessionCwd(null);
+      setPreservedPanelContext((current) => current ? { ...current, sessionId: session.id } : null);
       setSelectedSession({
         ...session,
         path: sessionPath || session.path,
@@ -1496,6 +1508,7 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = null;
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
+    setPreservedPanelContext(null);
     setNewSessionCwd(null);
     setSelectedSession((prev) => ({
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
@@ -1565,6 +1578,7 @@ export function AppShell() {
     const active = selectedSessionRef.current;
     if (active?.id === sessionId) {
       clearTabOpenSession(sessionId);
+      setPreservedPanelContext(null);
       newSessionCarryRef.current = false;
       const cwd = active.cwd;
       const draftId = typeof crypto.randomUUID === "function"
@@ -2075,6 +2089,22 @@ export function AppShell() {
     );
   };
 
+  const handleResetSession = () => {
+    if (!selectedSession || resetSessionConfig?.sessionId !== selectedSession.id) return;
+    const { choices } = resetSessionConfig;
+    const harness = composerHarnessFor(selectedSession, composerHarness);
+    projectPreferenceRequestRef.current += 1;
+    harnessRef.current = harness;
+    setComposerHarness(harness);
+    harnessModelRef.current = choices.model;
+    setComposerModel(choices.model);
+    setCarriedNewSessionChoices({ ...choices, preserveModel: true });
+    const draftId = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    handleNewSession(draftId, selectedSession.cwd, workspaceKeyOf(selectedSession), { keepContext: true });
+  };
+
   const renderChatToolbarActions = (mobile: boolean) => {
     if (!mobile && !showChat) return null;
     return (
@@ -2115,8 +2145,8 @@ export function AppShell() {
               aria-label={label}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
+                width: TOP_BAR_ICON_BUTTON_SIZE,
+                height: "100%", padding: 0,
                 background: "none", border: "none",
                 borderTop: "2px solid transparent",
                 borderRight: "1px solid var(--border)",
@@ -2153,7 +2183,6 @@ export function AppShell() {
                   <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
                 </svg>
               )}
-              {!mobile && <span>{label}</span>}
             </button>
           );
         })()}
@@ -2186,8 +2215,8 @@ export function AppShell() {
               aria-label={label}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
+                width: TOP_BAR_ICON_BUTTON_SIZE,
+                height: "100%", padding: 0,
                 background: "none", border: "none",
                 borderTop: "2px solid transparent",
                 borderRight: "1px solid var(--border)",
@@ -2223,11 +2252,25 @@ export function AppShell() {
                   <path d="m7 14 3-3 3 3 4-4" />
                 </svg>
               )}
-              {!mobile && <span>{label}</span>}
             </button>
           );
         })()}
         <ToolbarQuota />
+        <button
+          type="button"
+          onClick={handleResetSession}
+          disabled={!selectedSession || resetSessionConfig?.sessionId !== selectedSession.id}
+          title={translate("session.resetTooltip")}
+          aria-label={translate("session.reset")}
+          className="file-panel-terminal-button session-reset-button"
+          style={{ height: "100%", borderLeft: 0, borderTop: "2px solid transparent", borderRight: "1px solid var(--border)" }}
+          data-mobile-toolbar-action={mobile ? "reset" : undefined}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m16 3 5 5a2 2 0 0 1 0 3L11 21H6l-4-4a2 2 0 0 1 0-3L13 3a2 2 0 0 1 3 0Z" />
+            <path d="m8 8 9 9M11 21h11" />
+          </svg>
+        </button>
         {hasSubagentSessions && agentsBadge && (
           <button
             type="button"
@@ -3038,6 +3081,7 @@ export function AppShell() {
               newSessionContextBar={newSessionContextBar}
               initialNewSessionChoices={selectedSession === null ? carriedNewSessionChoices : null}
               onNewSessionChoicesChange={handleNewSessionChoicesChange}
+              onSessionConfigChange={handleSessionConfigChange}
               harness={composerHarnessFor(selectedSession, composerHarness)}
               harnessModel={composerModel}
               onHarnessChange={handleHarnessChange}
@@ -3297,6 +3341,7 @@ export function AppShell() {
                     saveFileTreeSource(next);
                   }}
                   sessionKey={selectedSession?.id ?? null}
+                  preservePosition={preservePanel}
                   refreshKey={explorerRefreshKey}
                   onOpenFile={handleOpenFile}
                   onOpenNote={handleOpenNote}

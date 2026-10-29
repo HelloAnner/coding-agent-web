@@ -39,6 +39,8 @@ export interface NewSessionTarget {
 export interface NewSessionOptions {
   /** Move the fresh composer's draft and model picks to the new one instead of parking the draft. */
   carryComposer?: boolean;
+  /** Start over with the current settings and live panel, but no previous draft. */
+  keepContext?: boolean;
 }
 
 /** What the sidebar reports for its cwd, for the bar above a fresh composer. */

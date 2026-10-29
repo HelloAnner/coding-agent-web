@@ -16,6 +16,7 @@ interface Props {
   activePath?: string | null;
   /** The conversation whose tree position (open folders, scroll) is remembered. */
   stateKey?: string | null;
+  preservePosition?: boolean;
   refreshKey?: number;
   onOpenNote: (path: string, name: string, kind: NotesFileKind) => void;
   /** Runs before a move or delete, so the open editor's edits are on disk. */
@@ -75,6 +76,7 @@ async function mutateNotes(body: Record<string, unknown>): Promise<{ ok: boolean
 export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   activePath,
   stateKey,
+  preservePosition = false,
   refreshKey,
   onOpenNote,
   onBeforeNoteChange,
@@ -108,16 +110,18 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   // freshly opened tree does.
   useEffect(() => {
     if (!stateKey) return;
-    const saved = readNotesTreePosition(stateKey);
-    openedOnce.current = saved !== null;
-    scrollRestoredRef.current = saved !== null;
-    scrollTopRef.current = saved?.scrollTop ?? 0;
-    setExpanded(new Set(saved ? saved.expanded : directoryPaths(treeRef.current ?? [])));
+    if (!preservePosition) {
+      const saved = readNotesTreePosition(stateKey);
+      openedOnce.current = saved !== null;
+      scrollRestoredRef.current = saved !== null;
+      scrollTopRef.current = saved?.scrollTop ?? 0;
+      setExpanded(new Set(saved ? saved.expanded : directoryPaths(treeRef.current ?? [])));
+    }
     return () => saveNotesTreePosition(stateKey, {
       expanded: [...expandedRef.current],
       scrollTop: scrollTopRef.current,
     });
-  }, [stateKey]);
+  }, [stateKey, preservePosition]);
 
   // The open note or board is somewhere in the vault: its folders open and the
   // row is brought into view, so the tree shows where what you are reading lives.

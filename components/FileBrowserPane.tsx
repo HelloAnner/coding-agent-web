@@ -82,6 +82,8 @@ interface Props {
   onSourceChange: (source: FileTreeSource) => void;
   /** The conversation whose notes tree position is remembered. */
   sessionKey?: string | null;
+  /** Starting over changes the chat, not this tree's folders or scroll offset. */
+  preservePosition?: boolean;
   activeFilePath?: string | null;
   activeNotePath?: string | null;
   refreshKey?: number;
@@ -106,7 +108,7 @@ interface Props {
  * the actions on it, and the tree. A click on a file opens it in the panel's
  * viewer column.
  */
-export function FileBrowserPane({ cwd, source, onSourceChange, sessionKey, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onBeforeNoteChange, onNoteMoved, onNotesRemoved, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
+export function FileBrowserPane({ cwd, source, onSourceChange, sessionKey, preservePosition, activeFilePath, activeNotePath, refreshKey, onOpenFile, onOpenNote, onBeforeNoteChange, onNoteMoved, onNotesRemoved, onOpenTerminal, onAtMention, onAtMentions, onRefresh, onBack, onCollapse }: Props) {
   const { t } = useI18n();
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const [explorerKey, setExplorerKey] = useState(0);
@@ -368,6 +370,7 @@ export function FileBrowserPane({ cwd, source, onSourceChange, sessionKey, activ
             ref={notesTreeRef}
             activePath={activeNotePath}
             stateKey={sessionKey}
+            preservePosition={preservePosition}
             refreshKey={notesRefreshKey}
             onOpenNote={onOpenNote}
             onBeforeNoteChange={onBeforeNoteChange}

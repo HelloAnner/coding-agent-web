@@ -263,6 +263,8 @@ export const enLocale: LocalePlugin = {
     "tools.allowedValues": "Allowed",
     "tools.defaultValue": "Default",
     "tools.guidelines": "Prompt guidelines",
+    "session.reset": "Clear conversation",
+    "session.resetTooltip": "Start a new session with the same settings and panel layout; the original session is kept",
     "session.info": "Session info",
     "session.name": "Name",
     "session.file": "Session File",

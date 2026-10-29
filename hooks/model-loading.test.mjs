@@ -36,7 +36,7 @@ function setup(fetchImpl) {
     controller: new AbortController(),
     newSessionCwd: "/project", session: null, isNew: true,
     sessionIdRef: { current: null }, thinkingLevelOverrideRef: { current: null }, newSessionModelOverrideRef: { current: null },
-    newSessionDefaultModelRef: { current: null },
+    newSessionDefaultModelRef: { current: null }, preserveInitialModelRef: { current: false },
     thinkingLevelPinsRef: { current: {} }, defaultThinkingLevelRef: { current: null },
     asConcreteThinkingLevel: (value) => (!value || value === "auto" ? null : value),
     setPendingModel: (value) => writes.push(["PendingModel", value]),

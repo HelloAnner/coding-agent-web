@@ -263,6 +263,8 @@ export const zhCNLocale: LocalePlugin = {
     "tools.allowedValues": "可选值",
     "tools.defaultValue": "默认值",
     "tools.guidelines": "提示词规则",
+    "session.reset": "清空对话",
+    "session.resetTooltip": "保留当前配置和右侧布局，开始新会话（原会话保留）",
     "session.info": "会话信息",
     "session.name": "名称",
     "session.file": "会话文件",

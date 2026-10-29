@@ -263,6 +263,8 @@ export const zhTWLocale: LocalePlugin = {
     "tools.allowedValues": "允許值",
     "tools.defaultValue": "預設值",
     "tools.guidelines": "提示詞規則",
+    "session.reset": "清空對話",
+    "session.resetTooltip": "保留目前設定和右側版面，開始新對話（原對話保留）",
     "session.info": "工作階段資訊",
     "session.name": "名稱",
     "session.file": "工作階段檔案",
