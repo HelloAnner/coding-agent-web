@@ -88,6 +88,7 @@ function WhiteboardCanvas({
   const initialData = useMemo(() => parseScene(content, board, view), [content, board, view]);
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   const takeApi = useCallback((instance: ExcalidrawImperativeAPI) => { api.current = instance; }, []);
+  const pixelRatio = useRef(window.devicePixelRatio);
   const shown = useRef(content);
   // Someone else rewrote the file (an agent, "存入笔记"). Swap the elements in
   // place: remounting Excalidraw flashes the canvas and re-measures every text
@@ -129,6 +130,16 @@ function WhiteboardCanvas({
     // Excalidraw reports its own restore as a change; saving then would
     // overwrite the file with a half-loaded scene.
     if (appState.isLoading) return;
+    // Excalidraw 0.18's bitmap cache ignores DPR changes without a resize
+    // (e.g. switching displays). Check on every redraw, not just resize/media
+    // events. New identities rebuild caches, preserving geometry and history.
+    if (pixelRatio.current !== window.devicePixelRatio) {
+      pixelRatio.current = window.devicePixelRatio;
+      api.current?.updateScene({
+        elements: elements.map((element) => ({ ...element })),
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    }
     onViewChange({ scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom.value });
     onChange(serializeAsJSON(elements, appState, files, "local"));
   }, [onChange, onViewChange]);

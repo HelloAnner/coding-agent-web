@@ -21,6 +21,11 @@ the application in a clean checkout and runs the same browser tests with
 `E2E_SERVER_MODE=start` against `next start`. Do not build in a checkout used
 for development.
 
+Standalone whiteboard rendering check: `node e2e/whiteboard-rendering.mjs`.
+It runs the real canvas in a temporary browser fixture without starting Next
+or touching notes/data. DPR changes without a resize must preserve rendered
+bounds, hit testing, viewport, canvas nodes, scene data, and undo history.
+
 Coverage:
 
 - A 5,000-message session opens with exactly the last 50 entries, bounded
