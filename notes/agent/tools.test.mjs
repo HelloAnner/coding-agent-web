@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -73,6 +73,23 @@ test("a new board only lands in a folder that already exists", async () => {
   );
   const created = await run(board, { action: "draw", path: "已有/新板.excalidraw", elements: [{ type: "text", x: 0, y: 0, label: "x" }] });
   assert.equal(created.details.created, true);
+});
+
+test("every drawing skill JSON example really draws instead of silently reading", async () => {
+  const target = "已有/技能示例.excalidraw";
+  await notes.createItem("已有", "技能示例", "board");
+  for (const name of ["whiteboard-style", "whiteboard-drawing"]) {
+    const source = await readFile(path.join(process.cwd(), "notes", "skills", name, "SKILL.md"), "utf8");
+    const examples = [...source.matchAll(/```json\n([\s\S]*?)\n```/g)];
+    assert.ok(examples.length > 0, `${name} must have a runnable example`);
+    for (const [, json] of examples) {
+      const params = JSON.parse(json);
+      assert.equal(params.action, "draw", `${name} must explicitly request drawing`);
+      const result = await run(board, { ...params, path: target });
+      assert.ok(result.details.drawn > 0);
+      assert.ok(JSON.parse((await notes.readItem(target)).content).elements.length > 0);
+    }
+  }
 });
 
 test("the tree tool lists the vault", async () => {

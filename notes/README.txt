@@ -104,6 +104,7 @@ Agent 内核（pi）
     notes-settings.json 的 agent：baseUrl / apiKey / model / api / contextWindow / maxTokens
     这个 provider 只注册在笔记 agent 的 ModelRuntime 上，不写 models.json。
     baseUrl 或 model 留空 = 用本机 pi 已配好的默认模型。
+    只把 pi 的全局模型与 thinking 偏好复制进内存，不加载笔记库项目设置或 coding 资源，也不回写全局设置。
     改模型会重建会话并清空对话：新会话看不到旧上下文。
 
   存入笔记：Coding 页顶栏的按钮（digest.ts）
@@ -116,6 +117,7 @@ Agent 内核（pi）
       - boardPath 必须是右侧已经打开的白板，必须已经存在（不存在 / 没开板 = 直接报错，不跑）
       - focus 为空不跑：用户没说要什么，就什么都不做
       - 工具只开 notes_board，并用 onlyBoard 钉死这块板：别的路径 403、新建板拒
+      - 两个绘图 skill 的完整正文直接放进提示词，不要求模型另读文件，也不额外开放 read
     提示词 = 「用户原话（最高优先）+ 这块板 + 两个白板 skill」；指令没提的内容不自己加。
     贴边保护：同一条对话正在跑时再点返回 409；单次运行 6 分钟自动 abort。
 

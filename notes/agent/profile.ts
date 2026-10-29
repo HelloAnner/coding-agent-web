@@ -11,7 +11,7 @@ import path from "node:path";
 import type { NotesAgentModelSettings } from "../types";
 import { notesRoot } from "../files";
 import { readNotesSettings } from "./settings";
-import { notesSkillsDir } from "./skills";
+import { listNotesSkills, notesSkillsDir } from "./skills";
 import { NOTES_SYSTEM_PROMPT } from "./system-prompt";
 import { NOTES_BOARD_TOOL, NOTES_LS_TOOL, NOTES_SESSIONS_TOOL, notesAgentTools } from "./tools";
 
@@ -114,23 +114,34 @@ export async function createNotesSession(profile: NotesSessionProfile = {}): Pro
   const runtime = await notesModelRuntime();
   const model = notesModel(runtime, settings.agent);
   const wanted = profile.skills;
+  const tools = profile.tools ?? NOTES_AGENT_TOOLS;
+  const piDefaults = SettingsManager.create(vault, getAgentDir(), { projectTrusted: false });
 
   const services = await createAgentSessionServices({
     cwd: vault,
     agentDir: getAgentDir(),
     modelRuntime: runtime,
-    // The notes agent has no project settings of its own: nothing here may
-    // write to the user's global pi settings.
-    settingsManager: SettingsManager.inMemory(),
+    // Copy only model preferences, not coding resources or vault project settings.
+    // Setters still write to memory, never to the user's global pi settings.
+    settingsManager: SettingsManager.inMemory({
+      defaultProvider: piDefaults.getDefaultProvider(),
+      defaultModel: piDefaults.getDefaultModel(),
+      defaultThinkingLevel: piDefaults.getDefaultThinkingLevel(),
+      modelThinkingLevels: piDefaults.getAllModelThinkingLevels(),
+    }),
     resourceLoaderOptions: {
       noExtensions: true,
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
       systemPrompt: profile.systemPrompt ?? NOTES_SYSTEM_PROMPT,
-      // pi's global APPEND_SYSTEM.md is coding rules (git, AGENTS.md); the
-      // notes agent has its own prompt and must not inherit them.
-      appendSystemPrompt: [],
+      // Never inherit global coding rules. Without a file reader, provide the
+      // selected skill bodies directly instead of asking for inaccessible files.
+      appendSystemPrompt: tools.includes("read") || tools.includes("bash")
+        ? []
+        : listNotesSkills()
+          .filter((skill) => !wanted || wanted.includes(skill.name))
+          .map((skill) => readFileSync(skill.path, "utf8")),
       additionalSkillPaths: [skillsDir],
       // Only the notes agent's own skills, narrowed to the profile's list: the
       // user's coding skills are for coding sessions, and their catalog would
@@ -146,10 +157,10 @@ export async function createNotesSession(profile: NotesSessionProfile = {}): Pro
   const { session } = await createAgentSessionFromServices({
     services,
     sessionManager: SessionManager.inMemory(vault),
-    tools: profile.tools ?? NOTES_AGENT_TOOLS,
+    tools,
     customTools: notesAgentTools(settings.board, { onlyBoard: profile.onlyBoard }),
     ...(model ? { model } : {}),
   });
 
-  return { session, modelLabel: model ? `${model.provider}/${model.id}` : null };
+  return { session, modelLabel: session.model ? `${session.model.provider}/${session.model.id}` : null };
 }

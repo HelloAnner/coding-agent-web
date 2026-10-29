@@ -11,7 +11,7 @@ test("the user's sentence is the instruction, the board is the only limit", () =
   // The typed prompt is the brief; editing the board (even replace) is allowed.
   assert.ok(prompt.includes("方案/发布.excalidraw"));
   assert.ok(prompt.includes("只补四道闸门各自能证明什么"));
-  for (const rule of ["优先级最高", "replace=true", "不许新建白板", "没提的内容不要自己加", "什么都不写"]) {
+  for (const rule of ["优先级最高", "replace=true", "不许新建白板", "没提的内容不要自己加", "什么都不写", "无需另读文件", "action=draw"]) {
     assert.ok(prompt.includes(rule), rule);
   }
 });

@@ -3,10 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
+import { createJiti } from "jiti";
 
 const root = await mkdtemp(path.join(tmpdir(), "pi-web-notes-watch-"));
 process.env.CODING_AGENT_WEB_NOTES_DIR = root;
-const notes = await import("./files.ts");
+const jiti = createJiti(import.meta.url, { interopDefault: true, moduleCache: false });
+const notes = await jiti.import("./files.ts");
 
 after(() => rm(root, { recursive: true, force: true }));
 

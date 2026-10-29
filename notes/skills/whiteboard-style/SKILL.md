@@ -145,7 +145,7 @@ description: 白板要画成什么样子：稀疏、抽象、留白、手绘感�
 需求：画 coding 和 notes 的关系。主张：**notes 是生产入口，coding 是执行的手。**
 
 ```json
-{ "path": "架构/notes 与 coding.excalidraw", "replace": true, "elements": [
+{ "path": "架构/notes 与 coding.excalidraw", "action": "draw", "replace": true, "elements": [
   { "type": "text", "x": 40, "y": -46, "label": "保存到全局的配置文件", "fontSize": 14 },
   { "type": "ellipse", "x": 40, "y": 0, "width": 160, "height": 90, "label": "global config", "fontSize": 16 },
   { "type": "arrow", "x": 200, "y": 30, "to": { "x": 320, "y": 14 } },

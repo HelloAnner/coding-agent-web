@@ -5,7 +5,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 
 # 画白板：工具规则
 
-`notes_board` 接收形状列表，工具生成合法的 Excalidraw scene。**不要手写 scene JSON。**
+`notes_board` 接收形状列表，工具生成合法的 Excalidraw scene。**不要手写 scene JSON。** 绘图必须显式传 `action: "draw"`；不传时默认读取，即使带了 `elements` 也不会画。
 
 改已有的白板之前，先用 `notes_board` `action: "read"` 读它现在的元素（每行一个：类型、坐标、尺寸、文字）。用户可能自己手改过，以读到的为准。
 
@@ -35,7 +35,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 ## 例子
 
 ```json
-{ "path": "架构/请求链路.excalidraw", "replace": true, "elements": [
+{ "path": "架构/请求链路.excalidraw", "action": "draw", "replace": true, "elements": [
   { "type": "ellipse", "x": 0, "y": 0, "label": "浏览器", "fontSize": 16 },
   { "type": "rectangle", "x": 280, "y": 0, "label": "pi-web\nNext.js 路由", "fontSize": 16 },
   { "type": "rectangle", "x": 560, "y": 0, "label": "harness\npi / claude / dsh", "fontSize": 16 },
