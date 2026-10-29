@@ -29,13 +29,16 @@ try {
     import Canvas from "./canvas.js";
     window.resizeEvents = 0;
     window.addEventListener("resize", () => window.resizeEvents++);
-    createRoot(document.getElementById("root")).render(React.createElement(Canvas, {
+    const root = createRoot(document.getElementById("root"));
+    const props = {
       content: JSON.stringify({ elements: [], appState: {}, files: {} }),
       view: { scrollX: 0, scrollY: 0, zoom: 1 },
       theme: "light", board: { fontFamily: 2, fontSize: 20 },
       onChange: scene => window.saved = JSON.parse(scene),
       onViewChange: view => window.view = view,
-    }));
+    };
+    window.loadScene = content => root.render(React.createElement(Canvas, { ...props, content }));
+    window.loadScene(props.content);
   `);
   await new Promise((resolve, reject) => {
     const compiler = webpack({
@@ -97,7 +100,7 @@ try {
 
   // Read rendered pixels, not just stored coordinates: stale bitmaps can have
   // correct scene data/selection bounds while drawing at the wrong scale.
-  const checkAlignment = async () => {
+  const checkAlignment = async (expectedElements = original) => {
     const result = await page.evaluate(() => {
       const canvas = document.querySelector("canvas.static");
       const rect = canvas.getBoundingClientRect();
@@ -124,7 +127,7 @@ try {
     result.actual.forEach((value, i) => assert.ok(Math.abs(value - result.expected[i]) < 6,
       `Rendered bounds ${result.actual} must match element/selection bounds ${result.expected}`));
     assert.ok(result.sameCanvases, "Changing displays must not remount the board");
-    assert.deepEqual(result.elements, original, "Redrawing must not change the scene or element versions");
+    assert.deepEqual(result.elements, expectedElements, "Redrawing must not change the scene or element versions");
   };
   await checkAlignment();
   const cdp = await page.context().newCDPSession(page);
@@ -157,8 +160,18 @@ try {
   await page.waitForFunction((x) => window.saved.elements[0]?.x === x, original[0].x);
   await page.keyboard.press("ControlOrMeta+z");
   await page.waitForFunction(() => window.saved.elements.every((e) => e.isDeleted));
+  // A completed agent write must fill an already-open empty board in place.
+  const view = await page.evaluate(() => window.view);
+  // restoreElements normalizes an unbound shape's null bindings to [].
+  const refreshed = original.map((element) => ({ ...element, boundElements: element.boundElements ?? [] }));
+  await page.evaluate((elements) => {
+    window.loadScene(JSON.stringify({ elements, appState: {}, files: {} }));
+  }, refreshed);
+  await page.waitForFunction(() => window.saved.elements.some((element) => !element.isDeleted));
+  assert.deepEqual(await page.evaluate(() => window.view), view, "Reloading content must keep pan/zoom");
+  await checkAlignment(refreshed);
   assert.deepEqual(errors, []);
-  console.log("Whiteboard: DPR transitions preserve rendered bounds, hit testing, viewport, scene, canvas nodes, and undo.");
+  console.log("Whiteboard: content updates and DPR transitions preserve rendered bounds, hit testing, viewport, scene, canvas nodes, and undo.");
 } finally {
   await browser?.close();
   if (server) await new Promise((resolve) => server.close(resolve));

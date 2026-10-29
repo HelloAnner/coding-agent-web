@@ -11,6 +11,11 @@ const listeners = new Set<NotesWatchListener>();
 let source: EventSource | null = null;
 let connectedOnce = false;
 
+/** Writes initiated here can refresh listeners without waiting for fs.watch. */
+export function notifyNotesChanged(paths: readonly string[] | null): void {
+  for (const notify of listeners) notify(paths);
+}
+
 export function subscribeNotesWatch(listener: NotesWatchListener): () => void {
   listeners.add(listener);
   if (!source) {
@@ -18,7 +23,7 @@ export function subscribeNotesWatch(listener: NotesWatchListener): () => void {
     source = stream;
     stream.addEventListener("connected", () => {
       // A reconnect may have missed changes: everyone re-reads.
-      if (connectedOnce) for (const notify of listeners) notify(null);
+      if (connectedOnce) notifyNotesChanged(null);
       connectedOnce = true;
     });
     stream.addEventListener("change", (event) => {
@@ -31,7 +36,7 @@ export function subscribeNotesWatch(listener: NotesWatchListener): () => void {
       } catch {
         // An unreadable event still means "something changed".
       }
-      for (const notify of listeners) notify(paths);
+      notifyNotesChanged(paths);
     });
     // EventSource reconnects on its own; the next "connected" re-reads.
     stream.onerror = () => {};

@@ -88,6 +88,7 @@ import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import { NoteEditor } from "@/notes/ui/NoteEditor";
 import { Whiteboard } from "@/notes/ui/Whiteboard";
+import { notifyNotesChanged } from "@/lib/notes-watch";
 import type { NotesBoardSettings, NotesEditorControl, NotesFileKind } from "@/notes/types";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -1475,6 +1476,7 @@ export function AppShell() {
       });
       const body = await response.json().catch(() => ({})) as { message?: string; error?: string };
       if (!response.ok) throw new Error(body.error || translate("notes.digestFailed"));
+      notifyNotesChanged([boardPath]);
       setDigestStatus({ kind: "success", message: body.message });
     } catch (error) {
       const message = error instanceof Error ? error.message : translate("notes.digestFailed");
