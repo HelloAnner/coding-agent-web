@@ -11,6 +11,9 @@ export function registerNodeInstrumentation(): void {
   // configured. Without it the built-in five minutes aborts a provider stream
   // that stays quiet for longer, which a CLI session tolerates.
   configureHttpDispatcher(readHttpIdleTimeoutMs());
+  import("@/lib/data-backup")
+    .then(({ startDataBackup }) => startDataBackup())
+    .catch((error: unknown) => console.error("[coding-agent-web] Could not start data backups:", error));
   import("@/lib/usage-refresh")
     .then(({ startUsageRefresh }) => startUsageRefresh())
     .catch(() => {});
