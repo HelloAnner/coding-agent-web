@@ -5,6 +5,9 @@
 不要只登记一个名字或接通一个模型 API。Claude Code 的配置细节见 docs/claude-code.txt。
 新增接入的逐项自检、生命周期与验收矩阵见 docs/harness-checklist.txt。
 
+讨论中的接入：omp（Oh My Pi）的完整方案见 harness/omp/README.md。
+目前仅完成方案与隔离原生探针，尚未登记菜单或实现聊天，不属于下文的已接入能力。
+
 代码按 harness 纵向隔离
 ----------------------
 
