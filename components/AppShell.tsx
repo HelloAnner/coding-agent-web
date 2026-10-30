@@ -3192,6 +3192,7 @@ export function AppShell() {
       <SettingsPanel
         cwd={projectTrustCwd}
         sessionId={selectedSession?.id ?? null}
+        harness={composerHarnessFor(selectedSession, composerHarness)}
         initialSection={settingsSection}
         quoteSelectionEnabled={quoteSelectionEnabled}
         onQuoteSelectionChange={handleQuoteSelectionChange}

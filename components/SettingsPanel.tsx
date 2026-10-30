@@ -30,7 +30,7 @@ import { HarnessModels } from "./HarnessModels";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
-import { PluginsConfig } from "./PluginsConfig";
+import { HarnessPlugins } from "./HarnessPlugins";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
@@ -39,6 +39,7 @@ import { UsageAnalytics } from "./UsageAnalytics";
 interface Props {
   cwd: string | null;
   sessionId: string | null;
+  harness?: string;
   initialSection: SettingsSection;
   onClose: () => void;
   onSessionReloaded: () => void;
@@ -465,6 +466,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
 export function SettingsPanel({
   cwd,
   sessionId,
+  harness = "pi",
   initialSection,
   onClose,
   onSessionReloaded,
@@ -586,7 +588,7 @@ export function SettingsPanel({
               status and load again in place when trusting from Settings › MCP changes it. */}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}
           {cwd && sectionHost("agents", <AgentsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
-          {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
+          {sectionHost("plugins", <HarnessPlugins key={`${cwd}:${harness}`} cwd={cwd} initialHarness={harness} sessionId={sessionId} trust={projectTrust} onClose={onClose} onReloaded={onSessionReloaded} />)}
           {/* No project needed: the global mcp.json is listed alone, and a project adds its group. */}
           {sectionHost("mcp", <McpConfig embedded key={cwd ?? ""} cwd={cwd} trust={projectTrust} onTrustProject={onOpenTrustDialog} onProjectTrustChanged={onProjectTrustChanged} onClose={onClose} />)}
         </main>
