@@ -20,7 +20,7 @@ const loader = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.
 const schedule = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === "MODELS_RETRY_DELAYS_MS");
 const effect = nodes.find((node) => ts.isCallExpression(node)
   && node.expression.getText(source) === "useEffect"
-  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey, usesPiRuntime]");
+  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey, usesSharedModels]");
 const retry = effect.arguments[0].body.statements.find(ts.isExpressionStatement).expression;
 function script(text) {
   return new Script(ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);

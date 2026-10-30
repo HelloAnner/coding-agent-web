@@ -34,6 +34,8 @@ export const zhCNLocale: LocalePlugin = {
     "harness.claudeTaskNoOutput": "暂无输出",
     "harness.claudeTaskTruncated": "较早内容已省略",
     "harness.claudeTrust": "是否信任此项目并启动 Claude Code？\n{cwd}\n\nClaude Code 会加载项目的 hooks 和 MCP，它们可能执行本机命令。请确认你信任这个目录。",
+    "harness.ompTrust": "是否信任此项目并启动 OMP？\n{cwd}\n\nOMP 会加载原生 hooks、扩展和 MCP，它们可能执行本机命令。请确认你信任这个目录。",
+    "harness.ompModelsShared": "OMP 与 Pi 共用提供商、模型、凭据和模型配置。这里的修改对两者生效；OMP 仍运行自己的 agent 和工具。",
     "harness.default": "默认",
     "harness.off": "关",
     "harness.notMounted": "dsh 没有这个模型",

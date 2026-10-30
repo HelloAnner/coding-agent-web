@@ -19,6 +19,8 @@ import { claudeEventsUrl, claudeSessionUrl, ClaudeTrustRequiredError, mergeClaud
 import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
 import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/lib/dsh-client";
 import { runtimeStatusUrl } from "@/lib/harness-client";
+import { ompEventsUrl } from "@/harness/omp/client/api";
+import { useOmpSession } from "@/harness/omp/client/use-session";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -437,7 +439,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // dsh drives its own kernel (`dsh --profile acp`), so its session is real too.
   const usesDshRuntime = harness === "dsh";
   const usesClaudeRuntime = harness === "claude-code";
-  const session = usesPiRuntime || usesGrokRuntime || usesDshRuntime || usesClaudeRuntime ? opts.session ?? null : null;
+  const usesOmpRuntime = harness === "omp";
+  const usesSharedModels = usesPiRuntime || usesOmpRuntime;
+  const omp = useOmpSession();
+  const session = usesPiRuntime || usesGrokRuntime || usesDshRuntime || usesClaudeRuntime || usesOmpRuntime ? opts.session ?? null : null;
   const runtimeHarnessRef = useRef(harness);
   runtimeHarnessRef.current = harness;
   const grokModel = session?.modelProvider && session.modelId
@@ -478,7 +483,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [modelError, setModelError] = useState<string | null>(null);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
   const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>({});
-  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? null);
+  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(() => initialChoices?.model ?? (usesOmpRuntime ? opts.harnessModel ?? null : null));
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const initialToolPresetRef = useRef(initialChoices?.toolPreset);
   const newSessionToolNamesRef = useRef(initialChoices?.toolNames);
@@ -566,7 +571,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const slashCommandsLoadRef = useRef<Promise<SlashCommandInfo[] | null> | null>(null);
   const slashCommandsGenerationRef = useRef(0);
   const newSessionPromotedRef = useRef(false);
-  const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialChoices?.model ?? null);
+  const newSessionModelOverrideRef = useRef<SelectedModel | null>(initialChoices?.model ?? (usesOmpRuntime ? opts.harnessModel ?? null : null));
   const preserveInitialModelRef = useRef(initialChoices?.preserveModel ?? false);
   // What /api/models says a fresh chat starts on: the folder's last pick, else
   // the first offered model. Sent only when the user has not picked one.
@@ -615,7 +620,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
-      createSource: (sid) => new EventSource(runtimeHarnessRef.current === "grok"
+      createSource: (sid) => new EventSource(runtimeHarnessRef.current === "omp" ? ompEventsUrl(sid) : runtimeHarnessRef.current === "grok"
         ? grokEventsUrl(sid, grokModelRef.current?.modelId ?? null)
         : runtimeHarnessRef.current === "dsh"
           ? dshEventsUrl(sid)
@@ -651,13 +656,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const onNewSessionChoicesChange = opts.onNewSessionChoicesChange;
   useEffect(() => {
-    if (isNew && usesPiRuntime) onNewSessionChoicesChange?.({
+    if (isNew && usesSharedModels) onNewSessionChoicesChange?.({
       model: newSessionModel,
       thinkingLevel: newSessionThinkingLevel,
       toolPreset,
       toolNames: newSessionToolNamesRef.current,
     });
-  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange, toolPreset, usesPiRuntime]);
+  }, [isNew, newSessionModel, newSessionThinkingLevel, onNewSessionChoicesChange, toolPreset, usesSharedModels]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
@@ -685,7 +690,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     : currentThinkingLevel ?? (data?.context.messages.length === 0 ? newSessionDefaultThinkingLevel : null);
   const composerDraftKey = session?.id ?? newSessionDraftKey ?? undefined;
 
-  const configModel = usesPiRuntime ? currentModel : grokModel;
+  const configModel = usesSharedModels ? currentModel : grokModel;
   const configProvider = configModel?.provider;
   const configModelId = configModel?.modelId;
   const configThinkingLevel = currentThinkingLevel ?? asConcreteThinkingLevel(data?.context.thinkingLevel);
@@ -697,14 +702,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const ready = sessionConfigLoaded && !loading && !error && !modelSwitching && !agentRunning && !bashRunning && !isCompacting;
     onSessionConfigChange?.(configSessionId, ready ? {
       model: configProvider && configModelId ? { provider: configProvider, modelId: configModelId } : null,
-      thinkingLevel: usesPiRuntime ? configThinkingLevel : null,
+      thinkingLevel: usesSharedModels ? configThinkingLevel : null,
       toolPreset,
       toolNames: configToolNames !== undefined && getPresetFromToolNames(configToolNames) === toolPreset
         ? configToolNames
         : getToolNamesForPreset(toolPreset),
     } : null);
     return () => onSessionConfigChange?.(configSessionId, null);
-  }, [agentRunning, bashRunning, configModelId, configProvider, configSessionId, configThinkingLevel, configToolNames, error, isCompacting, loading, modelSwitching, onSessionConfigChange, sessionConfigLoaded, toolPreset, usesPiRuntime]);
+  }, [agentRunning, bashRunning, configModelId, configProvider, configSessionId, configThinkingLevel, configToolNames, error, isCompacting, loading, modelSwitching, onSessionConfigChange, sessionConfigLoaded, toolPreset, usesSharedModels]);
 
   const syncLiveModel = useCallback((state?: AgentStateResponse) => {
     setLiveModel(state?.model
@@ -810,7 +815,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const refreshContextUsage = useCallback(async (sid: string) => {
-    if (runtimeHarnessRef.current !== "pi") return;
+    if (runtimeHarnessRef.current !== "pi" && runtimeHarnessRef.current !== "omp") return;
     const runId = promptRunIdRef.current;
     const requestId = ++contextUsageRequestIdRef.current;
     try {
@@ -824,6 +829,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyLiveUsage]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, options?: { force?: boolean }) => {
+    if (runtimeHarnessRef.current === "omp") return omp.load(sid, showLoading, includeState);
     if (runtimeHarnessRef.current === "claude-code") {
       if (showLoading) setLoading(true);
       try {
@@ -1053,7 +1059,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (loadFlightsRef.current.get(flightKey) === flight) loadFlightsRef.current.delete(flightKey);
     });
     return await flight;
-  }, [applyLiveUsage, setToolPresetState, syncLiveModel]);
+  }, [applyLiveUsage, omp, setToolPresetState, syncLiveModel]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
@@ -1347,7 +1353,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const request: { sid: string; promise: Promise<SessionLeaseOutcome> } = { sid, promise: Promise.resolve(null) };
     request.promise = (async (): Promise<SessionLeaseOutcome> => {
       try {
-        const response = await fetch(sessionLeaseUrl(sid), { method: "POST", cache: "no-store", signal: controller.signal });
+        const isOmp = runtimeHarnessRef.current === "omp";
+        const response = await fetch(isOmp ? runtimeStatusUrl("omp", sid) : sessionLeaseUrl(sid), { method: isOmp ? "GET" : "POST", cache: "no-store", signal: controller.signal });
         return response.ok ? await response.json() as SessionLeaseReply : null;
       } catch (error) {
         // Timed out (queued behind open streams) or no network. A body that is no
@@ -1427,6 +1434,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   ) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
+    if (runtimeHarnessRef.current === "omp") {
+      try { await omp.respond(request.id, response); }
+      catch (error) { dispatchNotice({ type: "add", notice: { id: createNoticeId(), type: "error", message: error instanceof Error ? error.message : String(error) } }); }
+      return;
+    }
     if (runtimeHarnessRef.current === "claude-code") {
       try {
         await sendClaudeCommand(sid, { type: "extension_ui_response", id: request.id, ...response });
@@ -1446,7 +1458,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to send extension UI response:", e);
     }
-  }, []);
+  }, [omp]);
 
   const sendExtensionCustomInput = useCallback(async (request: ExtensionUiCustomRequest, data: string) => {
     const sid = sessionIdRef.current;
@@ -1765,6 +1777,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // If the server reports idle while we still think it's running, finish
   // through the same settlement path used by non-streaming prompts.
   const reconcileAgentState = useCallback(async (sid: string) => {
+    if (runtimeHarnessRef.current === "omp" && omp.isSubmitting()) return;
     if (!agentRunningRef.current || sessionIdRef.current !== sid) return;
     const runId = promptRunIdRef.current;
     const usageRequestId = ++contextUsageRequestIdRef.current;
@@ -1809,7 +1822,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [applyLiveUsage, finishPromptWithoutStream, syncLiveModel]);
+  }, [applyLiveUsage, finishPromptWithoutStream, omp, syncLiveModel]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1840,6 +1853,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [agentRunning]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    if (runtimeHarnessRef.current === "omp" && omp.handleEvent(event)) return;
     switch (event.type) {
       case "connected": {
         dispatch({ type: "end" });
@@ -2148,7 +2162,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionDialogs((queue) => removeExtensionUiRequest(queue, event.id as string));
         break;
     }
-  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
+  }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, omp, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
   // Grok runs one `grok -p` child per turn. The server owns its prompt queue;
@@ -2308,6 +2322,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
+    if (runtimeHarnessRef.current === "omp") return omp.submit(trimmedMessage, images);
     if (runtimeHarnessRef.current === "claude-code") {
       await submitClaudePrompt(trimmedMessage, images);
       return;
@@ -2488,7 +2503,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, submitGrokPrompt, submitDshPrompt, submitClaudePrompt, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, omp, submitGrokPrompt, submitDshPrompt, submitClaudePrompt, waitForPromptSettlement, addNotice, releaseUnconfirmedSend, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (runtimeHarnessRef.current !== "pi") {
@@ -2530,6 +2545,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [composerDraftKey, opts.chatInputRef, restoreSubmission]);
 
   const handleAbort = useCallback(async () => {
+    if (runtimeHarnessRef.current === "omp") return omp.abort();
     const sid = sessionIdRef.current;
     if (!sid) return;
     if (runtimeHarnessRef.current === "claude-code") {
@@ -2567,7 +2583,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to abort:", e);
     }
-  }, [restoreRecalledPrompts]);
+  }, [omp, restoreRecalledPrompts]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -2625,6 +2641,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isCompacting, loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
+    if (runtimeHarnessRef.current === "omp") return omp.selectModel(provider, modelId);
     if (isNew) {
       const selectedModel = { provider, modelId };
       newSessionModelOverrideRef.current = selectedModel;
@@ -2680,7 +2697,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       modelSwitchPendingRef.current = false;
       setModelSwitching(false);
     }
-  }, [addNotice, currentModelOverride, isCompacting, isNew, loadSession, setNewSessionModel]);
+  }, [addNotice, currentModelOverride, isCompacting, isNew, loadSession, omp, setNewSessionModel]);
 
   /**
    * Manual compaction (the Compact button and `/compact`). Never awaited by a
@@ -3070,6 +3087,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [sendStreamingPrompt]);
 
   const handleAbortCompaction = useCallback(async () => {
+    if (runtimeHarnessRef.current === "omp") return omp.abort();
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
@@ -3077,7 +3095,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to abort compaction:", e);
     }
-  }, []);
+  }, [omp]);
 
   const handleRecallQueue = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -3101,6 +3119,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, restoreRecalledPrompts]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
+    if (runtimeHarnessRef.current === "omp") return omp.selectThinking(level);
     if (level === "auto") {
       thinkingLevelOverrideRef.current = null;
       setNewSessionThinkingLevel(null);
@@ -3125,7 +3144,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to set thinking level:", e);
       setCurrentThinkingOverride(null);
     }
-  }, [isNew]);
+  }, [isNew, omp]);
 
   const handleSetDefaultThinkingLevel = useCallback(async (level: ConcreteThinkingLevel) => {
     try {
@@ -3315,8 +3334,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   useEffect(() => {
     const sid = session?.id;
     if (!sid) return;
-    // A pi session lives on the server's lease. Grok runs one child per prompt.
-    if (runtimeHarnessRef.current !== "pi") return;
+    // Pi renews its lease; OMP reads its own status without starting a reaped CLI.
+    if (runtimeHarnessRef.current !== "pi" && runtimeHarnessRef.current !== "omp") return;
     let disposed = false;
     const renew = async () => {
       const reply = await requestLease(sid);
@@ -3482,7 +3501,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load the model list with bounded retries; loadModels exposes each failure.
   // Another harness has its own list and must not ask pi for one.
   useEffect(() => {
-    if (!usesPiRuntime) return;
+    if (!usesSharedModels) return;
     const controller = new AbortController();
     (async () => {
       for (let attempt = 0; ; attempt++) {
@@ -3499,7 +3518,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     })();
     return () => controller.abort();
-  }, [loadModels, modelsRefreshKey, usesPiRuntime]);
+  }, [loadModels, modelsRefreshKey, usesSharedModels]);
 
   useEffect(() => {
     if (!compactResult) return;
@@ -3565,6 +3584,72 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     () => messageRenderKeys(entryIds, messages.length, messageKeyAliases),
     [entryIds, messages.length, messageKeyAliases],
   );
+
+  omp.bind({
+    current: () => ({ id: sessionIdRef.current, known: Boolean(session), cwd: grokCwdRef.current,
+      model: newSessionModelOverrideRef.current ?? grokModelRef.current ?? newSessionDefaultModelRef.current,
+      thinkingLevel: thinkingLevelOverrideRef.current, busy: agentRunningRef.current || modelSwitchPendingRef.current || Boolean(extensionDialog), mounted: sessionHookMountedRef.current }),
+    begin: (id, text, images) => {
+      sessionIdRef.current = id;
+      const imageBlocks = images?.map(({ data, mimeType }) => ({ type: "image" as const, source: { type: "base64" as const, data, media_type: mimeType } }));
+      const message: AgentMessage = { role: "user", timestamp: Date.now(), content: imageBlocks?.length ? [...(text ? [{ type: "text" as const, text }] : []), ...imageBlocks] : text };
+      promptRunIdRef.current += 1;
+      rpcPromptPendingRef.current = false;
+      sdkAgentActiveRef.current = true;
+      agentRunningRef.current = true;
+      optimisticUserMessageKeyRef.current = userMessageKey(message);
+      setMessages((previous) => [...previous, message]);
+      setAgentRunning(true);
+      setAgentPhase({ kind: "waiting_model" });
+      pendingScrollToUserRef.current = true;
+      setPromptAnchorActive(true);
+      cancelEventStreamGrace();
+      dispatch({ type: "start" });
+      return () => setMessages((previous) => withoutMessage(previous, message));
+    },
+    end: (clearId) => {
+      sdkAgentActiveRef.current = false;
+      rpcPromptPendingRef.current = false;
+      optimisticUserMessageKeyRef.current = null;
+      settleUiStage();
+      if (clearId) { sessionIdRef.current = null; closeEvents(); }
+    },
+    restore: (text, images) => restoreSubmission(text, images, composerDraftKey),
+    notice: (message, warning) => addNotice({ type: warning ? "warning" : "error", message }),
+    connect: ensureEventsConnected,
+    created: (result, text) => promoteNewSession(1, text, result.sessionPath, result),
+    loading: setLoading,
+    view: (loaded, preserveMessages) => {
+      if (!sessionHookMountedRef.current || sessionIdRef.current !== loaded.sessionId) return;
+      setData(loaded);
+      if (!preserveMessages) { setMessages(loaded.context.messages); setEntryIds(loaded.context.entryIds); }
+      setHistoryCursor(null); setHasEarlierMessages(false); setEarlierTurnCount(0); setActiveLeafId(null);
+      setLiveModel(loaded.context.model); setLiveThinkingLevel(asConcreteThinkingLevel(loaded.context.thinkingLevel));
+      setError(null); setSessionConfigLoaded(true);
+      if (!preserveMessages) applyLoadedAgentState(loaded.sessionId, { running: loaded.running, state: loaded.state });
+    },
+    snapshot: (next) => {
+      setMessages(next);
+      setEntryIds(next.map((message) => String((message as AgentMessage & { nativeId?: string }).nativeId ?? "")));
+    },
+    model: (value) => {
+      setLiveModel(value); setPendingModel(value);
+      if (isNew) {
+        newSessionModelOverrideRef.current = value; setNewSessionModel(value);
+        const pin = thinkingLevelPinsRef.current[`${value.provider}/${value.modelId}`];
+        if (!thinkingLevelOverrideRef.current) setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(pin) ?? defaultThinkingLevelRef.current);
+      }
+    },
+    thinking: (level) => {
+      const value = asConcreteThinkingLevel(level);
+      thinkingLevelOverrideRef.current = value;
+      if (isNew) setNewSessionThinkingLevel(value);
+      setLiveThinkingLevel(value); setCurrentThinkingOverride(null);
+    },
+    switching: (value) => { modelSwitchPendingRef.current = value; setModelSwitching(value); },
+    confirm: (cwd) => window.confirm(translate("harness.ompTrust", { cwd })),
+    reconcile: (id) => { void waitForPromptSettlement(id); },
+  });
 
   return {
     // State

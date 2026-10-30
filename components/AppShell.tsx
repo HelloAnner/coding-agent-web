@@ -52,7 +52,7 @@ import {
 import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
-import { composerHarnessFor, isPiSessionFile, mergeCatalogRow } from "./session-catalog-helpers";
+import { composerHarnessFor, mergeCatalogRow } from "./session-catalog-helpers";
 import { getDraft, parkedNewSessionDraftKey, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
@@ -228,16 +228,6 @@ export function AppShell() {
   // stale (e.g. a delete that completes after the user navigated away).
   const selectedSessionRef = useRef(selectedSession);
   selectedSessionRef.current = selectedSession;
-  // A pi file stays on pi. A stale index label must not drive the composer.
-  useEffect(() => {
-    if (!selectedSession || selectedSession.harness === "pi" || !isPiSessionFile(selectedSession.path)) return;
-    const sessionId = selectedSession.id;
-    setSelectedSession((current) => (
-      current?.id === sessionId && current.harness !== "pi" && isPiSessionFile(current.path)
-        ? { ...current, harness: "pi" }
-        : current
-    ));
-  }, [selectedSession]);
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);

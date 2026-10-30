@@ -31,6 +31,7 @@
     "!.next/dev",
     "!.next/**/*.js.map",
     "dashboard",
+    "harness/omp/model-extension.mjs",
     "public",
     "next.config.ts",
     "package.json"

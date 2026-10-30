@@ -1,7 +1,6 @@
 import { existsSync } from "fs";
 import { stat } from "fs/promises";
 import { resolve } from "path";
-import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   loadModelsWithCache,
@@ -9,11 +8,10 @@ import {
   withSafeModelLoadFailure,
   type ModelsData,
 } from "@/lib/models-cache";
-import { orderSelectorModels, resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
+import { orderSelectorModels, selectInitialModelScope } from "@/lib/model-scope";
+import { readProjectModels } from "@/lib/project-models";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { readProjectPreference } from "@/lib/catalog-db";
-import { projectTrustReloadOptions } from "@/lib/project-trust";
-import { rememberProviderModels, withDeferredProviderModels } from "@/lib/deferred-provider-models";
 import { inferRemovedWorktree } from "@/lib/worktree";
 
 export const dynamic = "force-dynamic";
@@ -25,25 +23,8 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const thinkingLevels: Record<string, string[]> = {};
   const thinkingLevelMaps: Record<string, Record<string, string | null>> = {};
 
-  const agentDir = getAgentDir();
-  // Gate untrusted project extensions: enumerating models still imports and
-  // runs a repository's .pi/extensions factories, so honor project trust here
-  // too (see lib/project-trust.ts, #236).
-  const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
-  const services = await createAgentSessionServices({
-    cwd,
-    agentDir,
-    ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-  });
-  const modelError = services.modelRuntime.getError();
-  const settings: SettingsManager = services.settingsManager;
-  await rememberProviderModels(services.modelRuntime);
-  // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
-  // way the CLI does instead of comparing pattern strings literally (#307).
-  const scope = await resolveVisibleModels(
-    withDeferredProviderModels(services.modelRuntime),
-    settings.getEnabledModels(),
-  );
+  const { runtime, settings, scope } = await readProjectModels(cwd);
+  const modelError = runtime.getError();
   const { visible, thinkingLevelPins } = scope;
   modelList = orderSelectorModels(scope).map((m) => ({
     id: m.id,

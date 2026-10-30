@@ -9,6 +9,7 @@ import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 import { catalogListVersion } from "@/lib/catalog-db";
 import { dshRunningIds } from "@/harness/dsh/runtime";
 import { grokRunningIds } from "@/harness/grok/runtime";
+import { ompAwaitingInputIds, ompRunningIds } from "@/harness/omp/runtime";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
 import { getSessionIdsWithUnsettledSubagentRuns } from "@/lib/subagent-runtime";
 
@@ -31,8 +32,8 @@ export async function GET() {
     {
       sessionListVersion: getSessionListVersion(),
       catalogListVersion: readCatalogListVersion(),
-      runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds(), ...dshRunningIds(), ...grokRunningIds()],
-      awaitingInputSessionIds: [...getAwaitingInputRpcSessionIds(), ...claudeAwaitingInputIds()],
+      runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds(), ...dshRunningIds(), ...grokRunningIds(), ...ompRunningIds()],
+      awaitingInputSessionIds: [...getAwaitingInputRpcSessionIds(), ...claudeAwaitingInputIds(), ...ompAwaitingInputIds()],
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       subagentsActiveSessionIds: getSessionIdsWithUnsettledSubagentRuns(),
       sessionUiStateRevision: getSessionUiStateRevision(),

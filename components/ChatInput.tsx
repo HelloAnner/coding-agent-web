@@ -76,6 +76,7 @@ interface Props {
   /** Diagnostics from resolving `enabledModels`, e.g. a pattern that matched nothing. */
   onModelChange?: (provider: string, modelId: string) => void;
   modelSwitching?: boolean;
+  modelControlsLocked?: boolean;
   /** The model new sessions start with, starred in the model selector. */
   defaultModel?: { provider: string; modelId: string } | null;
   /** Saves a model as the default for new sessions and selects it here. */
@@ -682,7 +683,7 @@ export function modelSupportsImageInput(
 // Memoized: its props hold still while a reply streams or a tool runs, and the
 // chat around it re-renders through both.
 export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatInput({
-  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelsRefreshKey, modelError, onModelChange, modelSwitching,
+  onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelsRefreshKey, modelError, onModelChange, modelSwitching, modelControlsLocked = false,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
@@ -1787,7 +1788,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const modelProvider = model?.provider ?? "";
   const modelKey = model?.modelId ?? "";
   useEffect(() => {
-    if (compact || harnessId === "pi") {
+    if (compact || harnessId === "pi" || harnessId === "omp") {
       setForeignModels([]);
       return;
     }
@@ -1843,7 +1844,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       name,
     }));
   })();
-  const usingForeignModels = !compact && harnessId !== "pi";
+  const usingForeignModels = !compact && harnessId !== "pi" && harnessId !== "omp";
   const shownModelOptions = usingForeignModels ? foreignModels : modelOptions;
   const shownModel = usingForeignModels ? foreignModel : model;
   const shownHarnesses = harnessChoices.length > 0
@@ -2746,7 +2747,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     }
                   : (onModelChange ?? (() => {}))}
                 onReselect={usingForeignModels ? undefined : onModelChange}
-                disabled={harnessId === "claude-code" && (harnessLocked || isStreaming)}
+                disabled={modelControlsLocked || harnessId === "claude-code" && (harnessLocked || isStreaming)}
                 busy={usingForeignModels ? false : modelSwitching}
                 isAutoSelection={usingForeignModels ? false : isAutoModelSelection}
                 defaultValue={usingForeignModels ? undefined : defaultModel}
@@ -2923,6 +2924,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button
+                  disabled={modelControlsLocked}
                   onClick={() => setThinkingDropdownOpen((v) => !v)}
                   title={isStreaming
                     ? t("chat.currentReasoning", { level: thinkingDisplayLabel })
@@ -2957,7 +2959,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                   </svg>
                   {(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{thinkingDisplayLabel}</span>}
                 </button>
-                {thinkingDropdownOpen && (
+                {thinkingDropdownOpen && !modelControlsLocked && (
                   <div style={{
                     position: "absolute", bottom: "calc(100% + 6px)",
                     ...(isMobile ? { left: 0 } : { right: 0 }),

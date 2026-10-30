@@ -143,6 +143,7 @@ export type ExtensionUiRequest =
       method: "select";
       title: string;
       options: string[];
+      optionDetails?: Array<{ description?: string }>;
       timeout?: number;
       expiresAt?: number;
     }

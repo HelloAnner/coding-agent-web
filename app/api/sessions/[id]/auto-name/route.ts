@@ -9,6 +9,7 @@ import { readGrokTranscript } from "@/harness/grok/transcript";
 import { generateClaudeTitle } from "@/harness/claude-code/title";
 import { readClaudeNativeTitle, readClaudeTranscript } from "@/harness/claude-code/transcript";
 import { resolveClaudeProfile } from "@/harness/claude-code";
+import { readOmpTranscript } from "@/harness/omp/transcript";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
 
@@ -57,6 +58,14 @@ export async function POST(
 
   try {
     const indexed = readCatalogSession(id);
+    if (indexed?.harness === "omp") {
+      const first = readOmpTranscript(id, indexed.sessionPath).messages.find((message) => message.role === "user");
+      const content = first?.content;
+      const text = typeof content === "string" ? content : content?.filter((block) => block.type === "text").map((block) => block.text).join(" ") ?? "";
+      const title = text.trim().split("\n")[0].slice(0, 60) || indexed.title || "OMP";
+      updateCatalogSession(id, { title });
+      return NextResponse.json({ title, usage: null });
+    }
     if (indexed?.harness === "claude-code") {
       const profile = resolveClaudeProfile(indexed.model, indexed.provider, true);
       if (profile.configDir !== (indexed.profilePath || indexed.sessionPath)) throw new Error("Claude Code profile directory has changed");

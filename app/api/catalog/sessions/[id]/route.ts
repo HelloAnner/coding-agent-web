@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
+import { guardOmpCatalogWrite } from "@/harness/omp/catalog";
 import { CatalogHarnessLockedError, deleteCatalogSession, updateCatalogSession, upsertCatalogSession } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     cwd: typeof body?.cwd === "string" ? body.cwd : undefined,
   };
   try {
+    guardOmpCatalogWrite(id, patch);
     if (updateCatalogSession(id, patch)) return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof CatalogHarnessLockedError) {

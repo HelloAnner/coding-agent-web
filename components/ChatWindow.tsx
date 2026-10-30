@@ -953,6 +953,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     : null;
 
   const foreignHarness = composerHarness !== "pi";
+  const sharedModelControls = composerHarness === "pi" || composerHarness === "omp";
   const supportsStreamingPrompts = !foreignHarness || composerHarness === "claude-code" || composerHarness === "dsh" || composerHarness === "grok";
   // The pi file's model is the one this chat will send. A catalog pair left
   // over from another harness must not stay on the row.
@@ -977,17 +978,25 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         if (id === "pi" && displayModelValue) onCatalogModelChange?.(displayModelValue.provider, displayModelValue.modelId);
       }}
       onCatalogModelChange={onCatalogModelChange}
-      model={foreignHarness
+      model={!sharedModelControls
         ? (session?.modelProvider && session.modelId
           ? { provider: session.modelProvider, modelId: session.modelId }
           : harnessModel ?? displayModelValue)
         : displayModelValue}
-      isAutoModelSelection={foreignHarness ? false : isAutoModelSelection}
+      isAutoModelSelection={sharedModelControls ? isAutoModelSelection : false}
       modelNames={modelNames}
       modelList={modelList}
       modelsRefreshKey={modelsRefreshKey}
       modelError={modelError}
       onModelChange={(provider, modelId) => {
+        if (composerHarness === "omp") {
+          void handleModelChange(provider, modelId).then((success) => {
+            if (!success) return;
+            onCatalogModelChange?.(provider, modelId);
+            onProjectPreferenceChange?.(composerHarness, provider, modelId);
+          });
+          return;
+        }
         void handleModelChange(provider, modelId);
         onCatalogModelChange?.(provider, modelId);
         onProjectPreferenceChange?.(composerHarness, provider, modelId);
@@ -996,6 +1005,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         onProjectPreferenceChange?.(composerHarness, provider, modelId);
       }}
       modelSwitching={modelSwitching}
+      modelControlsLocked={composerHarness === "omp" && (sessionBusy || modelSwitching || Boolean(extensionDialog))}
       onCompact={!foreignHarness && (session || isNew) ? handleCompact : undefined}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
@@ -1006,7 +1016,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onToolPresetChange={!foreignHarness && (session || isNew) ? handleToolPresetChange : undefined}
       thinkingLevel={thinkingLevel}
       isAutoThinkingSelection={isAutoThinkingSelection}
-      onThinkingLevelChange={!foreignHarness && (session || isNew) ? handleThinkingLevelChange : undefined}
+      onThinkingLevelChange={sharedModelControls && (session || isNew) ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       savedDefaultThinkingLevel={savedDefaultThinkingLevel}
@@ -1972,6 +1982,7 @@ function ExtensionDialog({
                 >
                   <div inert>
                     <MarkdownBody>{option}</MarkdownBody>
+                    {request.optionDetails?.[index]?.description && <div style={{ color: "var(--text-muted)", fontSize: 12 }}><MarkdownBody>{request.optionDetails[index].description!}</MarkdownBody></div>}
                   </div>
                 </div>
               ))}

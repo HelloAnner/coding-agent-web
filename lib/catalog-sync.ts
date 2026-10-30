@@ -1,9 +1,12 @@
+import { realpathSync } from "node:fs";
+import path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { claudeTranscriptFile } from "@/harness/claude-code/transcript";
 import { resolveClaudeProfile } from "@/harness/claude-code";
 import { findDshSessionDir } from "@/harness/dsh";
 import { resolveGrokHistoryFile } from "@/harness/grok";
-import { listCatalogSessionPaths, relocateCatalogSession, type CatalogSessionPaths } from "./catalog-db";
-import { resolveSessionPath } from "./session-reader";
+import { listCatalogSessionPaths, relocateCatalogSession, repairCatalogPiHarness, type CatalogSessionPaths } from "./catalog-db";
+import { readSessionHeader, resolveSessionPath } from "./session-reader";
 
 /**
  * Keeps every row of the web's own index pointing at the harness file its
@@ -22,6 +25,24 @@ import { resolveSessionPath } from "./session-reader";
 
 export interface CatalogRepairResult {
   repaired: number;
+}
+
+/** Repair legacy labels by verified Pi ownership, never by a shared JSONL filename pattern. */
+function repairPiRows(indexed: Map<string, CatalogSessionPaths>): number {
+  let root: string;
+  try { root = realpathSync(path.join(getAgentDir(), "sessions")); } catch { return 0; }
+  let repaired = 0;
+  for (const row of indexed.values()) {
+    if (row.harness === "pi" || !row.sessionPath) continue;
+    try {
+      const file = realpathSync(row.sessionPath);
+      if (!file.startsWith(root + path.sep)) continue;
+      const header = readSessionHeader(file);
+      if (header?.id !== row.id || header.cwd !== row.cwd || !repairCatalogPiHarness(row.id)) continue;
+      row.harness = "pi"; row.profilePath = ""; repaired++;
+    } catch { /* missing or unreadable history is not evidence of Pi ownership */ }
+  }
+  return repaired;
 }
 
 /** Point old Claude rows at the transcript file, keeping the profile directory beside it. */
@@ -97,7 +118,8 @@ export function repairCatalogSessionPaths(): Promise<CatalogRepairResult> {
 
 async function repair(): Promise<CatalogRepairResult> {
   const indexed = new Map(listCatalogSessionPaths().map((row) => [row.id, row]));
-  let repaired = repairClaudeRows(indexed);
+  let repaired = repairPiRows(indexed);
+  repaired += repairClaudeRows(indexed);
   repaired += await repairEmptyPaths(indexed);
   return { repaired };
 }

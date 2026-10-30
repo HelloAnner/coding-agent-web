@@ -95,7 +95,7 @@ export interface CatalogSessionInput {
   model?: string;
   title?: string;
   sessionPath?: string;
-  /** Claude Code's config directory, when sessionPath is its transcript file. */
+  /** Native configuration identity for Claude Code / OMP, separate from the transcript. */
   profilePath?: string;
   /** Backfill only: the harness file's own timestamps keep the sidebar order. */
   createdAt?: number;
@@ -216,6 +216,11 @@ export function upsertCatalogSession(input: CatalogSessionInput, file = catalogD
   if (existing && existing.harness !== harness) throw new CatalogHarnessLockedError();
   // Empty provider/model/path mean "this writer does not know them", not
   // "change them": a client that only knows the id must not retarget the row.
+  if (existing?.harness === "omp" && (existing.cwd !== cwd
+    || Boolean(input.sessionPath && input.sessionPath !== existing.session_path)
+    || Boolean(input.profilePath && input.profilePath !== existing.profile_path)
+    || Boolean(input.provider && input.provider !== existing.provider)
+    || Boolean(input.model && input.model !== existing.model))) throw new CatalogHarnessLockedError("An OMP session keeps its native identity and confirmed model");
   const incomingProfile = input.profilePath || input.sessionPath || "";
   if (existing?.harness === "claude-code" && (
     existing.cwd !== cwd
@@ -241,8 +246,8 @@ export function upsertCatalogSession(input: CatalogSessionInput, file = catalogD
     id,
     directory,
     harness,
-    input.provider ?? "",
-    input.model ?? "",
+    input.provider || (existing?.harness === "omp" ? existing.provider : ""),
+    input.model || (existing?.harness === "omp" ? existing.model : ""),
     input.title ?? "",
     input.sessionPath ?? "",
     input.profilePath ?? "",
@@ -262,6 +267,9 @@ export function updateCatalogSession(
     FROM sessions JOIN directories ON directories.id = sessions.directory_id WHERE sessions.id = ?`).get(id) as { id: string; directory_id: string; harness: string; provider: string; model: string; session_path: string; profile_path: string; cwd: string } | undefined;
   if (!existing) return false;
   if (patch.harness && patch.harness !== existing.harness) throw new CatalogHarnessLockedError();
+  if (existing.harness === "omp" && ((patch.cwd !== undefined && patch.cwd !== existing.cwd)
+    || (patch.sessionPath !== undefined && patch.sessionPath !== existing.session_path)
+    || (patch.profilePath !== undefined && patch.profilePath !== existing.profile_path))) throw new CatalogHarnessLockedError("An OMP session keeps its native identity and directory");
   if (existing.harness === "claude-code" && (
     (patch.cwd !== undefined && patch.cwd !== existing.cwd) || (patch.provider !== undefined && patch.provider !== existing.provider)
     || (patch.model !== undefined && patch.model !== existing.model)
@@ -320,7 +328,7 @@ export interface CatalogSession {
   model: string;
   title: string;
   sessionPath: string;
-  /** Claude Code's config directory; empty for every other harness. */
+  /** Native configuration identity for Claude Code / OMP; empty when not needed. */
   profilePath: string;
 }
 
@@ -393,6 +401,11 @@ export function relocateCatalogSession(
     WHERE id = ?
   `).run(paths.sessionPath, paths.profilePath ?? null, id);
   return Number(result.changes) > 0;
+}
+
+/** Migration only: the caller verified the exact header/id inside Pi's native root. */
+export function repairCatalogPiHarness(id: string, file = catalogDbPath()): boolean {
+  return Number(database(file).prepare("UPDATE sessions SET harness = 'pi', profile_path = '' WHERE id = ? AND harness != 'pi'").run(id).changes) > 0;
 }
 
 /** Sidebar rows. Empty until something is written here. Does not read a harness. */

@@ -5,6 +5,7 @@ import { ModelsConfig } from "../ModelsConfig";
 import { ClaudeModels } from "./ClaudeModels";
 import { DshModels } from "./DshModels";
 import { GrokModels } from "./GrokModels";
+import { OmpModels } from "@/harness/omp/client/Models";
 
 /** One harness's settings page. Props the harness does not use are ignored. */
 export type HarnessModelPanel = ComponentType<{ cwd?: string | null; onClose?: () => void }>;
@@ -19,6 +20,7 @@ function PiModelsPanel({ cwd, onClose }: { cwd?: string | null; onClose?: () => 
  */
 export const HARNESS_MODEL_PANELS: Record<string, HarnessModelPanel> = {
   pi: PiModelsPanel,
+  omp: OmpModels,
   dsh: DshModels,
   grok: GrokModels,
   "claude-code": ClaudeModels,

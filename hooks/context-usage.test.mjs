@@ -27,6 +27,7 @@ function setup(harness = "pi") {
     setContextUsage: (value) => writes.push(value),
     setLiveTotalActiveMs: (value) => activeWrites.push({ sessionId: value.sessionId, value: value.value }), runtimeStatusUrl,
     fetch: (url) => { const request = Promise.withResolvers(); requests.push({ ...request, url }); return request.promise; },
+    omp: { isSubmitting: () => false },
     syncLiveModel() {}, setIsCompacting() {}, setAutoCompactionEnabled() {}, setQueuedMessages() {},
     normalizeQueuedMessages: (value) => value, finishPromptWithoutStream: () => { throw new Error("busy run settled"); },
   });
@@ -57,6 +58,21 @@ test("Claude reconciliation uses its own status endpoint and never reads pi usag
   await pending;
   await state.context.refreshContextUsage("a");
   assert.equal(state.requests.length, 1);
+});
+
+test("OMP reconciliation and context usage stay on OMP, and a send in flight cannot settle early", async () => {
+  const state = setup("omp");
+  state.context.omp.isSubmitting = () => true;
+  await state.context.reconcileAgentState("a");
+  assert.equal(state.requests.length, 0);
+  state.context.omp.isSubmitting = () => false;
+  const pending = state.context.reconcileAgentState("a");
+  assert.equal(state.requests[0].url, "/api/omp/a?state=1");
+  state.reply(0, usage(140)); await pending;
+  const refresh = state.context.refreshContextUsage("a");
+  assert.equal(state.requests[1].url, "/api/omp/a?state=1");
+  state.reply(1, usage(150)); await refresh;
+  assert.deepEqual(state.writes, [usage(140), usage(150)]);
 });
 
 test("a usage read also carries the live active time, keyed to its session", async () => {

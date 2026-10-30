@@ -5,8 +5,8 @@
 不要只登记一个名字或接通一个模型 API。Claude Code 的配置细节见 docs/claude-code.txt。
 新增接入的逐项自检、生命周期与验收矩阵见 docs/harness-checklist.txt。
 
-讨论中的接入：omp（Oh My Pi）的完整方案见 harness/omp/README.md。
-目前仅完成方案与隔离原生探针，尚未登记菜单或实现聊天，不属于下文的已接入能力。
+omp（Oh My Pi）已接入基础聊天：原生 OMP agent + Pi 共用模型配置/认证/传输。
+实现、能力边界与原生/浏览器验证证据见 harness/omp/README.md；未重启用户服务验收。
 
 代码按 harness 纵向隔离
 ----------------------
@@ -64,7 +64,7 @@ registry/index，也不能用一个混合导出入口把这些带进浏览器。
 
 按主要使用方式分三类：
 
-  开放多模型型       pi、dsh          harness 自己支持多个 provider 和模型
+  开放多模型型       pi、dsh、omp     可选多个 provider/model；OMP 在网页里与 Pi 共用模型源
   官方模型生态型     grok             只在官方模型目录内选择，不接自定义 provider
   隔离 profile 型    Claude Code      用独立原生配置接不同模型，每个模型各管自己的上下文
 
@@ -74,11 +74,12 @@ registry/index，也不能用一个混合导出入口把这些带进浏览器。
 
   harness    模型来源                   网页中的运行方式                  上下文归属
   pi         原生多 provider 目录       进程内 Pi SDK AgentSession         pi 会话
+  omp        同一份 Pi 模型配置         原生 OMP RPC UI + 私有模型管道      OMP 原生会话
   dsh        内核实际挂载的模型         一个常驻内核，多条 ACP 会话         dsh 原生会话
   grok       官方模型缓存               每问一个原生 CLI 进程              grok 原生会话
   Claude     独立配置中的 profiles      每条活跃会话一个原生 CLI 进程       固定 profile 下的原生 UUID
 
-四种风格与边界
+五种风格与边界
 --------------
 
 pi：开放、可组合的通用 coding harness
@@ -94,6 +95,26 @@ pi：开放、可组合的通用 coding harness
 
   可复用：原生模型目录、显式选模、会话级设置、已有聊天界面。
   不照搬：把 Pi SDK 或 SessionManager 当成所有 coding harness 的通用核心。
+
+omp：原生 OMP agent，模型配置与 Pi 完全共用
+
+  原生基线 omp/18.3.0。使用 --mode rpc-ui，RPC v2 支持分块；每条活跃会话一个 CLI，
+  多轮复用，空闲回收后按精确日志恢复。rpc-ui 才把 ask 的原生工具 UI 接到 RPC。
+  agent、工具、审批、MCP、skills、扩展和会话由 OMP 管；不创建 Pi AgentSession。
+
+  模型菜单直接复用 /api/models，设置复用 Pi 编辑器；配置、enabledModels、OAuth、
+  provider 扩展、动态 key/headers、sampling/compat 参数由同一个 Pi ModelRuntime 执行。
+  原生 provider 扩展通过私有 fd 管道调用该模型服务，不另存 OMP models.yml 或密钥副本。
+  不是绕过 OMP 直接在网页里实现另一个 agent，也不把 OMP 塞入 lib/rpc-manager.ts。
+
+  已接文本、多轮、思考/工具事件、审批/ask、空闲切模、停止、快照重连和精确恢复。
+  默认 always-ask，项目首次执行前确认 trust。已有会话锁 harness/cwd/日志/配置根；
+  模型与思考控件在运行/待输入时锁定，原生确认后才保存模型。
+  图片有 1 MiB stdin 物理帧限制且尚未完成真实视觉验收；后台任务面板、原生命令、
+  队列、分支/手动压缩、OMP 专属资产管理及全站用量聚合未开放。
+
+  可复用：同源模型服务、自有 workflow、原生 RPC UI 与持久身份。
+  不照搬：把相同 JSONL 文件名当作 Pi 身份，或把同源模型误写成共用 Pi agent/工具。
 
 dsh：定位接近 pi，但以可组合内核和 ACP 会话工作
 
@@ -181,6 +202,7 @@ provider 只作分组，endpoint 与认证由 profile 的 env/原生设置决定
   新建输入框        可选 harness，再选其模型/profile；发送中隐藏 harness 选择，Claude 同时锁 profile
   所有已有会话      harness 固定，输入框下方不再显示 harness 标签/选择按钮
   pi 已有会话       可换模型，包括运行中；从下一次模型请求生效
+  omp 已有会话      空闲时原生 set_model 并核对实际模型；运行/待输入时锁定模型与思考控件
   grok 已有会话     可选下一轮使用的官方模型，下一次 CLI 启动时传入
   dsh 已有会话      菜单可选，但活跃 ACP session 的实际切模尚未闭环，见上面的缺口
   Claude 已有会话   模型/profile 也固定；无论空闲还是运行中，模型名保留但不能点开
@@ -201,6 +223,8 @@ pi 的原生会话文件决定当前模型；文件与索引不一致时修正�
 
   pi       ~/.pi/agent/models.json、settings.json、auth.json
            PI_CODING_AGENT_DIR 可改原生配置目录
+  omp      模型与认证共用上面的 Pi 配置；原生资产/历史仍独立在 ~/.omp/agent 或 XDG 根
+           PI_WEB_OMP_BIN 指定 CLI，PI_WEB_OMP_AGENT_DIR 可显式隔离原生根
   dsh      ~/bin/ds/ds.toml，DSH_DS_TOML 可改；DSH_HOME 默认 ~/.dsh
   grok     ~/.grok/models_cache.json、config.toml，GROK_HOME 可改
   Claude   data.db 同目录的 claude-code.json，默认 ~/.coding-agent-web/claude-code.json
@@ -224,18 +248,21 @@ Claude 运行时只读自己的 JSON，不读取 cc 脚本、cc.toml 或 cc 偏�
     directory_id   项目目录索引
     harness        固定的运行时归属
     provider       该 harness 的 provider/分组
-    model          pi/dsh/grok 的模型 id；Claude 的稳定 profile id
+    model          pi/omp/dsh/grok 的模型 id；Claude 的稳定 profile id
     title          网页显示标题
     session_path   原生位置，由所属 harness 解释，不统一假设为文件名
+    profile_path   Claude/OMP 的原生配置根身份，与日志位置分开保存
 
   harness    session_path
   pi         ~/.pi/agent/sessions/.../<id>.jsonl
+  omp        <OMP data root>/sessions/web/<webId>/<原生日志>.jsonl
   dsh        ~/.dsh/sessions/<内核编码目录>/<原生 id>/
   grok       ~/.grok/sessions/<URL 编码 cwd>/<UUID>/chat_history.jsonl
   Claude     固定 profile 根目录；在其 projects 下按 UUID 定位原生 JSONL
 
 网页与原生 session id：pi、grok、Claude 使用原生 id；grok/Claude 必须是 UUID。
 dsh 使用 dsh-... 网页 id，运行时维护 ACP id 映射，重启后从 session_path 恢复。
+omp 使用 omp-... 网页 id，native id 从精确日志 header 恢复，不能按文件名改判为 pi。
 历史始终由原生运行时写。网页只解析、展示和索引，不存第二份正文或转换成 pi 日志。
 
 运行协议与生命周期
@@ -246,18 +273,26 @@ dsh 使用 dsh-... 网页 id，运行时维护 ACP id 映射，重启后从 sess
                  v
           按索引 harness 分流
                  |
-     +-----------+-------------+----------------+
-     |           |             |                |
-     pi          dsh           grok             Claude Code
-     SDK         ACP stdio     CLI NDJSON       双向 stream-json
-     会话封装    全站常驻内核  每问新进程       每条活跃会话一个进程
-     |           |             |                |
-     +-----------+-------------+----------------+
+     +-----------+-------------+----------------+--------------------+
+     |           |             |                |                    |
+     pi          dsh           grok             Claude Code          omp
+     SDK         ACP stdio     CLI NDJSON       双向 stream-json     RPC UI v2
+     会话封装    全站常驻内核  每问新进程       每条活跃会话一个进程 每条活跃会话一个进程
+     |           |             |                |                    |
+     +-----------+-------------+----------------+--------------------+
                  |
          转成网页现有事件 -> SSE -> 共用消息/工具卡
 
 通信协议和进程寿命单独选择，不按“开放型/官方型/profile 型”自动推断。
 复用的是网页事件词汇和展示，不是 Pi SDK 的会话所有权或原生存储格式。
+
+omp：
+  omp --mode rpc-ui --no-pty --no-title --approval-mode always-ask，传输协商 v2。
+  OMP 模型扩展通过继承的私有 fd 3/4 调用 Pi ModelRuntime，不监听额外 HTTP 端口。
+  首次 new_session 后确认原生落盘，恢复只用 --resume <session_path>；不按目录猜最近会话。
+  原生终态才结算；停止先取消 UI 并 abort，超时关闭进程；断开网页不停止 agent。
+  接口校验身份与项目授权；通用索引 API 不能创建 OMP 会话或绕过原生切模。
+  详细边界、64 MiB 历史上限和测试方式见 harness/omp/README.md。
 
 grok：
   grok -p <文本> --output-format streaming-json --model <模型>
@@ -373,6 +408,8 @@ Claude：
 
   harness/types.ts、registry.ts      名称、配置位置、模型读写；不承包各家运行时
   harness/pi/、lib/rpc-manager.ts    pi 的原生 SDK 和会话封装
+  harness/omp/                      原生 RPC UI、Pi 模型管道、事件/历史、身份及 client workflow
+  lib/project-models.ts            Pi/OMP 共用模型服务加载，不创建 AgentSession
   harness/dsh/                      ACP、补丁、模型配置、事件与原生 zstd 日志
   harness/grok/                     官方目录、逐轮 CLI、事件与 chat_history.jsonl
   harness/claude-code/              自有 JSON、profile、原生 CLI、事件、历史与权限

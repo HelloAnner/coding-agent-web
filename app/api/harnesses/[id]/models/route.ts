@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
 import { HarnessModelsError, type HarnessModelList } from "@/harness/types";
 import { shortenPath } from "@/lib/display-path";
+import { realpathSync, statSync } from "node:fs";
+import path from "node:path";
+import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +17,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const harness = findHarness(id);
   if (!harness) return NextResponse.json({ error: "Unknown harness" }, { status: 404 });
-  const live = new URL(req.url).searchParams.get("live") === "1";
+  const query = new URL(req.url).searchParams;
+  const live = query.get("live") === "1";
+  let cwd = query.get("cwd") || undefined;
+  if (cwd) {
+    try {
+      if (!path.isAbsolute(cwd) || !statSync(cwd).isDirectory()) throw new Error("Invalid directory");
+      cwd = realpathSync(cwd);
+    } catch { return NextResponse.json({ error: "Select an existing absolute project directory" }, { status: 400 }); }
+    if (!isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
   if (!harness.readModels && !harness.readChatModels) {
     return NextResponse.json({ harness: id, models: [] });
   }
@@ -25,8 +37,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     models: file.models,
   }, { headers: { "Cache-Control": "no-store" } });
   try {
-    const file = live && harness.readChatModels
-      ? await harness.readChatModels()
+    const file = (live || !harness.readModels) && harness.readChatModels
+      ? await harness.readChatModels({ cwd })
       // The composer falls back to the file when the runtime is not up yet.
       : harness.readModels?.();
     if (!file) return NextResponse.json({ harness: id, models: [] });
