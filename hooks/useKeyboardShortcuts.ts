@@ -28,7 +28,11 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 export function handleGlobalEscape(event: KeyboardEvent): boolean {
   if (event.key !== "Escape" || event.defaultPrevented || !globalAbortHandler) return false;
 
-  const tag = (event.target as HTMLElement | null)?.tagName;
+  const target = event.target as HTMLElement | null;
+  const tag = target?.tagName;
+  // Native modal cancellation runs after keydown; do not prevent its default
+  // or stop a hidden chat when Escape belongs to an open dialog.
+  if (target?.closest?.("dialog[open]")) return false;
   // Let textarea/input handle Esc internally (ChatInput menus / stop).
   if (tag === "TEXTAREA" || tag === "INPUT") return false;
 

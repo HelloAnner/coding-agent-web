@@ -40,6 +40,20 @@ test("an Escape something nearer already handled does not stop the agent too", (
   assert.equal(stopped, 0);
 });
 
+test("native dialogs keep Escape's default cancellation without aborting a hidden agent", (t) => {
+  let stopped = 0;
+  registerAbortHandler(() => { stopped += 1; });
+  t.after(() => registerAbortHandler(null));
+  const event = keydown("Escape");
+  event.target.closest = (selector) => {
+    assert.equal(selector, "dialog[open]");
+    return {};
+  };
+  assert.equal(handleGlobalEscape(event), false);
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(stopped, 0);
+});
+
 test("with no run to stop, Escape is left alone", () => {
   registerAbortHandler(null);
   const event = keydown("Escape");

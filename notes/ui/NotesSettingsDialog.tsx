@@ -46,7 +46,10 @@ export function NotesSettingsDialog({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => listenForPanelEscape(document, onClose), [onClose]);
+  useEffect(() => {
+    if (!open) return;
+    return listenForPanelEscape(document, onClose);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open) return;

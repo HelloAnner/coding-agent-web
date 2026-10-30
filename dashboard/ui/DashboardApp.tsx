@@ -13,6 +13,7 @@ import {
 } from "../boards";
 
 const IncomeExpensesBoard = dynamic(() => import("../boards/income-expenses/ui/IncomeExpensesBoard").then((module) => module.IncomeExpensesBoard));
+const FatherHealthBoard = dynamic(() => import("../boards/father-health/ui/FatherHealthBoard").then((module) => module.FatherHealthBoard));
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -223,7 +224,7 @@ export function DashboardApp({
         </header>
         <div className="dashboard-content">
           <div className="dashboard-board dashboard-board-full-width">
-            {board.id === "income-expenses" ? <IncomeExpensesBoard active={active} /> : <TaskBoard active={active} />}
+            {board.id === "father-health" ? <FatherHealthBoard active={active} /> : board.id === "income-expenses" ? <IncomeExpensesBoard active={active} /> : <TaskBoard active={active} />}
           </div>
         </div>
       </main>

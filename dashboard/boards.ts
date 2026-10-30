@@ -1,5 +1,5 @@
 /** Boards registered in the dashboard sidebar. */
-export type DashboardBoardId = "fine-tasks" | "income-expenses";
+export type DashboardBoardId = "fine-tasks" | "income-expenses" | "father-health";
 
 export interface DashboardBoard {
   id: DashboardBoardId;
@@ -23,6 +23,11 @@ export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
     id: "finance",
     label: "财务",
     boards: [{ id: "income-expenses", label: "收入支出分析", source: "JSON" }],
+  },
+  {
+    id: "health",
+    label: "健康",
+    boards: [{ id: "father-health", label: "父亲身体数据", source: "JSON" }],
   },
 ];
 
