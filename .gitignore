@@ -31,6 +31,18 @@
 !/data/dashboard/财务/示例-2026-08.json
 !/data/dashboard/财务/示例-2026-09.json
 !/data/dashboard/财务/示例-2026-10.json
+!/data/dashboard/财务/AGENTS.md
+!/data/dashboard/财务/CLAUDE.md
+!/data/dashboard/健康/
+/data/dashboard/健康/*
+!/data/dashboard/健康/父亲/
+/data/dashboard/健康/父亲/*
+!/data/dashboard/健康/父亲/AGENTS.md
+!/data/dashboard/健康/父亲/CLAUDE.md
+!/data/dashboard/fine-tasks/
+/data/dashboard/fine-tasks/*
+!/data/dashboard/fine-tasks/AGENTS.md
+!/data/dashboard/fine-tasks/CLAUDE.md
 
 # production
 /build
