@@ -25,6 +25,7 @@ import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, u
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
+import { registerChatScroller } from "@/lib/shortcuts/scroll";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
@@ -843,6 +844,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [messages]);
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
+
+  // j / k 滚的就是这块：交出去，快捷键那边不用知道这里长什么样。
+  useEffect(() => {
+    registerChatScroller((delta) => {
+      scrollContainerRef.current?.scrollBy({ top: delta });
+    });
+    return () => registerChatScroller(null);
+  }, [scrollContainerRef]);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);

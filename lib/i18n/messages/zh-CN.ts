@@ -1537,5 +1537,9 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.taskFinished": "任务已完成。",
     "i18n.attentionNeeded": "Pi 需要你的操作",
     "i18n.extensionInputNeeded": "扩展正在等待你的输入。",
+    "shortcuts.leaderSidebar": "侧栏",
+    "shortcuts.leaderArchive": "归档",
+    "shortcuts.leaderRename": "AI 标题",
+    "shortcuts.leaderNew": "新建会话",
   },
 };

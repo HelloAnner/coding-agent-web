@@ -1537,5 +1537,9 @@ export const enLocale: LocalePlugin = {
     "i18n.taskFinished": "Task finished.",
     "i18n.attentionNeeded": "Pi needs your attention",
     "i18n.extensionInputNeeded": "An extension is waiting for your input.",
+    "shortcuts.leaderSidebar": "sidebar",
+    "shortcuts.leaderArchive": "archive",
+    "shortcuts.leaderRename": "AI title",
+    "shortcuts.leaderNew": "new session",
   },
 };

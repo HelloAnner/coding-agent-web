@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useShortcuts } from "@/lib/shortcuts/useShortcuts";
+import { ShortcutHint } from "@/lib/shortcuts/ShortcutHint";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { ToolbarQuota } from "./ToolbarQuota";
@@ -1447,6 +1449,33 @@ export function AppShell() {
     setDigestStatus({ kind: "idle" });
     setDigestToast(null);
   }, [selectedSession?.id]);
+
+  // The app's own keymap (lib/shortcuts): session / project / running jumps,
+  // ⌃N, ⌃↵, j / k, and the ⌃E leader. Says whether ⌃E still waits for its
+  // second key, which is what the hint strip shows.
+  const { leaderArmed } = useShortcuts({
+    enabled: !isMobile,
+    onStepSession: (step) => sidebarControlRef.current?.stepSession(step),
+    onStepUnread: (step) => sidebarControlRef.current?.stepUnread(step),
+    onStepProject: (step) => sidebarControlRef.current?.stepProject(step),
+    onStepRunning: (step) => sidebarControlRef.current?.stepRunning(step),
+    onNewSessionInProject: () => {
+      if (activeCwd) handleNewSession(`kb-${Date.now()}`, activeCwd);
+    },
+    onFocusComposer: () => chatInputRef.current?.focus(),
+    onFocusSidebar: () => {
+      setSidebarOpen(true);
+      sidebarControlRef.current?.focusSelected();
+    },
+    onArchiveSession: () => {
+      const sessionId = selectedSessionRef.current?.id;
+      if (sessionId) sidebarControlRef.current?.archiveSession(sessionId);
+    },
+    onRenameSession: () => void handleAutoName(),
+    onNewSession: () => {
+      if (activeCwd) handleNewSession(`kb-${Date.now()}`, activeCwd);
+    },
+  });
 
   const handleDigestToNotes = useCallback(async (boardPath: string, focus: string) => {
     const session = selectedSessionRef.current;
@@ -3280,6 +3309,8 @@ export function AppShell() {
         />
       </div>
     )}
+    {/* ⌃E is waiting for its second key: what else it can do. */}
+    <ShortcutHint armed={leaderArmed} />
     </>
   );
 }

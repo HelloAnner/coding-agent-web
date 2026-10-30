@@ -66,6 +66,7 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
+import type { Step } from "@/lib/shortcuts/keys";
 import { WEB_APPS, type WebApp } from "@/lib/apps";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -161,8 +162,24 @@ export interface SessionSidebarControl {
   refreshWorktrees(): void;
   /** Creates a worktree of `project` and lists it at once; the caller starts the session in it. */
   createWorktree(project: ProjectChoice, branch: string): Promise<{ path: string } | { error: string }>;
+  /** ⌘↑ / ⌘↓: the previous / next session this sidebar shows, scrolled into view. */
+  stepSession(step: Step): void;
+  /** ⌘⇧↑ / ⌘⇧↓: the previous / next unread session (going there reads it). */
+  stepUnread(step: Step): void;
+  /** ⌃⇧↑ / ⌃⇧↓: the previous / next project, on the first session of its group. */
+  stepProject(step: Step): void;
+  /** ⌃⌥↑ / ⌃⌥↓: the previous / next running session. */
+  stepRunning(step: Step): void;
+  /** ⌃E ⌃E: focus the selected session's row. */
+  focusSelected(): void;
+  /** ⌃E D: archive the family `sessionId` belongs to. */
+  archiveSession(sessionId: string): void;
 }
 
+/** 快捷键对侧栏的那几个动作，交给 `shortcutsRef` 保持 handle 稳定。 */
+type SessionSidebarShortcuts = Pick<SessionSidebarControl, "stepSession" | "stepUnread" | "stepProject" | "stepRunning" | "focusSelected" | "archiveSession">;
+
+/** 树里的一行会话（分组表头、footer 不算）。 */
 type WorktreeEntry = WorktreeChoice;
 
 interface WorktreeState {
@@ -1022,6 +1039,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
+  // Same for the shortcuts (declared further down, where their closures are ready).
+  const shortcutsRef = useRef<SessionSidebarShortcuts>({
+    stepSession: () => {},
+    stepUnread: () => {},
+    stepProject: () => {},
+    stepRunning: () => {},
+    focusSelected: () => {},
+    archiveSession: () => {},
+  });
 
   useImperativeHandle(controlRef, () => ({
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
@@ -1038,6 +1064,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     },
     refreshWorktrees,
     createWorktree,
+    stepSession: (step) => shortcutsRef.current.stepSession(step),
+    stepUnread: (step) => shortcutsRef.current.stepUnread(step),
+    stepProject: (step) => shortcutsRef.current.stepProject(step),
+    stepRunning: (step) => shortcutsRef.current.stepRunning(step),
+    focusSelected: () => shortcutsRef.current.focusSelected(),
+    archiveSession: (sessionId) => shortcutsRef.current.archiveSession(sessionId),
   }), [createWorktree, refreshWorktrees]);
 
   // Header "+": a new session in the sidebar's current cwd (worktree).
@@ -1884,13 +1916,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setMoreShown((prev) => showLessFamilies(prev, key));
   }, []);
 
-  const handleTogglePinned = () => {
+  const handleTogglePinned = useCallback(() => {
     const next = !pinnedCollapsed;
     setPinnedCollapsed(next);
     savePinnedCollapsed(next);
     // Folded, the pinned section drops its "show more" window as a group does.
     if (next) setMoreShown((shown) => showLessFamilies(shown, PINNED_MORE_KEY));
-  };
+  }, [pinnedCollapsed]);
 
   // "Open in Files" of another project is a deliberate project switch: the
   // files live in the right panel, which comes up on that project.
@@ -2218,6 +2250,126 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const treeLayout = isMobile ? "mobile" : "desktop";
   // Until pins and archive have loaded, archived rows would flash in.
   const treeLoading = loading || !uiStateLoaded;
+  // ---- 快捷键对侧栏的处理（lib/shortcuts）----------------------------------
+  // 只有侧栏当下看得见的会话才算数：折叠的分组、“show more” 收起来的都不跳。
+  const visibleSessionRows = useMemo(
+    () => (archiveView ? archiveRows : model.rows).filter((row): row is SessionRow => row.kind === "session"),
+    [archiveView, archiveRows, model.rows],
+  );
+
+  // 选中一行并让它滚进视野：列表是虚拟的，没挂载的行既看不见也点不到。
+  const revealRow = useCallback((row: SessionRow) => {
+    treeRevealIdRef.current += 1;
+    const reveal = { id: treeRevealIdRef.current, at: Date.now(), rowKey: row.key };
+    if (archiveView) setArchiveReveal(reveal);
+    else setTreeReveal(reveal);
+  }, [archiveView]);
+
+  // 走一步，到底了绕回头：按着不放到头就停住，手感是“卡住了”。
+  const stepVisibleSession = useCallback((match: (row: SessionRow) => boolean, step: Step): boolean => {
+    const rows = visibleSessionRows.filter(match);
+    if (rows.length === 0) return false;
+    const currentId = selectedSessionIdRef.current ?? "";
+    const here = rows.findIndex((row) => familyIds(row.family).includes(currentId));
+    const index = here < 0 ? (step > 0 ? 0 : rows.length - 1) : (here + step + rows.length) % rows.length;
+    const row = rows[index];
+    handleSelectFamily(row.family);
+    revealRow(row);
+    return true;
+  }, [handleSelectFamily, revealRow, visibleSessionRows]);
+
+  // 会话藏在折叠的分组里时先把它展开：行还没渲染，下一次按键就走得进去。
+  const expandFoldedGroup = useCallback((flag: "unread" | "running") => {
+    const folded = model.rows.find((row) => row.kind === "group" && !row.expanded && row[flag] > 0);
+    if (folded && folded.kind === "group") {
+      const next = { ...groupExpansion };
+      // Re-inserted, so the choice counts as the newest one kept.
+      delete next[folded.project.key];
+      next[folded.project.key] = true;
+      saveGroupChoices(next, [folded.project.key]);
+      return;
+    }
+    if (model.rows.some((row) => row.kind === "pinned-header" && row.collapsed && row[flag] > 0)) handleTogglePinned();
+  }, [groupExpansion, handleTogglePinned, model.rows, saveGroupChoices]);
+
+  const stepSession = useCallback((step: Step) => {
+    stepVisibleSession(() => true, step);
+  }, [stepVisibleSession]);
+
+  // 每个项目只取它组里的第一条会话：一组对话再多也是一步跳过。
+  // 置顶区和归档视图不参与（置顶是直接访问，归档不是“项目”）。
+  const firstRowByProject = useMemo(() => {
+    const rows = archiveView ? archiveRows : model.rows;
+    const out: { key: string; row: SessionRow }[] = [];
+    let pending: string | null = null;
+    for (const row of rows) {
+      if (row.kind === "group") {
+        pending = row.project.key;
+        continue;
+      }
+      if (row.kind !== "session" || pending === null || row.context !== "group" || row.project.key !== pending) continue;
+      out.push({ key: pending, row });
+      pending = null;
+    }
+    return out;
+  }, [archiveView, archiveRows, model.rows]);
+
+  const stepProject = useCallback((step: Step) => {
+    if (firstRowByProject.length === 0) return;
+    const here = selectedProject ? firstRowByProject.findIndex((entry) => entry.key === selectedProject.key) : -1;
+    const index = here < 0 ? (step > 0 ? 0 : firstRowByProject.length - 1) : (here + step + firstRowByProject.length) % firstRowByProject.length;
+    const row = firstRowByProject[index].row;
+    handleSelectFamily(row.family);
+    revealRow(row);
+  }, [firstRowByProject, handleSelectFamily, revealRow, selectedProject]);
+
+  const stepUnread = useCallback((step: Step) => {
+    if (!stepVisibleSession((row) => row.status.unread, step)) expandFoldedGroup("unread");
+  }, [expandFoldedGroup, stepVisibleSession]);
+  const stepRunning = useCallback((step: Step) => {
+    if (!stepVisibleSession((row) => row.status.running, step)) expandFoldedGroup("running");
+  }, [expandFoldedGroup, stepVisibleSession]);
+
+  // ⌃E ⌃E: the selected row may be unmounted (scrolled out), so reveal it first
+  // and take its button on the next frame.
+  const focusSelectedRow = useCallback(() => {
+    const currentId = selectedSessionIdRef.current ?? "";
+    const row = visibleSessionRows.find((item) => familyIds(item.family).includes(currentId));
+    // Nothing selected (a fresh, empty project): the tree's first row, else the
+    // toolbar's search button, which is always there.
+    const fallback = sessionsPanelRef.current?.querySelector<HTMLElement>(".session-tree-session .session-tree-main");
+    if (!row) {
+      (fallback ?? selectedTabButton())?.focus();
+      return;
+    }
+    revealRow(row);
+    const rootId = row.family.root.id;
+    requestAnimationFrame(() => requestAnimationFrame(() => familyRowButton(rootId)?.focus()));
+  }, [familyRowButton, revealRow, selectedTabButton, visibleSessionRows]);
+
+  // ⌃E D: archive the family the open session belongs to (its subagents go too).
+  const archiveSessionById = useCallback((sessionId: string) => {
+    const family = sessionFamilies.find((item) => familyIds(item).includes(sessionId));
+    if (!family) return;
+    // Already in the archive view: archiving it again would only toast.
+    if (isFamilyArchived(family, uiState, runningSessionIds)) return;
+    // A running family would come straight back: say so instead of doing nothing.
+    if (familyIds(family).some((id) => runningSessionIds.has(id))) {
+      showToast(t("sidebar.cannotArchiveRunning"));
+      return;
+    }
+    archiveFamily(family);
+  }, [archiveFamily, runningSessionIds, sessionFamilies, showToast, t, uiState]);
+
+  shortcutsRef.current = {
+    stepSession,
+    stepUnread,
+    stepProject,
+    stepRunning,
+    focusSelected: focusSelectedRow,
+    archiveSession: archiveSessionById,
+  };
+
   const treeProps = {
     layout: treeLayout,
     loading: treeLoading,
