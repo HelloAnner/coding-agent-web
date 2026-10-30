@@ -2,7 +2,7 @@ dashboard 独立应用
 
 机制
   Coding 与 Dashboard 共用 AppShell，切换不刷新、不卸载另一个应用。
-  左侧按导航分组：Fine -> 任务看板；财务 -> 收入支出分析；健康 -> 父亲身体数据。
+  左侧按导航分组：Fine -> 任务看板；财务 -> 收入支出分析；Health -> Father's Health。
   分组只是目录，不定义共用风格或业务；财务后续可以挂其他独立看板。
   默认打开任务看板，未知看板链接自动回退到任务看板。
 
@@ -23,7 +23,7 @@ dashboard 独立应用
   /api/dashboard/tasks           只读数据库
   /dashboard?board=income-expenses 收入支出分析
   /api/dashboard/income-expenses  只读本地 JSON
-  /dashboard?board=father-health  父亲身体数据
+  /dashboard?board=father-health  Father's Health
   /api/dashboard/father-health   只读健康 JSON
   /api/dashboard/father-health/attachments/<id>  仅按清单 ID 读取本地附件
 

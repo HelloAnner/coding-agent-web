@@ -37,18 +37,18 @@ export function HealthDetails({ data, selection, onClose }: { data: HealthData; 
 
   return <dialog ref={dialog} className={styles.drawer} aria-labelledby={`${id}-title`} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className={styles.drawerInner}>
-      <header className={styles.drawerHeader}><div><span>健康 / 原始资料</span><h2 id={`${id}-title`}>{selection.title}</h2></div><button type="button" onClick={onClose} aria-label="关闭健康详情">×</button></header>
+      <header className={styles.drawerHeader}><div><span lang="en">Health / Records</span><h2 id={`${id}-title`} lang="en">{selection.library ? "Health Records" : metric ? "Metric Details" : medication ? "Medication Details" : "Record Details"}</h2></div><button type="button" onClick={onClose} aria-label="关闭健康详情">×</button></header>
       <div className={styles.drawerBody}>
-        {metric && <section className={styles.detailSection}><h3>{metric.label} · 全部正式报告测点</h3><p>{metric.note}</p>
+        {metric && <section className={styles.detailSection}><h3 lang="en">Report Measurements</h3><p>{metric.label} · {metric.note}</p>
           <table className={styles.detailTable}><thead><tr><th>日期 / 医院</th><th>结果 / 单位</th><th>当次参考区间</th><th>原文</th></tr></thead><tbody>{readings.map((reading) => <tr key={reading.id}><td>{reading.date}<small>{reading.hospital}</small></td><td>{formatValue(reading.result.value, metric.decimals)}<small>{reading.result.unit}</small></td><td>{reading.result.reference}<small>{flagLabel[reading.result.flag]}</small></td><td><button type="button" onClick={() => setSourceId(reading.sourceId)}>查看</button></td></tr>)}</tbody></table>
           {readings.length < 2 && <p>仅有{readings.length}个实测值，不构成连续趋势；未检测的日期不补值。</p>}
         </section>}
-        {medication && <section className={styles.detailSection}><h3>{medication.name}</h3><p>{medication.purpose}</p><dl><dt>最后记录</dt><dd>{medication.asOf} · {medication.status === "confirmed" ? "当时确认在服，之后未核实" : "既往方案，当前是否服用待核实"}</dd><dt>剂量 / 频次</dt><dd>{medication.dose}</dd><dt>注意事项</dt><dd>{medication.note}</dd></dl><p>这是既往用药记录，不是当前处方；不据此自行增减或停药。</p></section>}
-        {selection.library && <section className={styles.detailSection}><h3>全部资料 · {data.documents.length} 份</h3><input className={styles.archiveSearch} type="search" aria-label="搜索健康资料" placeholder="搜索病历、用药、食谱或原文…" value={query} onChange={(event) => setQuery(event.target.value)} /><div className={styles.documentList}>
+        {medication && <section className={styles.detailSection}><h3 lang="en">Medication Summary</h3><p>{medication.name} · {medication.purpose}</p><dl><dt>最后记录</dt><dd>{medication.asOf} · {medication.status === "confirmed" ? "当时确认在服，之后未核实" : "既往方案，当前是否服用待核实"}</dd><dt>剂量 / 频次</dt><dd>{medication.dose}</dd><dt>注意事项</dt><dd>{medication.note}</dd></dl><p>这是既往用药记录，不是当前处方；不据此自行增减或停药。</p></section>}
+        {selection.library && <section className={styles.detailSection}><h3 lang="en">All Records · {data.documents.length}</h3><input className={styles.archiveSearch} type="search" aria-label="搜索健康资料" placeholder="搜索病历、用药、食谱或原文…" value={query} onChange={(event) => setQuery(event.target.value)} /><div className={styles.documentList}>
           {data.documents.filter((row) => `${row.title} ${row.category} ${row.content}`.toLowerCase().includes(query.toLowerCase())).map((row) => <button type="button" key={row.id} aria-pressed={row.id === sourceId} onClick={() => setSourceId(row.id)}><span>{row.title}</span><small>{row.category}</small></button>)}
         </div></section>}
-        {document && <section className={styles.detailSection}><h3>{document.title}</h3><p className={styles.detailCaution}>{document.note}</p><pre className={styles.sourceText}>{document.content}</pre><details className={styles.sourcePath}><summary>查看来源路径</summary>{document.sourcePath}</details></section>}
-        <section className={styles.detailSection}><h3>相关附件 · {attachments.length}</h3><div className={styles.attachmentList}>
+        {document && <section className={styles.detailSection}><h3 lang="en">Original Record</h3><p>{document.title}</p><p className={styles.detailCaution}>{document.note}</p><pre className={styles.sourceText}>{document.content}</pre><details className={styles.sourcePath}><summary>查看来源路径</summary>{document.sourcePath}</details></section>}
+        <section className={styles.detailSection}><h3 lang="en">Attachments · {attachments.length}</h3><div className={styles.attachmentList}>
           {attachments.map((attachment) => {
             const href = `/api/dashboard/father-health/attachments/${encodeURIComponent(attachment.id)}`;
             return <article className={styles.attachment} key={attachment.id}>
@@ -61,7 +61,7 @@ export function HealthDetails({ data, selection, onClose }: { data: HealthData; 
             </article>;
           })}
         </div></section>
-        {selection.library && <section className={styles.detailSection}><h3>数据核对与缺失说明</h3><ul>{data.provenance.notes.map((note) => <li key={note}>{note}</li>)}</ul><h3>未找到的原文件</h3>{data.attachments.filter((row) => row.status === "missing").map((row) => <p key={row.id}>{row.title}</p>)}</section>}
+        {selection.library && <section className={styles.detailSection}><h3 lang="en">Data Notes</h3><ul>{data.provenance.notes.map((note) => <li key={note}>{note}</li>)}</ul><h3 lang="en">Missing Originals</h3>{data.attachments.filter((row) => row.status === "missing").map((row) => <p key={row.id}>{row.title}</p>)}</section>}
       </div>
     </div>
   </dialog>;

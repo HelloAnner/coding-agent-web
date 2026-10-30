@@ -19,9 +19,13 @@ try {
   const dates = data.reports.map((row) => row.date).sort();
   const latest = dates.at(-1);
   await page.goto(`${base}/dashboard?board=father-health`);
-  const board = page.getByRole("region", { name: "父亲身体数据", exact: true });
-  await board.getByRole("heading", { name: "用药记录", exact: true }).waitFor({ timeout: 120_000 });
-  assert.equal(await page.getByRole("button", { name: "父亲身体数据 JSON", exact: true }).getAttribute("aria-current"), "page");
+  const board = page.getByRole("region", { name: "Father's Health", exact: true });
+  await board.getByRole("heading", { name: "Medications", exact: true }).waitFor({ timeout: 120_000 });
+  assert.equal(await page.getByRole("button", { name: "Father's Health JSON", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await page.getByRole("button", { name: "Health", exact: true }).getAttribute("aria-expanded"), "true");
+  assert.equal(await page.locator(".dashboard-board-title").innerText(), "Father's Health");
+  assert.equal(await board.getByRole("heading", { level: 1 }).innerText(), "Father's Health");
+  for (const title of await board.getByRole("heading").allTextContents()) assert.doesNotMatch(title, /\p{Script=Han}/u);
   assert.equal(await board.locator("img, dialog").count(), 0, "主看板不得展示附件或预先打开详情");
   assert.equal(await board.evaluate((element) => getComputedStyle(element).backgroundColor), "rgb(246, 245, 241)");
   for (const medication of data.medications) {
@@ -29,7 +33,7 @@ try {
     assert.ok(text.includes(medication.name) && text.includes(medication.note), "用药说明必须完整展示");
   }
   let previousY = -Infinity;
-  for (const name of ["核心指标", "指标趋势", "用药记录", "化验对照", "就诊时间线"]) {
+  for (const name of ["Key Metrics", "Trends", "Medications", "Lab Results", "Medical Timeline"]) {
     const box = await board.getByRole("heading", { name, exact: true }).boundingBox();
     assert.ok(box.y > previousY, `${name} 应按单列纵向排列`);
     previousY = box.y;
@@ -40,7 +44,7 @@ try {
   assert.equal(await comparison.locator("tbody tr").count(), data.metrics.length, "所有指标都应可完整展开");
   assert.ok(await comparison.evaluate((element) => element.scrollHeight <= element.clientHeight + 1));
   await board.getByLabel("筛选化验指标分组").selectOption("重点指标");
-  const history = board.getByRole("heading", { name: "就诊时间线", exact: true }).locator("..").locator("..").locator(":scope > div");
+  const history = board.getByRole("heading", { name: "Medical Timeline", exact: true }).locator("..").locator("..").locator(":scope > div");
   assert.equal(await history.getByRole("button").count(), data.events.length);
   assert.ok(await history.evaluate((element) => element.scrollHeight <= element.clientHeight + 1), "病史应完整展开");
   await page.locator(".dashboard-content").evaluate((element) => { element.scrollTop = 0; });
@@ -51,6 +55,7 @@ try {
   await medicineButton.click();
   let dialog = page.getByRole("dialog");
   await dialog.waitFor();
+  for (const title of await dialog.getByRole("heading").allTextContents()) assert.doesNotMatch(title, /\p{Script=Han}/u);
   assert.ok((await dialog.innerText()).includes(medicine.purpose));
   assert.ok((await dialog.innerText()).includes("非当前处方") || (await dialog.innerText()).includes("不是当前处方"));
   const box = await dialog.boundingBox();
@@ -96,7 +101,7 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "detached" });
   assert.deepEqual(errors, []);
-  console.log("Health board: vertical sections, complete medicines, expanding data, date filtering, right-side details, private attachments and mobile layout passed.");
+  console.log("Health board: English titles, vertical sections, medicines, expanding data, date filtering, private details and mobile layout passed.");
 } finally {
   await browser.close();
 }

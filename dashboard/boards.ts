@@ -26,8 +26,8 @@ export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
   },
   {
     id: "health",
-    label: "健康",
-    boards: [{ id: "father-health", label: "父亲身体数据", source: "JSON" }],
+    label: "Health",
+    boards: [{ id: "father-health", label: "Father's Health", source: "JSON" }],
   },
 ];
 

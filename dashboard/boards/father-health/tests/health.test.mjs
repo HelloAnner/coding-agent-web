@@ -134,7 +134,9 @@ test("vertical main view includes full medication details but no attachments or 
   const { renderToStaticMarkup } = await jiti.import("react-dom/server");
   const { FatherHealthView, FatherHealthBoard } = await jiti.import("../ui/FatherHealthBoard.tsx");
   const html = renderToStaticMarkup(React.createElement(FatherHealthView, { data: fixture(), error: "", pending: false, onRefresh() {} }));
-  for (const text of ["父亲身体数据", "核心健康指标", "测试药物", "测试功效说明", "当时确认在服", "服用待核实", "非当前处方", "健康记录开始日期", "健康记录结束日期", "选择健康趋势指标", "筛选化验指标分组", "查看原始测点"]) assert.ok(html.includes(text), text);
+  for (const text of ["Key Metrics", "Trends", "Medications", "Health Overview", "Lab Results", "To Review", "Follow-up Plan", "Medical Timeline", "Missing Records", "Nutrition", "测试药物", "测试功效说明", "当时确认在服", "服用待核实", "非当前处方", "健康记录开始日期", "健康记录结束日期", "选择健康趋势指标", "筛选化验指标分组", "查看原始测点"]) assert.ok(html.includes(text), text);
+  assert.match(html, /<h1[^>]*>Father(?:&#x27;|')s Health<\/h1>/);
+  for (const heading of html.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/g)) assert.doesNotMatch(heading[1], /\p{Script=Han}/u, "board titles must be English");
   assert.ok(!html.includes("只应在详情展示的附件") && !html.includes("/private/test-note.txt"));
   assert.ok(!html.includes("<img") && !html.includes("<dialog"));
   assert.ok(!html.includes("治疗效果") && !html.includes("健康评分"));
@@ -183,4 +185,6 @@ test("right-side details retain qualitative results and show original attachment
   assert.ok(html.includes("<dialog") && html.includes("关闭健康详情"));
   assert.ok(html.includes("只应在详情展示的附件") && html.includes("/api/dashboard/father-health/attachments/note"));
   assert.ok(!html.includes("仅有0个实测值"));
+  assert.ok(html.includes("Metric Details") && html.includes("Original Record") && html.includes("Attachments"));
+  for (const heading of html.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/g)) assert.doesNotMatch(heading[1], /\p{Script=Han}/u, "detail section titles must be English");
 });
