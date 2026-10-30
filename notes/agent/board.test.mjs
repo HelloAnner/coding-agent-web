@@ -55,6 +55,34 @@ test("drawing again appends, replace clears, and broken JSON does not throw", ()
   assert.equal(readSceneElements(recovered).length, 1);
 });
 
+test("appending and redrawing preserve images and their file data", () => {
+  const image = {
+    id: "user-image", type: "image", fileId: "image-file",
+    x: 120.5, y: -40.25, width: 320, height: 180,
+    angle: 0.2, scale: [-1, 1], version: 7, isDeleted: false,
+  };
+  const deletedImage = { ...image, id: "deleted-image", isDeleted: true };
+  const files = {
+    "image-file": {
+      id: "image-file", mimeType: "image/png", created: 1,
+      dataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS9sAAAAASUVORK5CYII=",
+    },
+  };
+  const old = JSON.parse(buildBoardScene([{ type: "text", x: 0, y: 0, label: "旧文字" }], board));
+  const existing = JSON.stringify({ ...old, elements: [...old.elements, image, deletedImage], files });
+
+  for (const replace of [false, true]) {
+    let content = buildBoardScene([{ type: "text", x: 0, y: 200, label: "新文字" }], board, { existing, replace });
+    for (let pass = 0; pass < 2; pass++) {
+      const scene = JSON.parse(content);
+      assert.deepEqual(scene.files, files, `replace=${replace}: image bytes must survive`);
+      assert.deepEqual(scene.elements.filter((element) => element.type === "image"), [image, deletedImage]);
+      assert.equal(scene.elements.some((element) => element.text === "旧文字"), !replace);
+      content = buildBoardScene([], board, { existing: content, replace });
+    }
+  }
+});
+
 test("a text shape is sized from its content", () => {
   const scene = JSON.parse(buildBoardScene([{ type: "text", x: 0, y: 0, label: "第一行\n第二行" }], board));
   const [text] = scene.elements;

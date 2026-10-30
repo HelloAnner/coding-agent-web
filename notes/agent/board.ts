@@ -174,15 +174,23 @@ function shapeElement(shape: BoardShape, board: NotesBoardSettings) {
   return [box, text];
 }
 
+function readScene(content: string | null): { elements: unknown[]; files: Record<string, unknown> } {
+  try {
+    const parsed = JSON.parse(content ?? "{}") as { elements?: unknown; files?: unknown } | null;
+    return {
+      elements: Array.isArray(parsed?.elements) ? parsed.elements : [],
+      files: parsed?.files && typeof parsed.files === "object" && !Array.isArray(parsed.files)
+        ? parsed.files as Record<string, unknown>
+        : {},
+    };
+  } catch {
+    return { elements: [], files: {} };
+  }
+}
+
 /** Read the elements of a stored scene, tolerating a broken or empty file. */
 export function readSceneElements(content: string | null): unknown[] {
-  if (!content) return [];
-  try {
-    const parsed = JSON.parse(content) as { elements?: unknown };
-    return Array.isArray(parsed?.elements) ? parsed.elements : [];
-  } catch {
-    return [];
-  }
+  return readScene(content).elements;
 }
 
 interface SceneElement {
@@ -245,15 +253,18 @@ export function describeScene(content: string | null): string[] {
 }
 
 /**
- * The scene JSON to write: the shapes, appended to what the board already has
- * (or replacing it), with the vault's whiteboard style as the app state.
+ * Append or replace generated content. Images and their file data survive
+ * either mode: BoardShape cannot recreate a user's pasted image.
  */
 export function buildBoardScene(
   shapes: readonly BoardShape[],
   board: NotesBoardSettings,
   options: { existing?: string | null; replace?: boolean } = {},
 ): string {
-  const kept = options.replace ? [] : readSceneElements(options.existing ?? null);
+  const existing = readScene(options.existing ?? null);
+  const kept = options.replace
+    ? existing.elements.filter((element) => (element as SceneElement | null)?.type === "image")
+    : existing.elements;
   const created = shapes.flatMap((shape) => shapeElement(shape, board));
   return JSON.stringify({
     type: "excalidraw",
@@ -273,6 +284,6 @@ export function buildBoardScene(
       currentItemFontSize: board.fontSize,
       currentItemTextAlign: "left",
     },
-    files: {},
+    files: existing.files,
   }, null, 2);
 }

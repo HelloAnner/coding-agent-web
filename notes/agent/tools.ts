@@ -164,11 +164,12 @@ export function notesAgentTools(board: NotesBoardSettings, options: { onlyBoard?
     defineTool({
       name: NOTES_BOARD_TOOL,
       label: "白板",
-      description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill excalidraw-diagram。",
+      description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则重画图形和文字；两种模式都会原样保留已有图片及其资源。文字字体和字号来自笔记设置。风格见 skill excalidraw-diagram。",
       promptSnippet: "Read or draw an Excalidraw whiteboard in the vault",
       promptGuidelines: [
         "Read every same-topic board with notes_board action=read before changing one: the user edits boards by hand.",
         "Decide per element first — keep, delete, change, add — then redraw the whole board once with replace=true.",
+        "Existing images and their file data survive both append and replace automatically; do not recreate them as shapes or placeholders.",
         "One board holds 2-4 regions (heading text, ≥240 gaps); a second board only for a different theme.",
         "When several boards need the change, do them one at a time and read each back.",
         "Draw boards with notes_board: pass shapes, never raw Excalidraw JSON.",
@@ -183,7 +184,7 @@ export function notesAgentTools(board: NotesBoardSettings, options: { onlyBoard?
           minItems: 1,
           maxItems: 200,
         })),
-        replace: Type.Optional(Type.Boolean({ description: "draw 时 true 清空已有内容后重画。改已有白板用它，并把要保留的旧元素一起重画进去；默认追加只用于新开板" })),
+        replace: Type.Optional(Type.Boolean({ description: "draw 时 true 替换已有图形和文字；图片及其资源自动原样保留。改已有白板用它，并把要保留的旧图形和文字一起重画进去；默认追加只用于新开板" })),
       }),
       async execute(_toolCallId, params) {
         const target = vaultPath(params.path, BOARD_EXTENSION, NOTES_BOARD_TOOL);
