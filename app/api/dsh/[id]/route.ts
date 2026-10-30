@@ -1,8 +1,9 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { dshSessionsRoot } from "@/harness/dsh";
-import { abortDshPrompt, clearDshQueue, dshState, isDshRunning, sendDshPrompt, type DshStreamingBehavior } from "@/harness/dsh/runtime";
-import { readDshTranscript } from "@/harness/dsh/transcript";
+import { abortDshPrompt, clearDshQueue, dshState, isDshRunning, sendDshPrompt, readDshWebTranscript, dshInteractions, answerDshInteraction, type DshStreamingBehavior } from "@/harness/dsh/web-session";
+import { isApiRequestAllowed, hasJsonContentType } from "@/lib/request-security";
+import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,10 @@ export async function POST(
 
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
 
+  if (body.streamingBehavior !== undefined && body.streamingBehavior !== "steer" && body.streamingBehavior !== "followUp") return NextResponse.json({ error: "Invalid streaming behavior" }, { status: 400 });
+  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted request" }, { status: 403 });
+  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
+
   switch (body.type) {
     case "prompt": {
       const message = typeof body.message === "string" ? body.message : "";
@@ -73,6 +78,7 @@ export async function POST(
       if (!cwd || !path.isAbsolute(cwd)) {
         return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
       }
+      if (!isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) return NextResponse.json({ error: "Access denied" }, { status: 403 });
       try {
         const result = await sendDshPrompt({ sessionId: id, cwd, text: message, images, provider, model, sessionPath }, streamingBehavior);
         return NextResponse.json({
@@ -87,10 +93,15 @@ export async function POST(
       }
     }
     case "abort": {
-      return NextResponse.json({ success: true, data: { aborted: abortDshPrompt(id) } });
+      return NextResponse.json({ success: true, data: { aborted: await abortDshPrompt(id) } });
     }
     case "clear_queue": {
-      return NextResponse.json({ success: true, data: clearDshQueue(id) });
+      return NextResponse.json({ success: true, data: await clearDshQueue(id) });
+    }
+    case "answer_interaction": {
+      if (typeof body.eventId !== "string") return NextResponse.json({ error: "eventId required" }, { status: 400 });
+      try { await answerDshInteraction(id, body.eventId, body.value); return NextResponse.json({ success: true }); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Interaction failed" }, { status: 409 }); }
     }
     case "get_state": {
       return NextResponse.json({ success: true, data: dshState(id) });
@@ -117,32 +128,33 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted request" }, { status: 403 });
   const search = new URL(req.url).searchParams;
+  if (search.get("interactions") === "1") return NextResponse.json({ interactions: dshInteractions(id) }, { headers: { "Cache-Control": "no-store" } });
   if (search.get("state") === "1") return NextResponse.json({ running: isDshRunning(id), state: dshState(id) }, { headers: { "Cache-Control": "no-store" } });
   const sessionPath = search.get("path") ?? "";
   if (!sessionPath || !path.isAbsolute(sessionPath) || !insideSessionsRoot(sessionPath)) {
     return NextResponse.json({ error: "path must be a dsh session directory" }, { status: 400 });
   }
 
-  const transcript = readDshTranscript(sessionPath);
-  if (!transcript.exists) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  }
+  let transcript: Awaited<ReturnType<typeof readDshWebTranscript>>;
+  try { transcript = await readDshWebTranscript(id); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "dsh history unavailable" }, { status: 404 }); }
 
   return NextResponse.json({
     sessionId: id,
-    filePath: transcript.path ?? "",
+    filePath: sessionPath,
     totalActiveMs: 0,
     tree: [],
     leafId: null,
     context: {
       messages: transcript.messages,
-      entryIds: transcript.messages.map((_, index) => `${id}:${index}`),
+      entryIds: transcript.entryIds,
       oldestEntryId: null,
-      hasMore: false,
+      hasMore: transcript.hasMore,
       turnsBefore: 0,
       thinkingLevel: "off",
-      model: transcript.model ? { provider: "dsh", modelId: transcript.model } : null,
+      model: transcript.model,
     },
   });
 }

@@ -1,5 +1,6 @@
 import { createAgentEventStream } from "@/lib/agent-event-stream";
-import { getDshSession } from "@/harness/dsh/runtime";
+import { getDshSession } from "@/harness/dsh/web-session";
+import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!isApiRequestAllowed(req)) return Response.json({ error: "Untrusted request" }, { status: 403 });
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(id)) return Response.json({ error: "Invalid dsh session id" }, { status: 400 });
   if (req.signal.aborted) return new Response(null, { status: 204 });
 
   const run = getDshSession(id);

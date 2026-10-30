@@ -119,12 +119,16 @@ test("nonportable native authentication is refused rather than replaced with pi'
   await assert.rejects(() => codingSessionModel("grok-source"), /原生模型认证暂不能/);
 });
 
-test("dsh gateway protocol, endpoint, limits and auth come from its own config; embedded JS is not run", async () => {
-  const patchDir = path.join(process.env.DSH_HOME, "profiles", "dsh-tui");
-  await mkdir(patchDir, { recursive: true });
-  const patch = path.join(patchDir, "cordis.patch.yml");
-  await writeFile(process.env.DSH_DS_TOML, '[provider.gateway]\nurl = "https://unused-index.invalid"\napi = "source$!key"\napi_env = "NOTES_TEST_GATEWAY_KEY"\n[model.saved]\nprovider = "gateway"\nmodel = "actual-model"\n');
-  await writeFile(patch, `- id: unrelated\n  config:\n    hook: !!js "throw new Error('must not execute')"\n- id: llm-pi-ai\n  config:\n    providers:\n      gateway:\n        api: openai-responses\n        baseURL: http://127.0.0.1:1/responses\n        apiKeyEnv: NOTES_TEST_GATEWAY_KEY\n        headers:\n          X-Source: 'literal$header'\n        compat:\n          supportsMaxOutputTokens: false\n        models:\n          - id: actual-model\n            contextWindow: 90000\n            maxTokens: 12000\n            reasoningEfforts: false\n`);
+test("dsh Notes borrows native gateway metadata and explicit credentials, never legacy TUI configuration", async () => {
+  process.env.NOTES_TEST_GATEWAY_KEY = "source$!key";
+  const native = {
+    call: async (endpoint) => endpoint === "settings/describe" ? { namespaces: [{ ns: "llm-pi-ai", value: { providers: { gateway: {
+      api: "openai-responses", baseURL: "http://127.0.0.1:1/responses", apiKeyEnv: "NOTES_TEST_GATEWAY_KEY",
+      headers: { "X-Source": "literal$header" }, compat: { supportsMaxOutputTokens: false },
+      models: [{ id: "actual-model", contextWindow: 90000, maxTokens: 12000, reasoningEfforts: false }],
+    } } } }] } : { NOTES_TEST_GATEWAY_KEY: { configured: true, source: "env" } },
+  };
+  globalThis[Symbol.for("coding-agent-web.dshWebHost")] = native;
   upsertCatalogSession({ id: "dsh-source", harness: "dsh", cwd: project, provider: "gateway", model: "actual-model" });
   const { model, runtime } = await codingSessionModel("dsh-source");
   assert.equal(model.api, "openai-responses");
@@ -135,9 +139,10 @@ test("dsh gateway protocol, endpoint, limits and auth come from its own config; 
   const auth = await runtime.getAuth(model);
   assert.equal(auth.auth.apiKey, "source$!key");
   assert.equal(auth.auth.headers["X-Source"], "literal$header");
-  assert.equal(await readFile(patch, "utf8").then((text) => text.includes("must not execute")), true);
-  await writeFile(patch, "broken: [ secret-token");
+  native.call = async () => { throw new Error("secret-token"); };
   await assert.rejects(() => codingSessionModel("dsh-source"), (error) => /无法安全读取/.test(error.message) && !error.message.includes("secret-token"));
+  delete globalThis[Symbol.for("coding-agent-web.dshWebHost")];
+  delete process.env.NOTES_TEST_GATEWAY_KEY;
 });
 
 test("notes settings remove only model configuration, retaining skills, whiteboard options and the independent panel", async () => {

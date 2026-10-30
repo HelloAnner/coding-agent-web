@@ -17,7 +17,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { claudeEventsUrl, claudeSessionUrl, ClaudeTrustRequiredError, mergeClaudeHistory, newClaudeSessionId, sendClaudeCommand, upsertClaudeMessage } from "@/lib/claude-code-client";
 import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
-import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/lib/dsh-client";
+import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/harness/dsh/client/api";
 import { runtimeStatusUrl } from "@/lib/harness-client";
 import { ompEventsUrl } from "@/harness/omp/client/api";
 import { useOmpSession } from "@/harness/omp/client/use-session";
@@ -865,7 +865,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isDsh ? !sessionPath : !cwd) return null;
       if (showLoading) setLoading(true);
       try {
-        const res = await fetch(isDsh ? dshSessionUrl(sid, sessionPath!) : grokSessionUrl(sid, cwd!), { cache: "no-store" });
+        const res = await fetch(isDsh ? dshSessionUrl(sid) : grokSessionUrl(sid, cwd!), { cache: "no-store" });
         if (res.status === 404) {
           if (sessionIdRef.current !== sid) return null;
           if (showLoading) {

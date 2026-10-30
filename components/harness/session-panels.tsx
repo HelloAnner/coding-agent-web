@@ -5,5 +5,6 @@ import type { ComponentType } from "react";
 
 /** Registration only: native task state and interaction stay in their harness. */
 export const HARNESS_SESSION_PANELS: Record<string, ComponentType<{ sessionId: string; active: boolean }>> = {
+  dsh: dynamic(() => import("@/harness/dsh/client/SessionPanel").then((module) => module.DshSessionPanel), { ssr: false }),
   "claude-code": dynamic(() => import("@/harness/claude-code/client/RunningAgents").then((module) => module.ClaudeRunningAgents), { ssr: false }),
 };

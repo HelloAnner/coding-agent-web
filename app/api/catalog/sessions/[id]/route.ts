@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
 import { guardOmpCatalogWrite } from "@/harness/omp/catalog";
+import { applyDshCatalogPatch } from "@/harness/dsh/web-session";
 import { CatalogHarnessLockedError, deleteCatalogSession, updateCatalogSession, upsertCatalogSession } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     profilePath: typeof body?.profilePath === "string" ? body.profilePath : undefined,
     cwd: typeof body?.cwd === "string" ? body.cwd : undefined,
   };
+  try { await applyDshCatalogPatch(id, patch); }
+  catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "dsh rejected the change" }, { status: 409 }); }
   try {
     guardOmpCatalogWrite(id, patch);
     if (updateCatalogSession(id, patch)) return NextResponse.json({ ok: true });

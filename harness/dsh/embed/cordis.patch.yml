@@ -1,0 +1,3 @@
+- insert:
+    - id: coding-agent-web-embed
+      name: '@coding-agent-web/dsh-embed'

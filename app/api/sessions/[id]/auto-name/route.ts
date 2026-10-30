@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { readCatalogSession, updateCatalogSession, type CatalogSession } from "@/lib/catalog-db";
 import { askSessionTitleModel, buildTitlePrompt, buildTitleTranscript, fitTitleInLimit, generateSessionTitle, parseGeneratedSessionTitle } from "@/lib/session-title";
-import { generateDshTitle } from "@/harness/dsh/title";
-import { readDshTranscript } from "@/harness/dsh/transcript";
+import { readDshNativeTitle } from "@/harness/dsh/web-session";
 import { generateGrokTitle } from "@/harness/grok/title";
 import { readGrokTranscript } from "@/harness/grok/transcript";
 import { generateClaudeTitle } from "@/harness/claude-code/title";
@@ -16,14 +15,11 @@ import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-re
 export const dynamic = "force-dynamic";
 
 /**
- * A harness chat names itself through its own runtime: dsh on the kernel that
- * is already up, grok and Claude Code in one headless run. The transcript comes
+ * dsh reads its authoritative native title; grok and Claude Code can name
+ * themselves in one headless run. The transcript comes
  * from the log the harness writes, so nothing is read back into pi's format.
  */
 async function askHarness(row: CatalogSession, prompt: string): Promise<string> {
-  if (row.harness === "dsh") {
-    return generateDshTitle({ cwd: row.cwd, provider: row.provider, model: row.model, prompt });
-  }
   if (row.harness === "grok") {
     return generateGrokTitle({ cwd: row.cwd, model: row.model, prompt });
   }
@@ -42,9 +38,7 @@ function harnessTitlePrompt(row: CatalogSession): string {
     if (!transcript.trim()) throw new Error("The session has no usable text to name");
     return buildTitlePrompt(transcript);
   }
-  const messages = row.harness === "dsh"
-    ? readDshTranscript(row.sessionPath).messages
-    : readGrokTranscript(row.cwd, row.id).messages;
+  const messages = readGrokTranscript(row.cwd, row.id).messages;
   const transcript = buildTitleTranscript(messages);
   if (!transcript.trim()) throw new Error("The session has no usable text to name");
   return buildTitlePrompt(transcript);
@@ -58,6 +52,12 @@ export async function POST(
 
   try {
     const indexed = readCatalogSession(id);
+    if (indexed?.harness === "dsh") {
+      const title = await readDshNativeTitle(id) || indexed.title;
+      if (!title) return NextResponse.json({ error: "The native dsh title is still being generated" }, { status: 409 });
+      updateCatalogSession(id, { title });
+      return NextResponse.json({ title, usage: null });
+    }
     if (indexed?.harness === "omp") {
       const first = readOmpTranscript(id, indexed.sessionPath).messages.find((message) => message.role === "user");
       const content = first?.content;

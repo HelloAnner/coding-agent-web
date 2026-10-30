@@ -9,7 +9,7 @@ import type { AgentMessage, SessionInfo } from "../lib/types";
 import type { SessionUiState } from "../lib/session-ui-state-shared";
 import type { SessionEntry, SessionMessage, TextContent } from "../lib/types";
 import { parseClaudeTranscript, readClaudeTranscript } from "../harness/claude-code/transcript";
-import { readDshTranscript } from "../harness/dsh/transcript";
+import { readDshWebTranscript } from "../harness/dsh/web-session";
 import { readGrokTranscript } from "../harness/grok/transcript";
 import { readOmpTranscript } from "../harness/omp/transcript";
 import { readIngestRows, writeIngestRows, type NotesIngestRow } from "./db";
@@ -194,7 +194,7 @@ export async function readCodingSession(id: string): Promise<string | null> {
       return messagesTranscript(messages);
     }
     if (row.harness === "omp") return messagesTranscript(readOmpTranscript(id, row.sessionPath).messages);
-    if (row.harness === "dsh") return messagesTranscript(readDshTranscript(row.sessionPath).messages);
+    if (row.harness === "dsh") return messagesTranscript((await readDshWebTranscript(id)).messages);
     if (row.harness === "grok") return messagesTranscript(readGrokTranscript(row.cwd, id).messages);
   }
   const filePath = await resolveSessionPath(id);

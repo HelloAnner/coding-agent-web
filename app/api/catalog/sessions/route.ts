@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
-import { dshRunningIds } from "@/harness/dsh/runtime";
+import { dshRunningIds } from "@/harness/dsh/web-session";
 import { grokRunningIds } from "@/harness/grok/runtime";
 import { getAwaitingInputRpcSessionIds, getCompletionNotificationSuppressedRpcSessionIds, getRunningRpcSessionIds } from "@/lib/rpc-manager";
 import { ompAwaitingInputIds, ompRunningIds } from "@/harness/omp/runtime";

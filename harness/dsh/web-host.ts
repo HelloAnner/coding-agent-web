@@ -34,6 +34,7 @@ export class DshWebHost {
   private readonly streams = new Set<() => void>();
   private readonly exits = new Set<() => void>();
   private stopping = false;
+  private epoch = 0;
   generation = 0;
 
   constructor(readonly home = process.env.DSH_HOME || path.join(homedir(), ".dsh"), readonly bin = process.env.PI_WEB_DSH_BIN?.trim() || "dsh") {}
@@ -48,15 +49,20 @@ export class DshWebHost {
   ready(): Promise<void> {
     if (this.stopping) return Promise.reject(new DshRemoteError("dsh is stopping"));
     if (this.starting) return this.starting;
-    this.starting = this.start().catch(async (error: unknown) => {
-      await this.stop();
+    const attempt = this.start().catch(async (error: unknown) => {
+      if (this.starting === attempt) await this.stop();
       throw error;
     });
-    return this.starting;
+    this.starting = attempt;
+    return attempt;
   }
 
   private async start(): Promise<void> {
+    const legacy = (globalThis as Record<symbol, { isRunning?: () => boolean } | undefined>)[Symbol.for("pi-web.dshAcp")];
+    if (legacy?.isRunning?.()) throw new DshRemoteError("Restart coding-agent-web after its old ACP turns finish before opening native dsh; two Hosts must not write the same sessions", "dsh/migration");
+    const epoch = this.epoch;
     const { stdout } = await execute(this.bin, ["--version"], { timeout: 10_000 });
+    if (this.epoch !== epoch) throw new DshRemoteError("dsh startup was cancelled");
     if (stdout.trim() !== DSH_WEB_VERSION) {
       throw new DshRemoteError(`dsh ${DSH_WEB_VERSION} is required by this adapter; found ${stdout.trim().slice(0, 40)}. Host and Client releases must match.`, "dsh/version");
     }
@@ -103,6 +109,7 @@ export class DshWebHost {
     // Keep both credentials server-side; neither is returned by an application API.
     const response = await fetch(launch, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
     await response.body?.cancel();
+    if (this.epoch !== epoch || this.child !== child) throw new DshRemoteError("dsh startup was cancelled");
     const cookies = response.headers.getSetCookie();
     if (response.status !== 303 || cookies.length !== 1) throw new DshRemoteError("dsh browser authentication failed");
     this.cookie = cookies[0].split(";", 1)[0];
@@ -199,6 +206,7 @@ export class DshWebHost {
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.epoch++;
     const child = this.child;
     for (const close of [...this.streams]) close();
     if (child?.pid && child.exitCode === null && child.signalCode === null) {

@@ -7,7 +7,7 @@ import {
 } from "@/lib/rpc-manager";
 import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 import { catalogListVersion } from "@/lib/catalog-db";
-import { dshRunningIds } from "@/harness/dsh/runtime";
+import { dshRunningIds } from "@/harness/dsh/web-session";
 import { grokRunningIds } from "@/harness/grok/runtime";
 import { ompAwaitingInputIds, ompRunningIds } from "@/harness/omp/runtime";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";

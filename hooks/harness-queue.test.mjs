@@ -74,7 +74,7 @@ for (const harness of ["pi", "claude-code", "dsh", "grok", "omp"]) {
 test("native transports reject malformed success responses instead of silently losing queue messages", async (t) => {
   const previous = globalThis.fetch;
   t.after(() => { globalThis.fetch = previous; });
-  for (const [file, method] of [["../lib/dsh-client.ts", "sendDshCommand"], ["../lib/grok-client.ts", "sendGrokCommand"], ["../lib/claude-code-client.ts", "sendClaudeCommand"], ["../harness/omp/client/api.ts", "sendOmpCommand"]]) {
+  for (const [file, method] of [["../harness/dsh/client/api.ts", "sendDshCommand"], ["../lib/grok-client.ts", "sendGrokCommand"], ["../lib/claude-code-client.ts", "sendClaudeCommand"], ["../harness/omp/client/api.ts", "sendOmpCommand"]]) {
     const client = await jiti.import(file);
     for (const response of [() => Response.json({}), () => Response.json(null), () => new Response("not JSON")]) {
       let count = 0;

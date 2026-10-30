@@ -29,7 +29,7 @@ export async function codingSessionModel(sessionId: string): Promise<NotesModelS
   if (harness === "claude-code" || harness === "dsh") {
     const config = harness === "claude-code"
       ? (await import("../../harness/claude-code/model-config")).claudeModelConfig(row!)
-      : (await import("../../harness/dsh/model-config")).dshModelConfig(row!);
+      : await (await import("../../harness/dsh/model-config")).dshModelConfig(row!);
     // Foreign credentials must never pick up pi's same-named provider or be written to its auth file.
     const runtime = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(), modelsStore: new InMemoryModelsStore(),

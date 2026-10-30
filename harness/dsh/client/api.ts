@@ -9,12 +9,12 @@ export function dshEventsUrl(sessionId: string): string {
   return `/api/dsh/${encodeURIComponent(sessionId)}/events`;
 }
 
-/** The transcript lives in the kernel's session directory, not behind a cwd. */
-export function dshSessionUrl(sessionId: string, sessionPath: string): string {
-  return `/api/dsh/${encodeURIComponent(sessionId)}?path=${encodeURIComponent(sessionPath)}`;
+/** Native identity and cwd are resolved server-side from the harness index. */
+export function dshSessionUrl(sessionId: string): string {
+  return `/api/dsh/${encodeURIComponent(sessionId)}`;
 }
 
-/** A web-side id for one dsh chat. The kernel picks its own session id. */
+/** New chats explicitly use this same id in the native Host. */
 export function newDshSessionId(): string {
   return `dsh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
