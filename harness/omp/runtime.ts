@@ -143,7 +143,7 @@ export class OmpRun {
     mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     if (!statSync(sessionDir).isDirectory()) throw new OmpError("Invalid OMP session directory");
     const selector = `${model.provider}/${model.id}`;
-    const rpc = new OmpRpc(binary, ["--mode", "rpc-ui", "--no-pty", "--no-title", "--approval-mode", "always-ask",
+    const rpc = new OmpRpc(binary, ["--mode", "rpc-ui", "--no-pty", "--no-title", "--approval-mode", "yolo",
       "--session-dir", sessionDir, "-e", path.join(process.cwd(), "harness", "omp", "model-extension.mjs"),
       ...(row ? ["--resume", row.sessionPath] : ["--model", selector]),
       "--smol", selector, "--slow", selector, "--plan", selector,

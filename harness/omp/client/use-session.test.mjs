@@ -7,7 +7,7 @@ import ts from "typescript";
 const source = ts.createSourceFile("use-session.ts", await readFile(new URL("./use-session.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const hook = source.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "useOmpSession");
 const script = new Script(ts.transpileModule(`(${hook.getText(source).replace(/^export\s+/, "")})`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText);
-class OmpClientError extends Error { constructor(message, status, trustCwd) { super(message); this.status = status; this.trustCwd = trustCwd; } }
+class OmpClientError extends Error { constructor(message, status) { super(message); this.status = status; } }
 const identity = { sessionPath: "/omp/native.jsonl", provider: "pi-provider", model: "pi-model", cwd: "/project" };
 function setup(send, fetchImpl) {
   const calls = [], writes = [];
@@ -27,24 +27,20 @@ function setup(send, fetchImpl) {
     restore: (text) => writes.push(["restore", text]), notice: (text) => writes.push(["notice", text]),
     loading() {}, view: (value, preserve) => writes.push(["view", value, preserve]), snapshot: (value) => writes.push(["snapshot", value]),
     model: (value) => writes.push(["model", value]), thinking: (value) => writes.push(["thinking", value]),
-    switching: (value) => writes.push(["switching", value]), confirm: () => true, reconcile: (id) => writes.push(["reconcile", id]),
+    switching: (value) => writes.push(["switching", value]), reconcile: (id) => writes.push(["reconcile", id]),
   });
   return { native, state, calls, writes };
 }
 
-test("OMP preserves Pi selection and explicitly retries only the trust handshake before connecting and sending", async () => {
-  let trusted = false;
-  const state = setup(async (_id, body) => {
-    if (body.type === "ensure_session" && !trusted) { trusted = true; throw new OmpClientError("Trust required", 403, "/project"); }
-    return identity;
-  });
+test("OMP sends the Pi selection and image bytes straight through, with no trust round trip", async () => {
+  const state = setup();
   await state.native.submit("hello", [{ data: "eA==", mimeType: "image/png", previewUrl: "not-on-wire" }]);
-  assert.deepEqual(state.calls.map(({ body }) => body.type), ["ensure_session", "ensure_session", "prompt"]);
-  assert.equal(state.calls[1].body.trusted, true);
-  assert.equal(state.calls[1].body.provider, "pi-provider");
-  assert.equal(state.calls[1].body.modelId, "pi-model");
-  assert.equal(state.calls[1].body.thinkingLevel, "high");
-  assert.equal(state.calls[2].body.images[0].previewUrl, undefined);
+  assert.deepEqual(state.calls.map(({ body }) => body.type), ["ensure_session", "prompt"]);
+  assert.equal(state.calls[0].body.provider, "pi-provider");
+  assert.equal(state.calls[0].body.modelId, "pi-model");
+  assert.equal(state.calls[0].body.thinkingLevel, "high");
+  assert.equal("trusted" in state.calls[0].body, false);
+  assert.equal(state.calls[1].body.images[0].previewUrl, undefined);
   assert.equal(state.writes.filter(([key]) => key === "connect").length, 1);
   assert.equal(state.native.isSubmitting(), false);
 });
@@ -146,7 +142,7 @@ test("OMP queue controls use native endpoints, strip preview URLs and restore fa
   assert.ok(failing.writes.some(([kind, text]) => kind === "restore" && text === "restore this"));
 });
 
-test("model selection changes only after native confirmation, while snapshots and rejected approvals stay native", async () => {
+test("model selection changes only after native confirmation, while snapshots and cancelled inputs stay native", async () => {
   const state = setup(async (_id, body) => { if (body.type === "set_model") throw new OmpClientError("Not available in Pi", 400); return identity; });
   state.state.id = "omp-existing"; state.state.known = true;
   assert.equal(await state.native.selectModel("other", "model"), false);

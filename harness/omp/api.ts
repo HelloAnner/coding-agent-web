@@ -4,16 +4,11 @@ import { createAgentEventStream } from "../../lib/agent-event-stream";
 import { readCatalogSession } from "../../lib/catalog-db";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "../../lib/file-access";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "../../lib/tool-result-images";
-import { ompConfigIdentity, OMP_ID } from "./index";
+import { OMP_ID } from "./index";
 import { findOmpRun, getOmpRun, type OmpPrompt } from "./runtime";
 import { object, OmpError } from "./rpc";
 
 type RouteContext = { params: Promise<{ id: string }> };
-const TRUST = Symbol.for("coding-agent-web.omp-project-trust");
-function trustedProjects(): Set<string> {
-  const holder = globalThis as Record<symbol, Set<string> | undefined>;
-  return holder[TRUST] ??= new Set();
-}
 function replyError(error: unknown): Response {
   const status = error instanceof OmpError ? error.status : object(error).code === "ENOENT" ? 404 : 500;
   return Response.json({ error: error instanceof OmpError ? error.message : "OMP request failed; its native session may be missing or unreadable" }, { status });
@@ -24,7 +19,7 @@ function indexed(id: string) {
   if (!row || row.harness !== "omp") throw new OmpError("OMP session not found", 404);
   return row;
 }
-async function promptInput(id: string, body: Record<string, unknown>): Promise<OmpPrompt | Response> {
+async function promptInput(id: string, body: Record<string, unknown>): Promise<OmpPrompt> {
   const row = readCatalogSession(id);
   if (row && row.harness !== "omp") throw new OmpError("This session belongs to another harness", 409);
   const directory = typeof body.cwd === "string" ? body.cwd : row?.cwd ?? "";
@@ -33,11 +28,6 @@ async function promptInput(id: string, body: Record<string, unknown>): Promise<O
   if (row && realpathSync(row.cwd) !== cwd) throw new OmpError("An OMP session keeps its project directory", 409);
   if (!isExistingFilePathAllowed(cwd, await getAllowedFileRoots())) throw new OmpError("Select this project in the web app before starting OMP", 403);
   if ((body.provider !== undefined || body.modelId !== undefined) && (typeof body.provider !== "string" || !body.provider || typeof body.modelId !== "string" || !body.modelId)) throw new OmpError("Select a provider and model id together");
-  const key = `${ompConfigIdentity()}\0${cwd}`;
-  if (!trustedProjects().has(key)) {
-    if (body.trusted !== true) return Response.json({ error: "OMP will load native project hooks, extensions and MCP servers", requiresTrust: true, cwd }, { status: 409 });
-    trustedProjects().add(key);
-  }
   if (body.message !== undefined && typeof body.message !== "string") throw new OmpError("Expected a text message");
   if (typeof body.message === "string" && Buffer.byteLength(body.message) > 1024 * 1024) throw new OmpError("Message exceeds the OMP input limit", 413);
   if (body.streamingBehavior !== undefined && (body.type !== "prompt" || body.streamingBehavior !== "steer" && body.streamingBehavior !== "followUp")) throw new OmpError("Invalid OMP streaming behavior");
@@ -70,14 +60,13 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
     const body = object(parsed);
     if (body.type === "ensure_session" || body.type === "prompt") {
       const input = await promptInput(id, body);
-      if (input instanceof Response) return input;
       const run = getOmpRun(id);
       const data = body.type === "ensure_session" ? await run.ensure(input) : await run.prompt(input);
       return Response.json({ success: true, data });
     }
     const run = findOmpRun(id);
     if (body.type === "abort") {
-      // A trusted startup holds a run before its native file/index is ready.
+      // A startup holds a run before its native file/index is ready.
       if (!run) indexed(id);
       return Response.json({ success: true, data: { aborted: run?.abort() ?? false } });
     }
@@ -94,15 +83,12 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
     }
     if (body.type === "set_model") {
       if (typeof body.provider !== "string" || typeof body.modelId !== "string" || !body.provider || !body.modelId) throw new OmpError("Expected a provider and model id");
-      // Starting a reaped native CLI still loads project assets, so it needs consent too.
-      const input = await promptInput(id, body);
-      if (input instanceof Response) return input;
+      await promptInput(id, body);
       return Response.json({ success: true, data: await getOmpRun(id).setModel(body.provider, body.modelId) });
     }
     if (body.type === "set_thinking_level") {
       if (typeof body.level !== "string") throw new OmpError("Expected a thinking level");
-      const input = await promptInput(id, body);
-      if (input instanceof Response) return input;
+      await promptInput(id, body);
       return Response.json({ success: true, data: await getOmpRun(id).setThinking(body.level) });
     }
     throw new OmpError("Unsupported OMP command");

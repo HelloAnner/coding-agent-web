@@ -36,8 +36,10 @@ OMP 不创建 Pi `AgentSession`，不进入 `lib/rpc-manager.ts`，不写 Pi 会
 运行方式：
 
 ```sh
-omp --mode rpc-ui --no-pty --no-title --approval-mode always-ask …
+omp --mode rpc-ui --no-pty --no-title --approval-mode yolo …
 ```
+
+默认 **`yolo`：全部工具（read/write/exec）自动允许，不弹网页项目确认，也不弹工具审批。** 这是用户明确要求的模式，含 bash、写文件、MCP 与子智能体；只应在你确实允许本机全面改动的环境里使用。
 
 `rpc-ui` 与 `rpc` 使用同一 RPC 传输，但 18.3.0 只有前者把原生工具 UI 接到 RPC；使用普通 `rpc` 会缺少可向人提问的 `ask` 工具。不能以自造一个 ask 工具补洞。
 
@@ -73,9 +75,9 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 
 子进程使用独立 env 副本，清理 Pi 的目录/模型/profile 选路，显式选择 `.omp` 配置和 OMP 根，不修改服务端全局环境。Pi 与 OMP 配置目录不能相同，包括符号链接指向同一个根的情形。
 
-默认 `always-ask`，不继承原生 yolo。项目首次执行前单独确认 trust；工具审批与 ask 按原生 request id 回传，取消不等于批准，失效回复拒绝。日志、blob 与 cwd 均做 realpath/归属检查，新 API 沿用现有站点认证。
+默认 `yolo` 全权限，不启用网页项目 trust 确认，也不弹工具审批。若 OMP 原生配置显式写了 `tools.approval.<tool>: prompt|deny`，该原生策略仍优先（`yolo` 只自动放行没有显式策略的调用）；需要完全无提示时不要在 OMP 配置里添加 `prompt` 规则。原生 `ask` 是向用户提问，不是权限审批，仍会按原生 request id 回传、显示选项说明。日志、blob 与 cwd 均做 realpath/归属检查，新 API 沿用现有站点认证。
 
-**项目 trust 和原生审批不是操作系统沙箱。** 原生 hooks、扩展、MCP、配置命令可能执行本地代码；Pi 的模型 provider 扩展也仍遵循 Pi 的项目 trust。只运行可信项目。
+**全权限不等于沙箱，也不是“安全已解决”。** 原生 hooks、扩展、MCP、配置命令和工具都可直接执行本地代码；`yolo` 还会忽略 critical-pattern 的提示。网页侧的项目访问检查只限制能开哪个目录，不限制该目录里的命令。Pi 的模型 provider 扩展仍遵循 Pi 的项目 trust。
 
 ## 四、能力与边界
 
@@ -83,7 +85,7 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 | --- | --- |
 | 菜单、模型设置、Pi 模型列表 | 已接；同一份模型配置，不另存 YAML |
 | 文本、多轮、正文/思考增量、工具卡 | 已接原生 RPC 事件 |
-| 工具批准/拒绝/取消、ask | 已接原生 UI，显示选项说明 |
+| 工具执行与 ask | 默认 `yolo` 全权限，无工具审批；原生 `ask` 提问仍通过网页 UI 回答 |
 | 空闲切模、思考档位 | 原生确认后更新；运行/待输入时锁控件 |
 | 停止、刷新、SSE 重连、精确恢复 | 已接；发送结果不确定不自动重发 |
 | 原生日志、当前分支、压缩摘要、标题、Notes 导入 | 自有只读解析；标题本地生成，不额外启动 Pi agent |
@@ -103,7 +105,7 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 - `model-extension.mjs`、`model-bridge.ts`：原生 provider 与 Pi 模型传输的私有管道。
 - `rpc.ts`、`runtime.ts`：RPC v2、进程、锁、恢复与生命周期。
 - `events.ts`、`transcript.ts`：事件/UI 转换、原生历史读取。
-- `api.ts`、`catalog.ts`：请求校验、trust、SSE、索引保护；`app/api/omp/` 只转发。
+- `api.ts`、`catalog.ts`：请求校验、SSE、索引保护；`app/api/omp/` 只转发。
 - `client/`：专属浏览器 API、发送/恢复/切模 workflow、复用 Pi 模型设置。
 - `../../lib/project-models.ts`：Pi/OMP 共用模型服务加载，不创建 agent。
 
@@ -118,17 +120,17 @@ npm test
 node harness/omp/client/browser-check.mjs
 ```
 
-已通过类型检查、lint 和全量回归（3213 tests，3210 pass、3 skip、0 fail）。测试数量会随并行开发变化，以本次运行记录为准。
+已通过类型检查、lint 和全量回归（3229 tests，3223 pass、6 skip、0 fail）。测试数量会随并行开发变化，以本次运行记录为准。
 
 - `omp.test.mjs`：分块/UTF-8/坏帧、元数据不泄密、原始 API/签名保留、启动期取消、原生有效分支。
-- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、原生批准/取消/ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。未安装 18.3.0 时此项显式 skip。
+- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、yolo 下 bash 直接执行且无审批、原生 ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。未安装 18.3.0 时此项显式 skip。
 - `queue.test.mjs`：steer 优先、requestId 去重、终态边界、准备期间停止不复活队列、附件召回与断流收口。
 - `omp.integration.test.mjs` 另覆盖真实 CLI 的 steer→followUp 顺序、整个队列只结算一次及两种侧栏状态入口。
-- `client/use-session.test.mjs`：队列发送/召回、trust、ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
-- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；同 Pi 模型列表、OMP 菜单、控件锁、审批、刷新、两轮、steer/排队/召回/停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
-- 公共回归覆盖 catalog 身份、旧 Pi 标签修复、trust、模型加载、原有 harness 运行路径。
+- `client/use-session.test.mjs`：队列发送/召回、无 trust 重试的 ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
+- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；同 Pi 模型列表、OMP 菜单、控件锁、ask 回答、刷新、两轮、steer/排队/召回/停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
+- 公共回归覆盖 catalog 身份、旧 Pi 标签修复、模型加载、原有 harness 运行路径。
 - `npm pack --dry-run` 确认扩展包含在发布包；打包探针把扩展复制到无仓库 `node_modules` 祖先的临时目录，真实 CLI 仍能加载 OMP 自带模型 SDK；未进行推理。
 
-**未用用户真实凭据调用远端模型；未重启用户服务；未跑 `next build`。** 独立浏览器夹具不等于现有部署已重启验收。发布由用户按原流程重启，再用真实 provider 检查两轮/审批/停止与跨服务重启恢复；新增 OMP 版本须重新跑上述原生测试。
+**未用用户真实凭据调用远端模型；未重启用户服务；未跑 `next build`。** 独立浏览器夹具不等于现有部署已重启验收。发布由用户按原流程重启，再用真实 provider 检查两轮/工具执行/停止与跨服务重启恢复；新增 OMP 版本须重新跑上述原生测试。
 
 原先的设计讨论保存在 Git 历史中；本文件描述当前实现，不再把旧“OMP 独立模型配置”方案当作运行事实。

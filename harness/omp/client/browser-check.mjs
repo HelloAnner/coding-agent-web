@@ -40,7 +40,7 @@ try {
       return <main><div ref={agent.scrollContainerRef}>
         <div data-testid="status">{agent.agentRunning ? "running" : "idle"}</div>
         <div data-testid="messages">{agent.messages.map((message, index) => <p key={index}>{typeof message.content === "string" ? message.content : message.content.filter(block => block.type === "text").map(block => block.text).join("")}</p>)}</div>
-        {agent.extensionDialog && <button data-testid="approval" onClick={() => agent.respondToExtensionUi(agent.extensionDialog, { value: "Approve" })}>{agent.extensionDialog.title}</button>}
+        {agent.extensionDialog && <button data-testid="ask" onClick={() => agent.respondToExtensionUi(agent.extensionDialog, { value: agent.extensionDialog.options?.[0] ?? "ok" })}>{agent.extensionDialog.title}</button>}
         {agent.notices.map(notice => <p key={notice.id}>{notice.message}</p>)}
       </div><ChatInput ref={input} onSend={agent.handleSend} onAbort={agent.handleAbort} isStreaming={agent.agentRunning}
         onSteer={agent.agentRunning ? agent.handleSteer : undefined} onFollowUp={agent.agentRunning ? agent.handleFollowUp : undefined}
@@ -136,8 +136,8 @@ try {
   await page.getByRole("button", { name: "Recall to input", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("textarea")?.value.includes("OMP queued follow-up") && document.querySelector("textarea")?.value.includes("OMP steer now"));
   await composer.fill("");
-  emit({ type: "extension_ui_request", id: "approval", method: "select", title: "Approve native bash", options: ["Approve", "Deny"] });
-  await page.getByTestId("approval").click();
+  emit({ type: "extension_ui_request", id: "ask", method: "select", title: "Pick a color", options: ["Blue", "Red"] });
+  await page.getByTestId("ask").click();
   await page.getByTestId("status").filter({ hasText: "idle" }).waitFor();
   await page.getByTestId("messages").getByText("OMP fixture answer", { exact: true }).waitFor();
   await page.reload();
@@ -156,7 +156,7 @@ try {
   assert.equal(prompts[0].path, prompts[1].path, "reload and the second turn keep the exact native web identity");
   assert.equal(calls.some(({ path }) => path.startsWith("/api/agent/")), false, "OMP never creates or calls a Pi agent");
   assert.deepEqual(errors, []);
-  console.log("PASS: real OMP composer/hook shares Pi models, locks controls, approves, reloads, sends two turns, steers, queues, recalls and stops without Pi agent calls");
+  console.log("PASS: real OMP composer/hook shares Pi models, locks controls, answers ask, reloads, sends two turns, steers, queues, recalls and stops without Pi agent calls");
 } finally {
   await browser?.close();
   server?.closeAllConnections();

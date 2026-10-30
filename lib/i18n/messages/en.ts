@@ -34,7 +34,6 @@ export const enLocale: LocalePlugin = {
     "harness.claudeTaskNoOutput": "No output yet",
     "harness.claudeTaskTruncated": "Earlier content omitted",
     "harness.claudeTrust": "Trust this project for Claude Code?\n{cwd}\n\nClaude Code will load this project's hooks and MCP servers, which can execute local commands. Continue only if you trust this directory.",
-    "harness.ompTrust": "Trust this project for OMP?\n{cwd}\n\nOMP will load native hooks, extensions and MCP servers, which can execute local commands. Continue only if you trust this directory.",
     "harness.ompModelsShared": "OMP shares Pi's providers, models, credentials and model settings. Changes here apply to both; OMP still runs its own agent and tools.",
     "harness.default": "default",
     "harness.off": "off",

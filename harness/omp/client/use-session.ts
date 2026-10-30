@@ -25,7 +25,6 @@ export interface OmpSessionPorts {
   model(value: Selection): void;
   thinking(value: string | null): void;
   switching(value: boolean): void;
-  confirm(cwd: string): boolean;
   reconcile(id: string): void;
 }
 
@@ -42,14 +41,6 @@ export function useOmpSession() {
     let cancelled = false;
     let loadRevision = 0;
     let eventRevision = 0;
-    const command = async <T,>(id: string, value: Record<string, unknown>): Promise<T> => {
-      try { return await sendOmpCommand<T>(id, value); }
-      catch (error) {
-        if (submitting && cancelled) throw error;
-        if (!(error instanceof OmpClientError) || !error.trustCwd || !ui().current().mounted || !ui().confirm(error.trustCwd)) throw error;
-        return sendOmpCommand<T>(id, { ...value, trusted: true });
-      }
-    };
     const load = async (id: string, showLoading = false, includeState = false) => {
       const request = ++loadRevision;
       if (showLoading) ui().loading(true);
@@ -91,7 +82,7 @@ export function useOmpSession() {
         let dispatched = false;
         try {
           if (!context.known && !prepared.has(id)) {
-            const result = await command<OmpIdentity>(id, { type: "ensure_session", cwd: context.cwd, message: text,
+            const result = await sendOmpCommand<OmpIdentity>(id, { type: "ensure_session", cwd: context.cwd, message: text,
               provider: context.model?.provider, modelId: context.model?.modelId, thinkingLevel: context.thinkingLevel ?? undefined });
             prepared.set(id, result);
           }
@@ -99,7 +90,7 @@ export function useOmpSession() {
           if (ui().current().mounted) await ui().connect(id).catch((error) => { if (ui().current().mounted) throw error; });
           if (cancelled) throw new OmpClientError("OMP stopped before sending", 409);
           dispatched = true;
-          const result = await command<OmpIdentity>(id, { type: "prompt", requestId: newOmpId(), message: text, cwd: context.cwd,
+          const result = await sendOmpCommand<OmpIdentity>(id, { type: "prompt", requestId: newOmpId(), message: text, cwd: context.cwd,
             images: images?.map(({ data, mimeType }) => ({ data, mimeType })) });
           if (cancelled) await sendOmpCommand(id, { type: "abort" }).catch(() => ui().notice("OMP accepted the message, but its stop could not be confirmed. Check the running state before retrying.", true));
           ui().created(result, text);
@@ -147,7 +138,7 @@ export function useOmpSession() {
         if (!context.id || !context.known && !prepared.has(context.id)) { ui().model({ provider, modelId }); return true; }
         ui().switching(true);
         try {
-          const selected = await command<{ provider: string; id: string }>(context.id, { type: "set_model", provider, modelId });
+          const selected = await sendOmpCommand<{ provider: string; id: string }>(context.id, { type: "set_model", provider, modelId });
           ui().model({ provider: selected.provider, modelId: selected.id });
           await load(context.id);
           return true;
@@ -164,7 +155,7 @@ export function useOmpSession() {
           return;
         }
         try {
-          const selected = await command<{ level: string }>(context.id, { type: "set_thinking_level", level });
+          const selected = await sendOmpCommand<{ level: string }>(context.id, { type: "set_thinking_level", level });
           ui().thinking(selected.level);
         } catch (error) { ui().notice(error instanceof Error ? error.message : String(error)); }
       },

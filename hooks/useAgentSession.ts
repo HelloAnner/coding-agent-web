@@ -3653,7 +3653,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setLiveThinkingLevel(value); setCurrentThinkingOverride(null);
     },
     switching: (value) => { modelSwitchPendingRef.current = value; setModelSwitching(value); },
-    confirm: (cwd) => window.confirm(translate("harness.ompTrust", { cwd })),
     reconcile: (id) => { void waitForPromptSettlement(id); },
   });
 

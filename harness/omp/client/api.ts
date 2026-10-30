@@ -5,12 +5,12 @@ export function newOmpId(): string {
   return `omp-${Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16).padStart(8, "0")).join("")}`;
 }
 export class OmpClientError extends Error {
-  constructor(message: string, readonly status: number, readonly trustCwd?: string) { super(message); this.name = "OmpClientError"; }
+  constructor(message: string, readonly status: number) { super(message); this.name = "OmpClientError"; }
 }
 export async function sendOmpCommand<T = unknown>(id: string, command: Record<string, unknown>): Promise<T> {
   const response = await fetch(ompSessionUrl(id), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) });
-  const body = await response.json().catch(() => ({})) as { success?: boolean; data?: T; error?: string; requiresTrust?: boolean; cwd?: string };
-  if (!response.ok || body?.error) throw new OmpClientError(body?.error ?? `HTTP ${response.status}`, response.status, body?.requiresTrust ? body.cwd : undefined);
+  const body = await response.json().catch(() => ({})) as { success?: boolean; data?: T; error?: string };
+  if (!response.ok || body?.error) throw new OmpClientError(body?.error ?? `HTTP ${response.status}`, response.status);
   if (body?.success !== true) throw new TypeError("Invalid response from OMP; send acceptance is unconfirmed");
   return body.data as T;
 }

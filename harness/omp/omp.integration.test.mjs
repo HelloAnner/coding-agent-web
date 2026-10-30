@@ -12,7 +12,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true, alias: { "@": p
 let available = false;
 try { available = execFileSync(process.env.PI_WEB_OMP_BIN || "omp", ["--version"], { encoding: "utf8" }).trim() === "omp/18.3.0"; } catch {}
 
-test("native OMP uses Pi configuration for two turns, tool approval, model changes, abort, and exact resume", { skip: !available, timeout: 90000 }, async () => {
+test("native OMP uses Pi configuration for two turns, full tool permissions, model changes, abort, and exact resume", { skip: !available, timeout: 90000 }, async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "web-omp-integration-")));
   const pi = join(root, "pi");
   const cwd = join(root, "project");
@@ -70,10 +70,6 @@ test("native OMP uses Pi configuration for two turns, tool approval, model chang
   });
   try {
     allowFileRoot(cwd);
-    const denied = await handleOmpCommand(new Request(`http://localhost/api/omp/${id}`, { method: "POST", body: JSON.stringify({ type: "ensure_session", ...input }) }), { params: Promise.resolve({ id }) });
-    assert.equal(denied.status, 409);
-    assert.equal((await denied.json()).cwd, cwd);
-    assert.equal(readCatalogSession(id), null, "trust rejection creates neither native session nor index row");
     assert.throws(() => guardOmpCatalogWrite(id, { harness: "omp", cwd }), /native OMP endpoint/);
     const creating = run.ensure(input);
     await assert.rejects(run.ensure(input), /already working/);
@@ -82,7 +78,7 @@ test("native OMP uses Pi configuration for two turns, tool approval, model chang
     assert.ok(first.sessionPath.endsWith(".jsonl"));
     assert.equal(first.harness, "omp");
     assert.equal(run.state().state.thinkingLevel, "medium");
-    const oversized = await handleOmpCommand(new Request(`http://localhost/api/omp/${id}`, { method: "POST", body: JSON.stringify({ type: "prompt", cwd, trusted: true, message: "\\".repeat(600000) }) }), { params: Promise.resolve({ id }) });
+    const oversized = await handleOmpCommand(new Request(`http://localhost/api/omp/${id}`, { method: "POST", body: JSON.stringify({ type: "prompt", cwd, message: "\\".repeat(600000) }) }), { params: Promise.resolve({ id }) });
     assert.equal(oversized.status, 413, "validate physical JSON frame bytes before sending to OMP");
     await assert.rejects(run.prompt({ ...input, message: "image", images: [{ data: "eA==", mimeType: "image/png" }] }), /does not support image/);
     assert.throws(() => guardOmpCatalogWrite(id, { model: "other" }), /confirmed by the native/);
@@ -123,18 +119,15 @@ test("native OMP uses Pi configuration for two turns, tool approval, model chang
     assert.equal(run.state().state.thinkingLevel, "low", "resume preserves the native session's explicit thinking choice");
     assert.ok(requests.at(-1).body.messages.some((message) => JSON.stringify(message).includes("omp-check-42")));
     mode = "tool";
-    const approval = await wait(() => run.prompt({ id, cwd, message: "Use bash" }), (event) => event.type === "extension_ui_request" && event.method === "select");
-    assert.ok(approval.options.includes("Approve"));
-    const ended = wait(() => run.respond(approval.id, { value: "Approve" }));
-    await ended;
+    const toolEvents = [];
+    const stopWatching = run.onEvent((event) => toolEvents.push(event));
+    await wait(() => run.prompt({ id, cwd, message: "Use bash" }));
+    stopWatching();
     assert.ok(run.view().context.messages.some((message) => message.role === "toolResult" && JSON.stringify(message.content).includes("approved-tool")));
-    const cancelled = await wait(() => run.prompt({ id, cwd, message: "Deny this bash tool" }), (event) => event.type === "extension_ui_request" && event.method === "select");
-    await wait(() => run.respond(cancelled.id, { cancelled: true }));
-    assert.equal(run.view().context.messages.filter((message) => message.role === "toolResult").at(-1).isError, true, "cancel cannot approve a tool");
-    assert.throws(() => run.respond(cancelled.id, { value: "Approve" }), /expired|pending/);
+    assert.equal(run.inputs.size, 0, "yolo executes tools without waiting for approval");
+    assert.ok(!toolEvents.some((event) => event.type === "extension_ui_request" && event.options?.includes("Approve")), "no tool approval dialog is raised");
     mode = "ask";
-    let question = await wait(() => run.prompt({ id, cwd, message: "Ask me which color" }), (event) => event.type === "extension_ui_request" && event.method === "select");
-    if (question.options.includes("Approve")) question = await wait(() => run.respond(question.id, { value: "Approve" }), (event) => event.type === "extension_ui_request" && event.method === "select");
+    const question = await wait(() => run.prompt({ id, cwd, message: "Ask me which color" }), (event) => event.type === "extension_ui_request" && event.method === "select");
     assert.ok(question.options.includes("Blue"));
     assert.ok(question.optionDetails.some((option) => option.description === "The blue option"));
     assert.ok(runtime.ompAwaitingInputIds().includes(id));
