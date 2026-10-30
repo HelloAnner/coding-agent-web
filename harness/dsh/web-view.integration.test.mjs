@@ -29,7 +29,7 @@ test("official browser Client, plugin configuration and module assets work throu
       const relative = url.pathname.slice(DSH_NATIVE_PREFIX.length).split("/").filter(Boolean).map(decodeURIComponent);
       const request = new Request(url, { method: req.method, headers: req.headers, ...(req.method === "POST" ? { body: Buffer.concat(chunks) } : {}), signal: abort.signal });
       const response = await proxyDshNative(request, relative);
-      if (response.status >= 400) failures.push([url.pathname, response.status]);
+      if (response.status >= 400 && !abort.signal.aborted) failures.push([url.pathname, response.status]);
       res.writeHead(response.status, Object.fromEntries(response.headers));
       if (response.body) {
         const reader = response.body.getReader();

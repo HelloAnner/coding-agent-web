@@ -1,14 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { isApiRequestAllowed, hasJsonContentType } from "../../lib/request-security";
-import { readCatalogSession } from "../../lib/catalog-db";
 import { dshWebHost, type DshStream } from "./web-host";
 import { record, records } from "./web-projection";
 
 export const DSH_NATIVE_PREFIX = "/api/harnesses/dsh/native/";
 const EMBED_PACKAGE = "@coding-agent-web/dsh-embed";
 const STATE = Symbol.for("coding-agent-web.dshNativeViews");
-type ViewState = { installing: Promise<void> | null; streams: Map<string, DshStream>; gate: Promise<unknown> };
+type ViewState = { installing: Promise<void> | null; streams: Map<string, DshStream | null>; gate: Promise<unknown> };
 function state(): ViewState {
   const shared = globalThis as Record<symbol, ViewState | undefined>;
   return shared[STATE] ??= { installing: null, streams: new Map(), gate: Promise.resolve() };
@@ -33,6 +32,7 @@ export async function requireDshIdle(): Promise<void> {
     const reader = stream.readable.getReader();
     try {
       const first = await reader.read();
+      if (!Array.isArray(record(first.value).jobs)) throw new Error("Cannot confirm native dsh background jobs are idle");
       if (records(record(first.value).jobs).some((job) => job.status === "running" || job.status === "stopping")) throw new Error("dsh still has running background jobs; wait before changing its plugins");
     } finally { await reader.cancel(); }
   }
@@ -123,15 +123,16 @@ export async function proxyDshNative(req: Request, segments: string[]): Promise<
       const id = url.searchParams.get("session");
       let nativeId: string | undefined;
       if (mode === "session") {
-        const row = id ? readCatalogSession(id) : null;
-        if (!row || row.harness !== "dsh" || !row.sessionPath) return Response.json({ error: "Indexed dsh session required" }, { status: 404 });
-        nativeId = path.basename(row.sessionPath);
+        const resolved = id ? await (await import("./web-session")).dshNativeSessionId(id) : null;
+        if (!resolved) return Response.json({ error: "Indexed dsh session required" }, { status: 404 });
+        nativeId = resolved;
       }
       const html = await upstream.text();
       return new Response(html.replace("</head>", dshTransportScript({ mode, sessionId: nativeId }) + "</head>"), { headers });
     }
     return new Response(upstream.body, { status: upstream.status, headers });
   } catch (error) {
+    if (req.signal.aborted) return new Response(null, { status: 499 });
     return Response.json({ error: error instanceof Error ? error.message : "Native dsh request failed" }, { status: 502 });
   }
 }
@@ -148,8 +149,12 @@ async function proxyStream(req: Request, kind: string): Promise<Response> {
     return new Response(null, { status: 204 });
   }
   if (active.has(body.id) || active.size >= 128) return new Response(null, { status: 409 });
-  const stream = await dshWebHost().stream(body.endpoint, record(body.args), req.signal);
-  active.set(body.id, stream);
+  active.set(body.id, null); // Reserve before awaiting: duplicate ids and parallel opens count toward the limit.
+  let stream: DshStream;
+  try {
+    stream = await dshWebHost().stream(body.endpoint, record(body.args), req.signal);
+    active.set(body.id, stream);
+  } catch (error) { active.delete(body.id); throw error; }
   const reader = stream.readable.getReader();
   const encoder = new TextEncoder();
   return new Response(new ReadableStream({

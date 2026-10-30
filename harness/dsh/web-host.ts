@@ -32,8 +32,9 @@ export class DshWebHost {
   private origin = "";
   private cookie = "";
   private readonly streams = new Set<() => void>();
-  private readonly exits = new Set<() => void>();
   private stopping = false;
+  private quitting = false;
+  private readonly shutdown = () => { this.quitting = true; void this.stop(); };
   private epoch = 0;
   generation = 0;
 
@@ -41,14 +42,11 @@ export class DshWebHost {
 
   get profileDir(): string { return path.join(this.home, "profiles", DSH_WEB_PROFILE); }
 
-  onExit(listener: () => void): () => void {
-    this.exits.add(listener);
-    return () => { this.exits.delete(listener); };
-  }
-
   ready(): Promise<void> {
-    if (this.stopping) return Promise.reject(new DshRemoteError("dsh is stopping"));
+    if (this.stopping || this.quitting) return Promise.reject(new DshRemoteError("dsh is stopping"));
     if (this.starting) return this.starting;
+    process.once("SIGINT", this.shutdown);
+    process.once("SIGTERM", this.shutdown);
     const attempt = this.start().catch(async (error: unknown) => {
       if (this.starting === attempt) await this.stop();
       throw error;
@@ -99,11 +97,12 @@ export class DshWebHost {
     child.stdout?.resume();
     child.once("exit", () => {
       if (this.child !== child) return;
+      process.off("SIGINT", this.shutdown);
+      process.off("SIGTERM", this.shutdown);
       this.child = null;
       this.starting = null;
       this.cookie = "";
       for (const close of [...this.streams]) close();
-      for (const listener of this.exits) listener();
     });
     // rc.2's official authentication exchanges its launch URL for an authority-bound Cookie.
     // Keep both credentials server-side; neither is returned by an application API.
@@ -205,6 +204,8 @@ export class DshWebHost {
   }
 
   async stop(): Promise<void> {
+    process.off("SIGINT", this.shutdown);
+    process.off("SIGTERM", this.shutdown);
     this.stopping = true;
     this.epoch++;
     const child = this.child;

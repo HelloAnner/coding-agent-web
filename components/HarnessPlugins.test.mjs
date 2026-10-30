@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, jsx: { runtime: "automatic" } });
 const { HarnessPlugins } = await jiti.import("./HarnessPlugins.tsx");
-const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const render = (initialHarness) => renderToStaticMarkup(createElement(I18nProvider, null, createElement(HarnessPlugins, { initialHarness, cwd: null, sessionId: null, onClose() {} })));
 
 test("plugin tabs select the current harness and never initialize the unvisited runtime", () => {

@@ -32,7 +32,7 @@ export function DshMigration({ english, onImported }: { english: boolean; onImpo
     {expanded && <div style={{ marginTop: 8 }}>
       <div style={{ overflowWrap: "anywhere" }}>{preview.file}</div>
       <ul>{preview.providers.map((item) => <li key={item.id}>{item.id} · {item.modelCount} {english ? "models" : "模型"}</li>)}{preview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
-      <p>{english ? "One-time import only. Native settings become authoritative; saved credentials are never sent to this browser." : "仅在确认后执行一次性导入，此后以原生设置为准，凭据不会返回浏览器。"}</p>
+      <p>{english ? "One-time import only. API keys become native credential references; this preview never includes a key." : "仅在确认后执行一次性导入，此后以原生设置为准；API key 按原生凭据引用保存，预览不返回密钥。"}</p>
       <ConfigButton onClick={() => void apply()} disabled={busy || !preview.providers.length}>{busy ? (english ? "Importing…" : "导入中…") : (english ? "Confirm import" : "确认导入")}</ConfigButton>
     </div>}
     {message && <p role="status">{message}</p>}

@@ -24,3 +24,19 @@ test("version mismatch and cancelled startup never spawn a second kernel", async
   try { await assert.rejects(host.ready(), /two Hosts must not write/); }
   finally { delete globalThis[legacy]; }
 });
+
+test("application shutdown cancels pending launch, detaches hooks and refuses a late restart", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "dsh-web-shutdown-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const bin = join(home, "dsh");
+  await writeFile(bin, '#!/bin/sh\nsleep 0.1\necho 0.2.0-rc.2\n', { mode: 0o700 });
+  const previous = process.listeners("SIGTERM");
+  const host = new DshWebHost(home, bin);
+  const launch = assert.rejects(host.ready(), /startup was cancelled/);
+  const shutdown = process.listeners("SIGTERM").find((listener) => !previous.includes(listener));
+  assert.equal(typeof shutdown, "function");
+  shutdown();
+  await launch;
+  await assert.rejects(host.ready(), /dsh is stopping/);
+  assert.deepEqual(process.listeners("SIGTERM"), previous);
+});

@@ -54,10 +54,6 @@ function unquote(value: string): string {
   return value;
 }
 
-function quote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
-}
-
 function field(section: Section, key: string): string | undefined {
   for (const line of section.lines) {
     if (/^\s*\[/.test(line)) break;
@@ -96,39 +92,9 @@ export function parseDshToml(text: string): { providers: DshProviderRecord[]; mo
   return { providers, models };
 }
 
-function render(preamble: string[], sections: Section[]): string {
-  const parts = [...preamble];
-  for (const section of sections) {
-    parts.push(`[${section.header}]`);
-    parts.push(...section.lines);
-  }
-  let text = parts.join("\n");
-  if (!text.endsWith("\n")) text += "\n";
-  return text;
-}
-
-function setField(section: Section, key: string, value: string): void {
-  const rendered = `${key} = ${value}`;
-  let sub = section.lines.length;
-  for (let i = 0; i < section.lines.length; i += 1) {
-    if (/^\s*\[/.test(section.lines[i])) {
-      sub = i;
-      break;
-    }
-  }
-  for (let i = 0; i < sub; i += 1) {
-    const item = assignment(section.lines[i]);
-    if (item?.key === key) {
-      section.lines[i] = rendered;
-      return;
-    }
-  }
-  section.lines.splice(sub, 0, rendered);
-}
-
 /**
- * What the dsh kernel needs from ds.toml, keys included. Kept separate from
- * `parseDshToml` so the browser-facing model list never sees a credential.
+ * Legacy migration input, keys included. Only the explicit server-side import
+ * uses this; neither ordinary model loading nor the browser reads it.
  */
 export interface DshRuntimeConfig {
   /** `[common].default`: the config key of the model ds starts with. */
@@ -144,7 +110,7 @@ export interface DshRuntimeConfig {
   }>;
 }
 
-/** Read the whole ds.toml the kernel composition needs. Nothing here is returned to a browser. */
+/** Read legacy migration facts. Nothing here is returned to a browser. */
 export function parseDshRuntime(text: string): DshRuntimeConfig {
   const { sections } = parseSections(text);
   const providers: DshRuntimeConfig["providers"] = [];
@@ -178,14 +144,4 @@ export function parseDshRuntime(text: string): DshRuntimeConfig {
     }
   }
   return { defaultModel, providers, models };
-}
-
-/** Rewrite one model's name and enabled flag. Other lines, including keys, stay. */
-export function updateDshModel(text: string, key: string, patch: { name?: string; enabled?: boolean }): string | null {
-  const { preamble, sections } = parseSections(text);
-  const section = sections.find((item) => item.header === `model.${key}`);
-  if (!section) return null;
-  if (patch.name !== undefined) setField(section, "name", quote(patch.name));
-  if (patch.enabled !== undefined) setField(section, "enabled", patch.enabled ? "true" : "false");
-  return render(preamble, sections);
 }

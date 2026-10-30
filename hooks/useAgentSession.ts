@@ -861,8 +861,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (runtimeHarnessRef.current === "grok" || runtimeHarnessRef.current === "dsh") {
       const isDsh = runtimeHarnessRef.current === "dsh";
       const cwd = grokCwdRef.current;
-      const sessionPath = dshSessionPathRef.current;
-      if (isDsh ? !sessionPath : !cwd) return null;
+      if (!isDsh && !cwd) return null;
       if (showLoading) setLoading(true);
       try {
         const res = await fetch(isDsh ? dshSessionUrl(sid) : grokSessionUrl(sid, cwd!), { cache: "no-store" });

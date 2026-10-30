@@ -411,6 +411,12 @@ export async function applyDshCatalogPatch(id: string, patch: { harness?: string
     await dshWebHost().call("session/rename", { request: { sessionId: run.nativeId, title: patch.title } });
   }
 }
+export async function dshNativeSessionId(id: string): Promise<string | null> {
+  if (readCatalogSession(id)?.harness !== "dsh") return null;
+  const run = getDshSession(id);
+  await run.open();
+  return run.nativeId;
+}
 export async function readDshNativeTitle(id: string): Promise<string | null> {
   const run = getDshSession(id);
   await run.open();

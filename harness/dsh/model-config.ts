@@ -25,8 +25,10 @@ export async function dshModelConfig(row: CatalogSession): Promise<{ provider: s
   if (info[ref]?.source === "env") apiKey = process.env[ref];
   else if (info[ref]?.source === "file") {
     // Resolve the local provider's declared file, without evaluating Cordis expressions or exporting secrets over RPC.
-    const { stdout } = await promisify(execFile)(host.bin, ["--profile", "coding-agent-web", "--dump-config"], { env: { ...process.env, DSH_HOME: host.home }, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
-    const composed = load(stdout, { schema: CORE_SCHEMA.withTags(defineScalarTag("tag:yaml.org,2002:js", { resolve: () => ({ expression: true }), identify: () => false })) });
+    const { stdout } = await promisify(execFile)(host.bin, ["--profile", "coding-agent-web", "--dump-config"], { env: { ...process.env, DSH_HOME: host.home }, timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => { throw new Error("dsh 原生凭据来源无法安全读取"); });
+    let composed: unknown;
+    try { composed = load(stdout, { schema: CORE_SCHEMA.withTags(defineScalarTag("tag:yaml.org,2002:js", { resolve: () => ({ expression: true }), identify: () => false })) }); }
+    catch { throw new Error("dsh 原生凭据来源无法安全读取"); }
     const entries = Array.isArray(composed) ? composed.map(object) : [];
     const credentials = entries.find((entry) => entry.name === "@deepseek-ai/dsh-credentials-local");
     const configuredPath = object(credentials?.config).path;
