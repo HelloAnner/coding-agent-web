@@ -303,6 +303,17 @@ test("scrolls a long queue inside its own box, under the count and Recall (#1428
     [...Array.from({ length: 19 }, (_, i) => `steer-${i}`), "follow-up-0"]);
 });
 
+test("the composer stays editable while compacting and says messages queue", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+      onSend() {}, isCompacting: true,
+    })),
+  );
+
+  assert.doesNotMatch(html, /<textarea[^>]*\bdisabled\b/);
+  assert.match(html, /placeholder="Compacting… messages queue until it finishes"/);
+});
+
 test("ignores a pointer click that reaches Stop's slot just as the run ends", () => {
   assert.equal(isRunEndStrayClick(1, 0), true);
   assert.equal(isRunEndStrayClick(2, RUN_END_CLICK_GUARD_MS - 1), true);
