@@ -188,6 +188,13 @@
   padding: 28px 20px 44px;
 }
 
+.dashboard-board.dashboard-board-full-width {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
 .dashboard-empty {
   display: flex;
   align-items: center;

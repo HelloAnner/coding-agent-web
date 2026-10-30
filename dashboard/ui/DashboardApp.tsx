@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { AppSwitcher } from "@/components/AppSwitcher";
 import { TaskBoard } from "../boards/fine-tasks/ui/TaskBoard";
 import type { WebApp } from "@/lib/apps";
@@ -10,6 +11,8 @@ import {
   type DashboardBoard,
   type DashboardBoardId,
 } from "../boards";
+
+const IncomeExpensesBoard = dynamic(() => import("../boards/income-expenses/ui/IncomeExpensesBoard").then((module) => module.IncomeExpensesBoard));
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -68,7 +71,7 @@ export function DashboardApp({
   const urlBoard = dashboardBoardForId(searchParams.get("board"));
   const [boardId, setBoardId] = useState<DashboardBoardId>(urlBoard.id);
   const board = dashboardBoardForId(boardId);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ fine: true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -179,7 +182,7 @@ export function DashboardApp({
                             onClick={() => selectBoard(item)}
                           >
                             <span className="session-tree-title">{item.label}</span>
-                            <span className="dashboard-row-meta">Meegle</span>
+                            <span className="dashboard-row-meta">{item.source}</span>
                           </button>
                         </div>
                       );
@@ -220,7 +223,7 @@ export function DashboardApp({
         </header>
         <div className="dashboard-content">
           <div className="dashboard-board dashboard-board-full-width">
-            <TaskBoard active={active} />
+            {board.id === "income-expenses" ? <IncomeExpensesBoard active={active} /> : <TaskBoard active={active} />}
           </div>
         </div>
       </main>

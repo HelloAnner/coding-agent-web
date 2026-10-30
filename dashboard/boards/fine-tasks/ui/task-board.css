@@ -1,10 +1,4 @@
 /* Uses the coding page's surfaces, controls and table density. */
-.dashboard-board.dashboard-board-full-width {
-  width: 100%;
-  margin: 0;
-  padding: 0;
-}
-
 .task-board {
   width: 100%;
   min-width: 0;

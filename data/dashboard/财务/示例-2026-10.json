@@ -1,0 +1,30 @@
+{
+  "currency": "CNY",
+  "sample": true,
+  "transactions": [
+    { "id": "demo-1001", "date": "2026-10-01", "type": "income", "amountCents": 420000, "description": "产品设计项目 · 启动款", "counterparty": "示例客户 A", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1002", "date": "2026-10-02", "type": "expense", "amountCents": 12900, "description": "设计工具月度订阅", "counterparty": "示例设计平台", "category": "软件服务", "account": "支付宝" },
+    { "id": "demo-1003", "date": "2026-10-03", "type": "expense", "amountCents": 360000, "description": "十月房租", "counterparty": "示例公寓", "category": "居住生活", "account": "招商银行" },
+    { "id": "demo-1004", "date": "2026-10-04", "type": "income", "amountCents": 260000, "description": "交互体验咨询", "counterparty": "示例客户 B", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1005", "date": "2026-10-05", "type": "expense", "amountCents": 19900, "description": "云服务器与存储", "counterparty": "示例云服务商", "category": "软件服务", "account": "支付宝" },
+    { "id": "demo-1006", "date": "2026-10-06", "type": "expense", "amountCents": 52800, "description": "机械键盘与桌面配件", "counterparty": "示例办公用品店", "category": "办公采购", "account": "支付宝" },
+    { "id": "demo-1007", "date": "2026-10-07", "type": "income", "amountCents": 380000, "description": "网站开发 · 阶段验收", "counterparty": "示例客户 C", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1008", "date": "2026-10-08", "type": "expense", "amountCents": 18600, "description": "日常餐饮与采购", "counterparty": "示例生活商户", "category": "餐饮日常", "account": "微信支付" },
+    { "id": "demo-1009", "date": "2026-10-10", "type": "income", "amountCents": 160000, "description": "组件库授权收入", "counterparty": "示例创作平台", "category": "其他收入", "account": "支付宝" },
+    { "id": "demo-1010", "date": "2026-10-11", "type": "expense", "amountCents": 126000, "description": "客户拜访 · 高铁与住宿", "counterparty": "示例出行平台", "category": "交通出行", "account": "支付宝" },
+    { "id": "demo-1011", "date": "2026-10-12", "type": "expense", "amountCents": 39900, "description": "数据可视化课程", "counterparty": "示例学习平台", "category": "学习成长", "account": "微信支付" },
+    { "id": "demo-1012", "date": "2026-10-13", "type": "income", "amountCents": 540000, "description": "产品设计项目 · 中期款", "counterparty": "示例客户 A", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1013", "date": "2026-10-14", "type": "expense", "amountCents": 24800, "description": "项目沟通工作餐", "counterparty": "示例餐饮商户", "category": "餐饮日常", "account": "微信支付" },
+    { "id": "demo-1014", "date": "2026-10-16", "type": "income", "amountCents": 320000, "description": "产品策略顾问服务", "counterparty": "示例客户 D", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1015", "date": "2026-10-17", "type": "expense", "amountCents": 89000, "description": "桌面显示器支架", "counterparty": "示例办公用品店", "category": "办公采购", "account": "支付宝" },
+    { "id": "demo-1016", "date": "2026-10-18", "type": "expense", "amountCents": 16800, "description": "协作工具年度优惠", "counterparty": "示例协作平台", "category": "软件服务", "account": "支付宝" },
+    { "id": "demo-1017", "date": "2026-10-19", "type": "income", "amountCents": 240000, "description": "体验评审与交付", "counterparty": "示例客户 B", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1018", "date": "2026-10-20", "type": "expense", "amountCents": 62400, "description": "短途商务出行", "counterparty": "示例出行平台", "category": "交通出行", "account": "支付宝" },
+    { "id": "demo-1019", "date": "2026-10-22", "type": "income", "amountCents": 460000, "description": "网站开发 · 最终交付", "counterparty": "示例客户 C", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1020", "date": "2026-10-23", "type": "expense", "amountCents": 21800, "description": "书籍与专业资料", "counterparty": "示例书店", "category": "学习成长", "account": "微信支付" },
+    { "id": "demo-1021", "date": "2026-10-24", "type": "expense", "amountCents": 32600, "description": "周末餐饮与采购", "counterparty": "示例生活商户", "category": "餐饮日常", "account": "微信支付" },
+    { "id": "demo-1022", "date": "2026-10-25", "type": "income", "amountCents": 280000, "description": "产品设计项目 · 尾款", "counterparty": "示例客户 A", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-1023", "date": "2026-10-27", "type": "income", "amountCents": 86000, "description": "数字作品与模板销售", "counterparty": "示例创作平台", "category": "其他收入", "account": "支付宝" },
+    { "id": "demo-1024", "date": "2026-10-29", "type": "expense", "amountCents": 9800, "description": "公共交通与打车", "counterparty": "示例出行平台", "category": "交通出行", "account": "微信支付" }
+  ]
+}

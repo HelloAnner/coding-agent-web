@@ -1,0 +1,16 @@
+{
+  "currency": "CNY",
+  "sample": true,
+  "transactions": [
+    { "id": "demo-0901", "date": "2026-09-02", "type": "income", "amountCents": 960000, "description": "品牌升级项目 · 首款", "counterparty": "示例客户 C", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-0902", "date": "2026-09-03", "type": "expense", "amountCents": 360000, "description": "九月房租", "counterparty": "示例公寓", "category": "居住生活", "account": "招商银行" },
+    { "id": "demo-0903", "date": "2026-09-05", "type": "expense", "amountCents": 32900, "description": "开发工具与云服务", "counterparty": "示例软件服务", "category": "软件服务", "account": "支付宝" },
+    { "id": "demo-0904", "date": "2026-09-08", "type": "expense", "amountCents": 128000, "description": "显示器与桌面配件", "counterparty": "示例办公用品店", "category": "办公采购", "account": "支付宝" },
+    { "id": "demo-0905", "date": "2026-09-11", "type": "income", "amountCents": 720000, "description": "产品体验评审", "counterparty": "示例客户 B", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-0906", "date": "2026-09-16", "type": "expense", "amountCents": 58200, "description": "餐饮与日常采购", "counterparty": "示例生活商户", "category": "餐饮日常", "account": "微信支付" },
+    { "id": "demo-0907", "date": "2026-09-18", "type": "expense", "amountCents": 92600, "description": "项目出差", "counterparty": "示例出行平台", "category": "交通出行", "account": "支付宝" },
+    { "id": "demo-0908", "date": "2026-09-22", "type": "income", "amountCents": 840000, "description": "品牌升级项目 · 尾款", "counterparty": "示例客户 C", "category": "项目回款", "account": "招商银行" },
+    { "id": "demo-0909", "date": "2026-09-25", "type": "expense", "amountCents": 45900, "description": "设计工作坊", "counterparty": "示例学习平台", "category": "学习成长", "account": "微信支付" },
+    { "id": "demo-0910", "date": "2026-09-28", "type": "income", "amountCents": 68400, "description": "数字作品销售", "counterparty": "示例创作平台", "category": "其他收入", "account": "支付宝" }
+  ]
+}

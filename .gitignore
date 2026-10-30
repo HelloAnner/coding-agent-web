@@ -22,8 +22,15 @@
 # make start
 /.run/
 
-# local data (notes, boards)
-/data/
+# Local data stays private; only these explicit demo files are versioned.
+/data/*
+!/data/dashboard/
+/data/dashboard/*
+!/data/dashboard/财务/
+/data/dashboard/财务/*
+!/data/dashboard/财务/示例-2026-08.json
+!/data/dashboard/财务/示例-2026-09.json
+!/data/dashboard/财务/示例-2026-10.json
 
 # production
 /build
