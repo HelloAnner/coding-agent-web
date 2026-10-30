@@ -45,6 +45,8 @@ async function setup({ fresh = false, context } = {}) {
   const sid = fresh ? "s1" : "A";
   const sources = [];
   const prompts = [];
+  const ends = [];
+  const onAgentEnd = (end) => ends.push(end);
   // What the server says: its run state, the session's context (and a branch's,
   // for the branch switch), whether status and session reads get through, how
   // the prompt request ends. A prompt "previous" is accepted at once.
@@ -69,7 +71,7 @@ async function setup({ fresh = false, context } = {}) {
       this.onmessage?.({ data: JSON.stringify(event) });
     }
   };
-  const state = () => ({ running: server.running, state: { isStreaming: server.running, isPromptRunning: server.running } });
+  const state = () => ({ running: server.running, state: { isStreaming: server.running, isPromptRunning: server.running, subagentsActive: server.subagentsActive === true } });
   globalThis.fetch = async (requestUrl, init = {}) => {
     const url = requestUrl.replace("?systemPrompt=0", "");
     if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
@@ -98,9 +100,9 @@ async function setup({ fresh = false, context } = {}) {
     return json({});
   };
   const hook = renderHook(useAgentSession, fresh
-    ? { session: null, newSessionCwd: "/project", newSessionDraftKey: "new:draft", t }
+    ? { session: null, newSessionCwd: "/project", newSessionDraftKey: "new:draft", t, onAgentEnd }
     : {
-        session: { id: "A", cwd: "/project", path: "/A.jsonl", name: "A" }, newSessionCwd: null, newSessionDraftKey: null, t,
+        session: { id: "A", cwd: "/project", path: "/A.jsonl", name: "A" }, newSessionCwd: null, newSessionDraftKey: null, t, onAgentEnd,
         onBranchDataChange: (_tree, _leaf, change) => { server.leafChange = change; },
       });
   await settle();
@@ -145,7 +147,7 @@ async function setup({ fresh = false, context } = {}) {
     // A cached view would open the next test's session on this one's messages.
     for (const key of ["A", "s1"]) deleteSessionViewSnapshot(key);
   };
-  return { hook, sid, server, prompts, connect, tick, emit, answer, notices, bubble, cachedBubble, unmount, teardown };
+  return { hook, sid, server, prompts, ends, connect, tick, emit, answer, notices, bubble, cachedBubble, unmount, teardown };
 }
 
 async function withSetup(options, body) {
@@ -403,6 +405,17 @@ test("normal send: when the previous run's reload failed, a send the server neve
     await env.tick(1_000);
     assert.equal(getDraft("A").value, "first submission\n\nsecond draft");
     assert.deepEqual(env.notices(), [["warning", "chat.sendUnconfirmed"]], "the read moved on past what the view had saved");
+  });
+});
+
+test("status recovery keeps completion silent while pi subagents can still report back", async () => {
+  await withSetup({}, async (env) => {
+    const { sending } = await sendNormal(env);
+    env.server.subagentsActive = true;
+    await env.answer("network");
+    await sending;
+    await env.tick(1_000);
+    assert.deepEqual(env.ends, [{ aborted: false, subagentsActive: true }]);
   });
 });
 

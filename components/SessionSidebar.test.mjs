@@ -117,6 +117,35 @@ test("subagents fold into their main session row, which carries their running, u
   assert.deepEqual(sessionRows[0].status, { running: true, awaiting: false, unread: true, selected: true, transient: false });
 });
 
+test("background pi completion waits for child reports without changing native harness completion", () => {
+  const body = between("    const previous = previousRunningSessionIdsRef.current;", "  }, [runningSessionIds, subagentsActiveSessionIds");
+  let unread = new Set();
+  let done = 0;
+  const scope = vm.createContext({
+    previousRunningSessionIdsRef: { current: new Set() }, previousActiveSessionIdsRef: { current: new Set() },
+    previousSuppressedCompletionSessionIdsRef: { current: new Set() }, currentSuppressedCompletionSessionIdsRef: { current: new Set() },
+    selectedSessionId: null, allSessions: [session("main"), session("claude", { harness: "claude-code" })],
+    setUnreadSessionIds: (update) => { unread = update(unread); }, loadSessions() {}, onBackgroundTaskDone: () => { done++; },
+  });
+  const poll = (running, children = []) => {
+    scope.runningSessionIds = new Set(running);
+    scope.subagentsActiveSessionIds = new Set(children);
+    vm.runInContext(`(() => { ${body} })()`, scope);
+  };
+  poll(["main"]);
+  poll([], ["main"]);
+  assert.equal(done, 0);
+  assert.equal(unread.size, 0);
+  poll(["main"]);
+  poll([]);
+  assert.equal(done, 1);
+  assert.equal(unread.has("main"), true);
+  poll(["claude"]);
+  poll([]);
+  assert.equal(done, 2);
+  assert.equal(unread.has("claude"), true);
+});
+
 test("only Shift skips the session deletion confirmation", () => {
   assert.match(
     callbackBody("requestDelete"),

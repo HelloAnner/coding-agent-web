@@ -9,12 +9,14 @@ import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 import { catalogListVersion } from "@/lib/catalog-db";
 import { dshRunningIds } from "@/harness/dsh/runtime";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
+import { getSessionIdsWithUnsettledSubagentRuns } from "@/lib/subagent-runtime";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/agent/running - Lightweight snapshot for visible-tab polling.
 // sessionUiStateRevision (null when unreadable) tells the sidebar its pins and
 // archive changed elsewhere; it costs one stat while the file is unchanged.
+// subagentsActiveSessionIds: pi sessions whose children can still start a turn.
 function readCatalogListVersion(): number {
   try {
     return catalogListVersion();
@@ -31,6 +33,7 @@ export async function GET() {
       runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds(), ...dshRunningIds()],
       awaitingInputSessionIds: [...getAwaitingInputRpcSessionIds(), ...claudeAwaitingInputIds()],
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
+      subagentsActiveSessionIds: getSessionIdsWithUnsettledSubagentRuns(),
       sessionUiStateRevision: getSessionUiStateRevision(),
     },
     { headers: { "Cache-Control": "no-store" } },

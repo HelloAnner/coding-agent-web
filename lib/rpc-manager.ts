@@ -48,7 +48,7 @@ import {
   subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController, getLiveSubagentStatus } from "./subagent-runtime";
+import { createSubagentController, getLiveSubagentStatus, hasUnsettledSubagentRun } from "./subagent-runtime";
 import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
@@ -492,7 +492,11 @@ export class AgentSessionWrapper {
         // Prompts parked while compaction ran go out now, FIFO, whatever its outcome (as the TUI).
         this.flushParkedPrompts();
       }
-      this.emit(event.type === "message_end" ? this.withTranscriptNotices(event) : event);
+      this.emit(
+        event.type === "message_end" ? this.withTranscriptNotices(event)
+          : event.type === "agent_settled" ? this.withSubagentsActive(event)
+            : event,
+      );
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
     });
     this.resetIdleTimer();
@@ -549,6 +553,9 @@ export class AgentSessionWrapper {
     this.agentRunNeedsCompletion = false;
     // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
     if (this.suppressCompletionNotifications || this.lastRunAborted) return;
+    // A subagent of this session is still at work: each report starts a run here, and the run
+    // after the last one is the end of the task (#1434).
+    if (hasUnsettledSubagentRun(this.sessionId)) return;
     try {
       this.onAgentRunComplete?.(this.sessionId, this.inner.sessionManager.getSessionName());
     } catch (error) {
@@ -556,9 +563,17 @@ export class AgentSessionWrapper {
     }
   }
 
-  /** `prompt_done`, saying `aborted` when the prompt's run was stopped rather than finished. */
+  /**
+   * `prompt_done`, saying `aborted` when the prompt's run was stopped rather than finished, and
+   * `subagentsActive` while a subagent under this session can still start another run here.
+   */
   private promptDoneEvent(): AgentEvent {
-    return { type: "prompt_done", ...(this.lastRunAborted ? { aborted: true } : {}) };
+    return this.withSubagentsActive({ type: "prompt_done", ...(this.lastRunAborted ? { aborted: true } : {}) });
+  }
+
+  /** The end of a run of this session's, marked when its subagents keep the task going: no chime yet. */
+  private withSubagentsActive(event: AgentEvent): AgentEvent {
+    return hasUnsettledSubagentRun(this.sessionId) ? { ...event, subagentsActive: true } : event;
   }
 
   /** Parked prompts as queue rows: a plain one is a steer, as the TUI parks Enter during compaction. */
@@ -1040,13 +1055,13 @@ export class AgentSessionWrapper {
           let acceptPreflight!: () => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
+            // Acceptance owes no completion: only a run does, and its agent_start says so.
+            // An extension command pi handles, or input an extension swallows, starts
+            // none, and a run the command starts itself may begin after this (#1345).
             acceptPreflight = () => {
               preflightAccepted = true;
-              this.agentRunNeedsCompletion = true;
               if (preflightSettled) return;
               preflightSettled = true;
-              // A new prompt, not one queued into a run: what an earlier run's Stop said is over.
-              if (!streamingBehavior) this.lastRunAborted = false;
               resolve();
             };
             rejectPreflight = (error) => {
@@ -1093,6 +1108,10 @@ export class AgentSessionWrapper {
               if (this.mcpPromptWait === wait) this.mcpPromptWait = null;
             }
           }
+          // A new prompt, not one queued into a run: what an earlier run's Stop said is over.
+          // Not at acceptance: pi accepts a command that awaits a run of its own after that
+          // run settled, and the run's Stop must still keep its push and chime away.
+          if (!streamingBehavior) this.lastRunAborted = false;
           let prompt: Promise<void>;
           try {
             prompt = this.inner.prompt(command.message as string, {
@@ -1197,6 +1216,7 @@ export class AgentSessionWrapper {
           isPromptRunning: this.pendingPromptCount > 0,
           isBashRunning: this.inner.isBashRunning,
           isCompacting: this.inner.isCompacting,
+          subagentsActive: hasUnsettledSubagentRun(this.sessionId),
           autoCompactionEnabled: this.inner.autoCompactionEnabled,
           autoRetryEnabled: this.inner.autoRetryEnabled,
           model: model ? { id: model.id, provider: model.provider } : undefined,
