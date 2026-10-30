@@ -135,13 +135,12 @@ export async function createNotesSession(profile: NotesSessionProfile = {}): Pro
       noThemes: true,
       noContextFiles: true,
       systemPrompt: profile.systemPrompt ?? NOTES_SYSTEM_PROMPT,
-      // Never inherit global coding rules. Without a file reader, provide the
-      // selected skill bodies directly instead of asking for inaccessible files.
-      appendSystemPrompt: tools.includes("read") || tools.includes("bash")
-        ? []
-        : listNotesSkills()
-          .filter((skill) => !wanted || wanted.includes(skill.name))
-          .map((skill) => readFileSync(skill.path, "utf8")),
+      // Never inherit global coding rules. The selected skill bodies are always
+      // appended, even when `read` is on: the rules must be in the prompt, and
+      // references/ under each skill is only depth for a run that wants it.
+      appendSystemPrompt: listNotesSkills()
+        .filter((skill) => !wanted || wanted.includes(skill.name))
+        .map((skill) => readFileSync(skill.path, "utf8")),
       additionalSkillPaths: [skillsDir],
       // Only the notes agent's own skills, narrowed to the profile's list: the
       // user's coding skills are for coding sessions, and their catalog would

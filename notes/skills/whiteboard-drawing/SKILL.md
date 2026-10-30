@@ -22,7 +22,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 | `arrow` | 有方向的流向，用 `to` 给终点 | — |
 | `line` | 分隔线、无方向的连接，用 `to` 给终点 | — |
 
-`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16~18，说明和旁注 13~14）。描边默认 `#1b1b1f`、细实线、无填充；不要给 `backgroundColor`，除非确实要分区底色。
+`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16~18，说明和旁注 13~14）。描边默认 `#1b1b1f`、细实线。**关键节点要上底色**：按 `whiteboard-style` 的语义色板给 `backgroundColor` + 同族的 `strokeColor`（例如 `#e8ecf7` / `#263d8f`）；旁注、标签、箭头短语保持 `transparent`。
 
 ## 坐标
 
