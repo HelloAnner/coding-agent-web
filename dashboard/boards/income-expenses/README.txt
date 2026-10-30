@@ -8,8 +8,8 @@
   「财务」只是导航分组，未来可以挂完全不同的看板。
   本目录只属于收入支出分析，不是其他财务看板的共享核心或组件库。
   组件、数据模型、读取逻辑、测试均留在本目录；API route 只转发 GET。
-  ui/income-expenses.module.css 自有白底、细边框、橙色选中线及图表配色。
-  不依赖 shell 主题 token、任务看板组件或通用 dashboard 图表样式。
+  ui/income-expenses.module.css 只做版式与图表几何；颜色引 dashboard/shared/tokens.css 的 --db-*。
+  不依赖任务看板组件；不复制其他看板的样式。
   不为将来的财务看板预设风格、数据接口或目录；各自新增独立模块即可。
 
 数据

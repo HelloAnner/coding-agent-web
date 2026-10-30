@@ -6,6 +6,7 @@ Father's Health（独立看板）
 
 数据与隐私
   只在运行时读取 data/dashboard/健康/父亲/health.json；不依赖 ~/notes、数据库或外网。
+  同目录的 AGENTS.md 是看板对话给 harness 的背景说明（数据格式、加数据规则）。
   原始报告、截图、药盒、PDF、笔记副本存放在同目录 attachments/ 下。
   该目录由现有 .gitignore 排除。不要 force add 健康数据、原件、截图或带真实数据的测试产物。
   仓库只提交看板代码与虚构测试数据；不附带真实数据或自动演示数据。

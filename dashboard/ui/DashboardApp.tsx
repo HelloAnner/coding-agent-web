@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AppSwitcher } from "@/components/AppSwitcher";
+import { useResizablePanel } from "@/hooks/useResizablePanel";
+import { BoardChat } from "../shared/BoardChat";
 import { TaskBoard } from "../boards/fine-tasks/ui/TaskBoard";
 import type { WebApp } from "@/lib/apps";
 import {
@@ -50,6 +52,14 @@ function MenuIcon() {
   );
 }
 
+function ChatIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a8 8 0 0 1-8 8H8l-4 3v-6a8 8 0 0 1-.9-3.6A8 8 0 0 1 11 4h2a8 8 0 0 1 8 8Z" />
+    </svg>
+  );
+}
+
 /**
  * The dashboard app inside the shell: the shell's brand and a tree of boards
  * on the left, the selected board on the right. Both apps stay mounted, so
@@ -76,6 +86,34 @@ export function DashboardApp({
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The board chat is shared by every board: same panel, different folder.
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatWidthRef = useRef(380);
+  const chatResizer = useResizablePanel({
+    ariaLabel: "调整看板对话宽度",
+    cssVariable: "--dashboard-chat-width",
+    defaultWidth: 380,
+    growthDirection: "left",
+    getMaxWidth: () => Math.max(320, Math.min(760, window.innerWidth - 460)),
+    maxWidth: 760,
+    minWidth: 300,
+    storageKey: "pi-dashboard-chat-width",
+    widthRef: chatWidthRef,
+  });
+  useEffect(() => {
+    try {
+      setChatOpen(window.localStorage.getItem("pi-dashboard-chat-open") === "1");
+    } catch {
+      // storage off: the panel starts closed
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("pi-dashboard-chat-open", chatOpen ? "1" : "0");
+    } catch {
+      // ignore storage errors
+    }
+  }, [chatOpen]);
   useEffect(() => {
     if (!active) setSidebarOpen(false);
   }, [active]);
@@ -221,13 +259,41 @@ export function DashboardApp({
             <MenuIcon />
           </button>
           <span className="dashboard-board-title">{board.label}</span>
+          <button
+            type="button"
+            className={`dashboard-chat-toggle${chatOpen ? " is-active" : ""}`}
+            aria-label={chatOpen ? "关闭对话边栏" : "打开看板对话"}
+            aria-expanded={chatOpen}
+            aria-controls="dashboard-chat"
+            title={chatOpen ? "关闭对话" : "与看板对话"}
+            onClick={() => setChatOpen((open) => !open)}
+          >
+            <ChatIcon />
+          </button>
         </header>
         <div className="dashboard-content">
-          <div className="dashboard-board dashboard-board-full-width">
+          <div
+            className="dashboard-board dashboard-board-full-width db-canvas"
+            style={{ ["--db-tint" as string]: `var(${board.tint})` } as React.CSSProperties}
+          >
             {board.id === "father-health" ? <FatherHealthBoard active={active} /> : board.id === "income-expenses" ? <IncomeExpensesBoard active={active} /> : <TaskBoard active={active} />}
           </div>
         </div>
       </main>
+
+      {chatOpen && (
+        <div
+          {...chatResizer.separatorProps}
+          aria-controls="dashboard-chat"
+          className={`dashboard-chat-resize${chatResizer.isResizing ? " is-resizing" : ""}`}
+          data-resize-handle="dashboard-chat"
+        />
+      )}
+      {chatOpen && (
+        <aside id="dashboard-chat" className="dashboard-chat-panel" ref={chatResizer.panelRef}>
+          <BoardChat key={board.id} board={board} active={active && chatOpen} onClose={() => setChatOpen(false)} />
+        </aside>
+      )}
     </div>
   );
 }

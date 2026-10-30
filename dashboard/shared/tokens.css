@@ -1,0 +1,111 @@
+/*
+ * 看板公共 token。所有看板的颜色、密度只在这里出现一次。
+ *
+ * 规则：boards/<id>/ui/*.css 里不许写颜色字面量（#hex、rgb()、color-scheme），
+ * 只引 --db-*；由 dashboard/shared/tokens.test.mjs 强制。
+ *
+ * 主题：跟随 shell 的 data-theme（light / github-light / dark / one-dark-pro），
+ * 四个主题都由 --bg/--border/--text/--accent 派生，看板不需要单独适配。
+ */
+
+:root,
+[data-theme="light"],
+[data-theme="github-light"] {
+  /* 表面 */
+  --db-surface: var(--bg);
+  --db-surface-sunk: var(--bg-panel);
+  --db-border: var(--border);
+  --db-border-soft: color-mix(in srgb, var(--border) 60%, transparent);
+  --db-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  --db-shadow-lg: 0 18px 60px rgb(0 0 0 / 0.18);
+  --db-scrim: rgb(0 0 0 / 0.35);
+
+  /* 文字 */
+  --db-ink: var(--text);
+  --db-ink-muted: var(--text-muted);
+  --db-ink-dim: var(--text-dim);
+
+  /* 主题强调色 */
+  --db-accent: var(--accent);
+  --db-accent-contrast: var(--accent-contrast);
+  --db-accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+
+  /* 数据语义色（系列色，不跟主题名字走，只跟明暗走） */
+  --db-tone-rust: #b76b54;
+  --db-tone-blue: #478be5;
+  --db-tone-teal: #0f9e82;
+  --db-tone-green: #5f9e6e;
+  --db-tone-amber: #b98a2e;
+  --db-tone-orange: #e07f0c;
+  --db-tone-purple: #8360f4;
+  --db-tone-violet: #a97cc0;
+  --db-tone-pink: #d43f78;
+  --db-tone-red: #c8452f;
+}
+
+html.dark,
+[data-theme="dark"],
+[data-theme="one-dark-pro"] {
+  --db-surface: var(--bg);
+  --db-surface-sunk: color-mix(in srgb, var(--bg) 80%, var(--bg-panel));
+  --db-border: var(--border);
+  --db-border-soft: color-mix(in srgb, var(--border) 55%, transparent);
+  --db-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  --db-shadow-lg: 0 18px 60px rgb(0 0 0 / 0.55);
+  --db-scrim: rgb(0 0 0 / 0.6);
+
+  --db-ink: var(--text);
+  --db-ink-muted: var(--text-muted);
+  --db-ink-dim: var(--text-dim);
+
+  --db-accent: var(--accent);
+  --db-accent-contrast: var(--accent-contrast);
+  --db-accent-soft: color-mix(in srgb, var(--accent) 20%, transparent);
+
+  /* 暗底上提亮，保持 AA */
+  --db-tone-rust: #d98a71;
+  --db-tone-blue: #74a9ef;
+  --db-tone-teal: #3fc8a8;
+  --db-tone-green: #86c394;
+  --db-tone-amber: #d9b165;
+  --db-tone-orange: #efa04a;
+  --db-tone-purple: #a98bf7;
+  --db-tone-violet: #c8a2d6;
+  --db-tone-pink: #f073a3;
+  --db-tone-red: #ee8069;
+}
+
+/*
+ * 密度刻度。看板只用这些数，不自己写 padding 字面量（图表几何除外）。
+ * 一档：适当紧凑——留白减少约一半，字号收一档。
+ */
+:root {
+  --db-gap: 10px;
+  --db-gap-tight: 6px;
+  --db-pad: 10px;
+  --db-pad-inline: 14px;
+  --db-radius: 6px;
+  --db-radius-sm: 4px;
+  --db-font: 12px;
+  --db-font-sm: 11px;
+  --db-font-xs: 10px;
+  --db-value: 22px;
+  --db-row: 26px;
+  --db-chart-height: 190px;
+  --db-chart-height-sm: 34px;
+}
+
+/*
+ * 看板画布：中性表面 + 看板自己的 --db-tint（性格色）。
+ * 染色公式只在这里，暗色用 --bg 作底，亮色用 --bg-panel。
+ * 看板根元素加 class="db-canvas" 并声明 --db-tint。
+ */
+.db-canvas {
+  background: color-mix(in srgb, var(--bg-panel) 97%, var(--db-tint, var(--bg-panel)));
+}
+
+html.dark .db-canvas,
+[data-theme="dark"] .db-canvas,
+[data-theme="one-dark-pro"] .db-canvas {
+  background: color-mix(in srgb, var(--bg) 96%, var(--db-tint, var(--bg)));
+}

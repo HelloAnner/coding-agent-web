@@ -8,6 +8,8 @@ import "./settings.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
 import "../dashboard/ui/dashboard.css";
+import "../dashboard/shared/tokens.css";
+import "../dashboard/shared/board-chat.css";
 import "../notes/ui/notes.css";
 
 const notoSansMono = Noto_Sans_Mono({
