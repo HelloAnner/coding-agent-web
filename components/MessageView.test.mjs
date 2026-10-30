@@ -36,6 +36,15 @@ function renderMessage(message, props = {}) {
   );
 }
 
+test("user HTML stays literal while Notes mentions remain local file links", () => {
+  const html = renderMessage({
+    role: "user", timestamp: 0,
+    content: '<TableOperator v-model="x" /> 看 @"/tmp/my notes.md"',
+  }, { onOpenFile() {} });
+  assert.match(html, /&lt;TableOperator v-model=&quot;x&quot; \/&gt;/);
+  assert.match(html, /href="file:\/\/\/tmp\/my%20notes.md">my notes.md<\/a>/);
+});
+
 test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
