@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { NotesAgentModelSettings, NotesBoardSettings, NotesSettings } from "../types";
+import type { NotesBoardSettings, NotesSettings } from "../types";
 
 /**
- * Notes' own settings file: the agent's model and the whiteboard defaults.
+ * Notes' own settings file: whiteboard defaults only. Model/auth configuration
+ * belongs to the source conversation (or pi defaults for the standalone panel).
  * Kept beside the app's SQLite database, not in the vault, so the notes tree
  * holds notes only. Written by the notes settings dialog, read by the agent
  * runtime and the whiteboard.
@@ -41,20 +42,8 @@ export function notesSettingsPath(): string {
 
 export function defaultNotesSettings(): NotesSettings {
   return {
-    agent: {
-      baseUrl: "",
-      apiKey: "",
-      model: "",
-      api: "openai-completions",
-      contextWindow: 128000,
-      maxTokens: 8192,
-    },
     board: { fontFamily: 3, fontSize: 20 },
   };
-}
-
-function text(value: unknown, fallback: string): string {
-  return typeof value === "string" ? value.trim() : fallback;
 }
 
 function positiveInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -68,18 +57,9 @@ export function normalizeNotesSettings(raw: unknown): NotesSettings {
   const defaults = defaultNotesSettings();
   if (typeof raw !== "object" || raw === null) return defaults;
   const record = raw as Record<string, unknown>;
-  const agent = (typeof record.agent === "object" && record.agent !== null ? record.agent : {}) as Record<string, unknown>;
   const board = (typeof record.board === "object" && record.board !== null ? record.board : {}) as Record<string, unknown>;
   const fontFamily = positiveInt(board.fontFamily, defaults.board.fontFamily, 1, 99);
   return {
-    agent: {
-      baseUrl: text(agent.baseUrl, defaults.agent.baseUrl).replace(/\/+$/, ""),
-      apiKey: text(agent.apiKey, defaults.agent.apiKey),
-      model: text(agent.model, defaults.agent.model),
-      api: text(agent.api, defaults.agent.api) || defaults.agent.api,
-      contextWindow: positiveInt(agent.contextWindow, defaults.agent.contextWindow, 1000, 10_000_000),
-      maxTokens: positiveInt(agent.maxTokens, defaults.agent.maxTokens, 256, 1_000_000),
-    },
     board: {
       fontFamily: BOARD_FONT_VALUES.has(fontFamily) ? fontFamily : defaults.board.fontFamily,
       fontSize: positiveInt(board.fontSize, defaults.board.fontSize, BOARD_FONT_SIZE_MIN, BOARD_FONT_SIZE_MAX),
@@ -90,16 +70,22 @@ export function normalizeNotesSettings(raw: unknown): NotesSettings {
 export function readNotesSettings(): NotesSettings {
   const file = notesSettingsPath();
   if (!existsSync(file)) return defaultNotesSettings();
+  let raw: unknown;
   try {
-    return normalizeNotesSettings(JSON.parse(readFileSync(file, "utf8")));
+    raw = JSON.parse(readFileSync(file, "utf8"));
   } catch {
     // A hand-broken file must not take the notes app down; defaults are usable.
     return defaultNotesSettings();
   }
+  const settings = normalizeNotesSettings(raw);
+  // Retire stored notes credentials as well as the UI; never keep a hidden fallback.
+  if (typeof raw === "object" && raw !== null && "agent" in raw) writeNotesSettings(settings);
+  return settings;
 }
 
-/** Write the whole file at mode 0600: it holds an API key. */
+/** Replace settings atomically, keeping legacy files private while removing old credentials. */
 export function writeNotesSettings(settings: NotesSettings): NotesSettings {
+  settings = normalizeNotesSettings(settings);
   const file = notesSettingsPath();
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temp = path.join(path.dirname(file), `.${NOTES_SETTINGS_FILE}-${randomUUID()}.tmp`);
@@ -116,27 +102,12 @@ export function writeNotesSettings(settings: NotesSettings): NotesSettings {
   return settings;
 }
 
-/**
- * Merge a partial update from the settings dialog over what is on disk. An
- * empty API key means "keep the stored one": the browser never receives it, so
- * an untouched field comes back empty.
- */
+/** Merge only whiteboard preferences; obsolete model/auth fields are ignored. */
 export function updateNotesSettings(patch: unknown): NotesSettings {
   const current = readNotesSettings();
   const record = (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>;
-  const agent = { ...((typeof record.agent === "object" && record.agent !== null ? record.agent : {}) as Partial<NotesAgentModelSettings>) };
   const board = (typeof record.board === "object" && record.board !== null ? record.board : null) as Partial<NotesBoardSettings> | null;
-  if (typeof agent.apiKey !== "string" || !agent.apiKey.trim()) delete agent.apiKey;
   return writeNotesSettings(normalizeNotesSettings({
-    agent: { ...current.agent, ...agent },
     board: board ? { ...current.board, ...board } : current.board,
   }));
-}
-
-/** The settings as the browser may see them: never the stored API key. */
-export function publicNotesSettings(settings: NotesSettings): { settings: NotesSettings; apiKeySet: boolean } {
-  return {
-    settings: { ...settings, agent: { ...settings.agent, apiKey: "" } },
-    apiKeySet: settings.agent.apiKey.length > 0,
-  };
 }

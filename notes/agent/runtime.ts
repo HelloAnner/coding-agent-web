@@ -35,8 +35,7 @@ function argsText(args: unknown): string {
 }
 
 declare global {
-  // The conversation outlives the session object: a settings change rebuilds
-  // the session, and the panel keeps what was said before it.
+  // The standalone panel's history is separate from every background digest.
   var __piWebNotesHistory: NotesChatMessage[] | undefined;
 }
 
@@ -176,7 +175,7 @@ export class NotesAgent {
 }
 
 declare global {
-  // Survives a Next dev reload; one session, rebuilt only when settings change.
+  // Survives a Next dev reload; one session for the standalone notes panel.
   var __piWebNotesAgent: { promise: Promise<NotesAgent>; agent: NotesAgent | null } | undefined;
 }
 
@@ -202,18 +201,6 @@ export function getNotesAgent(): Promise<NotesAgent> {
 /** An existing agent without building one: GET must stay cheap. */
 export function peekNotesAgent(): NotesAgent | null {
   return globalThis.__piWebNotesAgent?.agent ?? null;
-}
-
-/**
- * Drop the session after a settings change, so the next prompt uses the new
- * model. A model change also clears the conversation: the new session cannot
- * see it, so keeping it on screen would claim context the model lacks.
- */
-export function resetNotesAgent(options: { clearHistory?: boolean } = {}): Promise<void> {
-  const existing = globalThis.__piWebNotesAgent;
-  globalThis.__piWebNotesAgent = undefined;
-  if (options.clearHistory) globalThis.__piWebNotesHistory = [];
-  return existing ? existing.promise.then((agent) => agent.dispose(), () => undefined) : Promise.resolve();
 }
 
 /** Skills the agent can load, for the panel and the settings dialog. */

@@ -1,7 +1,7 @@
 import type { NotesAgentEvent, NotesAgentState } from "../types";
 import { piDefaultModelLabel } from "./profile";
-import { getNotesAgent, listNotesSkills, peekNotesAgent, resetNotesAgent } from "./runtime";
-import { BOARD_FONT_OPTIONS, notesSettingsPath, publicNotesSettings, readNotesSettings, updateNotesSettings } from "./settings";
+import { getNotesAgent, listNotesSkills, peekNotesAgent } from "./runtime";
+import { BOARD_FONT_OPTIONS, readNotesSettings, updateNotesSettings } from "./settings";
 
 /**
  * /api/notes/agent and /api/notes/settings: the notes agent's two endpoints.
@@ -12,11 +12,10 @@ import { BOARD_FONT_OPTIONS, notesSettingsPath, publicNotesSettings, readNotesSe
 /** GET /api/notes/agent */
 export async function getNotesAgentState(): Promise<Response> {
   const agent = peekNotesAgent();
-  const settings = readNotesSettings();
   const state: NotesAgentState = {
     messages: agent?.messages ?? [],
     busy: agent?.isBusy ?? false,
-    model: agent?.modelLabel ?? (settings.agent.model ? `notes/${settings.agent.model}` : null),
+    model: agent?.modelLabel ?? piDefaultModelLabel(),
     skills: listNotesSkills(),
   };
   return Response.json(state);
@@ -96,24 +95,10 @@ export async function abortNotesAgent(): Promise<Response> {
   return Response.json({ ok: true });
 }
 
-/**
- * Which model the notes agent actually runs on right now: the notes one when
- * both base URL and model are set, otherwise pi's default.
- */
-function effectiveNotesModel(): string | null {
-  const agent = peekNotesAgent();
-  const settings = readNotesSettings();
-  if (agent?.modelLabel) return agent.modelLabel;
-  if (settings.agent.model) return `notes/${settings.agent.model}`;
-  return piDefaultModelLabel();
-}
-
-/** GET /api/notes/settings: the settings (API key masked), the fonts, the skills. */
+/** GET /api/notes/settings: whiteboard preferences, fonts and unchanged notes skills. */
 export async function getNotesSettings(): Promise<Response> {
   return Response.json({
-    ...publicNotesSettings(readNotesSettings()),
-    effective: effectiveNotesModel(),
-    file: notesSettingsPath(),
+    settings: readNotesSettings(),
     fonts: BOARD_FONT_OPTIONS,
     skills: listNotesSkills(),
   });
@@ -127,12 +112,6 @@ export async function saveNotesSettings(request: Request): Promise<Response> {
   } catch {
     return Response.json({ error: "请求格式错误" }, { status: 400 });
   }
-  const before = readNotesSettings();
   const settings = updateNotesSettings(patch);
-  // A changed model needs a new pi session; a board font change is picked up by
-  // the whiteboard without touching the conversation.
-  if (JSON.stringify(before.agent) !== JSON.stringify(settings.agent)) {
-    await resetNotesAgent({ clearHistory: true });
-  }
-  return Response.json({ ...publicNotesSettings(settings), effective: effectiveNotesModel(), skills: listNotesSkills() });
+  return Response.json({ settings, skills: listNotesSkills() });
 }

@@ -69,13 +69,14 @@ Coding 的 @ 联动
 
 Agent 内核（pi）
   目录
-    notes/agent/settings.ts      笔记设置：agent 模型、白板字体字号
+    notes/agent/settings.ts      笔记设置：仅白板字体字号
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
     notes/agent/tools.ts         自定义 tool：notes_ls、notes_board、notes_sessions
     notes/agent/skills.ts        notes/skills 下的技能清单
     notes/ingest.ts              Coding 会话 -> 笔记：扫描、待读清单、转录、标记已读
     notes/agent/runtime.ts       交互面板：pi AgentSession、事件流、转录
-    notes/agent/profile.ts       会话工厂：共享 ModelRuntime + 每次运行的提示词/技能/工具
+    notes/agent/profile.ts       会话工厂：独立 pi 会话 + 每次运行的提示词/技能/工具
+    notes/agent/model.ts         从来源对话解析模型与认证，不继承其 agent 或上下文
     notes/agent/digest.ts        Coding 页的「存入笔记」按钮：一条对话 -> 一块白板
     notes/agent/index.ts         /api/notes/agent 与 /api/notes/settings 的处理
     notes/skills/<名字>/SKILL.md 技能（frontmatter 里写 name、description）
@@ -104,17 +105,24 @@ Agent 内核（pi）
     DELETE /api/notes/agent  停止当前这一轮
 
   模型
-    notes-settings.json 的 agent：baseUrl / apiKey / model / api / contextWindow / maxTokens
-    这个 provider 只注册在笔记 agent 的 ModelRuntime 上，不写 models.json。
-    baseUrl 或 model 留空 = 用本机 pi 已配好的默认模型。
-    只把 pi 的全局模型与 thinking 偏好复制进内存，不加载笔记库项目设置或 coding 资源，也不回写全局设置。
-    改模型会重建会话并清空对话：新会话看不到旧上下文。
+    不再有独立的 Notes 模型配置。notes-settings.json 只保留 board；旧 agent 字段首次读取时清除。
+    「存入笔记」按 sessionId 在服务端解析来源模型与认证，不接收浏览器传来的 key、地址或模型名：
+      - pi 活跃会话直接复用其 ModelRuntime 和当前模型；空闲会话从原生日志恢复模型选择。
+      - OMP 沿用其现有 pi 模型配置来源；不启动 OMP 代替笔记 agent。
+      - Claude Code 的 API-backed profile 复用其真实模型、endpoint、env key/token 和 headers。
+      - dsh 的 API 网关复用原生 pi-ai patch 的协议、模型容量、compat、headers，以及 ds.toml 注入的认证。
+      - 无法供 pi 使用的原生认证（Grok、Claude 原生登录/apiKeyHelper、dsh 原生订阅）明确拒绝，不回退到 pi 或另一模型。
+    外部配置只留在本次运行的内存中，不写 pi 的 models.json/auth.json，也不把认证回传浏览器。
+    没有来源对话的 Notes 独立聊天面板保持原有 pi 默认模型行为。
+    每次绘图仍创建独立 pi AgentSession：提示词、notes/skills、工具、onlyBoard 边界和会话隔离不变。
+    只把 pi 的全局模型与 thinking 偏好复制进内存，不加载笔记库项目设置，也不回写全局设置。
+    来源项目需要提供模型的扩展可以按已有信任规则注册 provider；其 skills、指令、工具、MCP 和事件处理器不进入笔记 agent。
 
   存入笔记：Coding 页顶栏的按钮（digest.ts）
     没有定时任务，只有人点。点开先弹一个窗口，让人写这次要做什么；按钮把**当前打开的这条对话**
     和那段指令交给一个一次性的 notes agent：
       POST /api/notes/digest { sessionId, boardPath, focus }
-      -> 读转录 -> 建会话 -> 只改右侧那块白板 -> 返回一段结论
+      -> 读转录与来源模型认证 -> 建独立 pi 会话 -> 只改右侧那块白板 -> 返回一段结论
     用户那句话就是指令，优先级最高；板里怎么改（加、改、删、replace 整块重画）全听它。
     硬边界只有一条：不许跑出这块板。
       - boardPath 必须是右侧已经打开的白板，必须已经存在（不存在 / 没开板 = 直接报错，不跑）
@@ -137,11 +145,11 @@ Agent 内核（pi）
     - agent 只能读、列目录、画白板；不能写笔记、不能建目录，也不能改名/移动/删除。
     - 白板只能建在已经存在的目录里；没有合适的位置就跳过，不新建目录。
     - notes_sessions 只读 Coding 的会话文件，不改任何东西。
-    - 只扫 pi 的会话（~/.pi/agent/sessions）；Claude Code / dsh / grok 的转录是别的格式，暂不读。
+    - 转录按各 harness 自己的格式读取；是否能借用其模型认证是独立判断，不因能读转录就回退到 pi 模型。
     - 技能只加载 notes/skills；用户自己的 coding skills、扩展、MCP 都不进笔记 agent。
     - 会话在内存里，重启清空；长期记忆是落盘的文件。
     - GET /api/notes/settings 返回设置、字体选项、技能；PUT 合并保存。
-    - API Key 不回传浏览器：设置里的 key 只显示“已保存”，留空表示不修改。
+    - 设置 API 不再读写、返回任何模型/认证字段；改字体字号不重建或清空独立聊天。
     - 白板字体、字号来自设置，写入新元素和新白板的 appState；已有元素不改。
 
 白板偏好（可配置的部分）

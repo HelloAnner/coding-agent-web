@@ -8,26 +8,25 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { NotesAgentModelSettings } from "../types";
 import { notesRoot } from "../files";
 import { readNotesSettings } from "./settings";
+import { codingSessionModel } from "./model";
 import { listNotesSkills, notesSkillsDir } from "./skills";
 import { NOTES_SYSTEM_PROMPT } from "./system-prompt";
 import { NOTES_BOARD_TOOL, NOTES_LS_TOOL, NOTES_SESSIONS_TOOL, notesAgentTools } from "./tools";
 
 /**
- * How one notes agent session is built. The expensive, auth-bound part (the
- * ModelRuntime) is process-wide and shared; everything a task may vary — system
- * prompt, skills, enabled tools — lives here and is resolved per session. The
- * interactive panel and every scheduled task use this same factory.
+ * Every notes run remains an independent pi session. A digest borrows only
+ * its source model/auth; the standalone panel shares pi defaults. Prompts,
+ * skills, tools and the in-memory conversation remain owned by this factory.
  */
-
-export const NOTES_AGENT_PROVIDER = "notes";
 
 /** Only what an agent may call: reading, listing, drawing boards, Coding sessions. */
 export const NOTES_AGENT_TOOLS = ["read", NOTES_LS_TOOL, NOTES_BOARD_TOOL, NOTES_SESSIONS_TOOL];
 
 export interface NotesSessionProfile {
+  /** Inherit only this Coding conversation's model and authentication. */
+  sourceSessionId?: string;
   /** Defaults to the notes panel's own preamble. */
   systemPrompt?: string;
   /** Skill names under notes/skills; undefined loads all of them, [] loads none. */
@@ -44,53 +43,25 @@ export interface NotesSessionHandle {
 }
 
 declare global {
-  // One runtime per process: it holds pi's provider composition and auth. A
-  // failed build is not cached, so the next call retries.
-  var __piWebNotesModelRuntime: Promise<ModelRuntime> | undefined;
+  // A new cache key deliberately excludes runtimes that registered the retired
+  // notes provider before a dev reload. A failed build is retried.
+  var __piWebNotesDefaultModelRuntime: Promise<ModelRuntime> | undefined;
 }
 
 function notesModelRuntime(): Promise<ModelRuntime> {
   const agentDir = getAgentDir();
-  globalThis.__piWebNotesModelRuntime ??= ModelRuntime.create({
+  globalThis.__piWebNotesDefaultModelRuntime ??= ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
     modelsPath: path.join(agentDir, "models.json"),
   }).catch((error: unknown) => {
-    globalThis.__piWebNotesModelRuntime = undefined;
+    globalThis.__piWebNotesDefaultModelRuntime = undefined;
     throw error;
   });
-  return globalThis.__piWebNotesModelRuntime;
+  return globalThis.__piWebNotesDefaultModelRuntime;
 }
 
 /**
- * The notes model from the settings dialog, registered as its own provider so
- * it never touches models.json. Empty baseUrl or model means "use pi's own
- * default model", which is what a fresh install already has.
- */
-function notesModel(runtime: ModelRuntime, settings: NotesAgentModelSettings) {
-  if (!settings.baseUrl || !settings.model) return undefined;
-  runtime.registerProvider(NOTES_AGENT_PROVIDER, {
-    name: "Notes Agent",
-    baseUrl: settings.baseUrl,
-    // Local OpenAI-compatible servers often need no key; pi refuses a provider without one.
-    apiKey: settings.apiKey || "not-needed",
-    api: settings.api,
-    models: [{
-      id: settings.model,
-      name: settings.model,
-      api: settings.api,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      reasoning: false,
-      contextWindow: settings.contextWindow,
-      maxTokens: settings.maxTokens,
-    }],
-  });
-  return runtime.getModel(NOTES_AGENT_PROVIDER, settings.model);
-}
-
-/**
- * pi's own default model, as a label, so the settings dialog can say what an
- * empty notes model actually runs on. Undefined when pi has not chosen one.
+ * pi's own default model, for the standalone notes panel before its first run.
  */
 export function piDefaultModelLabel(): string | null {
   try {
@@ -111,8 +82,9 @@ export async function createNotesSession(profile: NotesSessionProfile = {}): Pro
   const settings = readNotesSettings();
   const vault = notesRoot();
   const skillsDir = notesSkillsDir();
-  const runtime = await notesModelRuntime();
-  const model = notesModel(runtime, settings.agent);
+  const source = profile.sourceSessionId ? await codingSessionModel(profile.sourceSessionId) : null;
+  const runtime = source?.runtime ?? await notesModelRuntime();
+  const model = source?.model;
   const wanted = profile.skills;
   const tools = profile.tools ?? NOTES_AGENT_TOOLS;
   const piDefaults = SettingsManager.create(vault, getAgentDir(), { projectTrusted: false });

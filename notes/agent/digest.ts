@@ -76,6 +76,7 @@ export async function digestSession(
     if (!transcript.trim()) throw new Error("这条对话读出来是空的（会话文件里没有正文），没有内容可写");
 
     const { session } = await createNotesSession({
+      sourceSessionId: sessionId,
       systemPrompt: sessionDigestPrompt(boardPath, focus),
       skills: ["excalidraw-diagram", "whiteboard-drawing"],
       tools: ["notes_board", "read"],

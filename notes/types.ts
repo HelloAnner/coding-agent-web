@@ -49,21 +49,6 @@ export interface NotesMention {
 
 /* ------------------------------- agent ---------------------------------- */
 
-/**
- * The notes agent's own model. `baseUrl` empty means "use whatever the pi
- * install already has configured", which is the default.
- */
-export interface NotesAgentModelSettings {
-  baseUrl: string;
-  apiKey: string;
-  /** Model id, used as-is by the provider. */
-  model: string;
-  /** pi-ai Api id: openai-completions, anthropic-messages, ... */
-  api: string;
-  contextWindow: number;
-  maxTokens: number;
-}
-
 /** Defaults for every element drawn on a whiteboard from now on. */
 export interface NotesBoardSettings {
   /** Excalidraw FONT_FAMILY value (Virgil 1, Helvetica 2, Cascadia 3, Excalifont 5, ...). */
@@ -72,7 +57,6 @@ export interface NotesBoardSettings {
 }
 
 export interface NotesSettings {
-  agent: NotesAgentModelSettings;
   board: NotesBoardSettings;
 }
 
