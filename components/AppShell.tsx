@@ -92,7 +92,7 @@ import { notifyNotesChanged } from "@/lib/notes-watch";
 import type { NotesBoardSettings, NotesEditorControl, NotesFileKind } from "@/notes/types";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
+import { formatActiveDuration, formatCompactCount } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";
@@ -488,7 +488,7 @@ export function AppShell() {
     setSystemInfoLoading(false);
   }, []);
 
-  // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
+  // Session stats — populated by ChatWindow for the session panel and toolbar actions
   const [sessionStats, setSessionStats] = useState<SessionStatsInfo | null>(null);
   const [autoNameStatus, setAutoNameStatus] = useState<AutoNameStatus>({ kind: "idle" });
   // "Save to notes": one session at a time, resolved on the server.
@@ -524,7 +524,7 @@ export function AppShell() {
     };
   }, []);
 
-  // Context usage — populated by ChatWindow, displayed in top bar
+  // Context usage — populated by ChatWindow for the session panel
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
   const handleContextUsageChange = useCallback((usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
     setContextUsage(usage);
@@ -2366,165 +2366,6 @@ export function AppShell() {
     );
   };
 
-  const renderSessionStatsButton = (mobile: boolean) => {
-    if (!mobile && (!showChat || (!sessionStats && !contextUsage))) return null;
-
-    const tokens = sessionStats?.tokens;
-    const cost = sessionStats?.cost ?? 0;
-    const formatCompact = formatCompactCount;
-    const costText = formatCostShort(cost);
-
-    let contextColor = "var(--text-muted)";
-    let desktopContextText: string | null = null;
-    let mobileContextText: string | null = null;
-    if (contextUsage?.contextWindow) {
-      const percent = contextUsage.percent;
-      if (percent !== null && percent > 90) contextColor = "#ef4444";
-      else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
-      desktopContextText = percent !== null
-        ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
-        : `? / ${formatCompact(contextUsage.contextWindow)}`;
-      mobileContextText = percent !== null ? `${percent.toFixed(0)}%` : null;
-    }
-
-    const tooltipParts: string[] = [];
-    if (tokens) {
-      tooltipParts.push(`in: ${tokens.input.toLocaleString(locale)}`);
-      tooltipParts.push(`out: ${tokens.output.toLocaleString(locale)}`);
-      tooltipParts.push(`cache read: ${tokens.cacheRead.toLocaleString(locale)}`);
-      tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
-      if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
-    }
-    if (contextUsage?.contextWindow) {
-      const percent = contextUsage.percent;
-      tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
-    }
-    const tooltip = tooltipParts.join("  |  ");
-    const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
-    const hasMobileValues = Boolean(
-      (tokens && (tokens.input > 0 || tokens.output > 0))
-      || costText
-      || mobileContextText,
-    );
-
-    return (
-      <button
-        type="button"
-        onClick={() => toggleTopPanel("session")}
-        disabled={!showChat || covered}
-        tabIndex={covered ? -1 : undefined}
-        title={tooltip || translate("session.title")}
-        aria-label={translate("session.title")}
-        aria-pressed={activeTopPanel === "session"}
-        aria-hidden={covered ? true : undefined}
-        className={mobile ? "mobile-session-stats" : undefined}
-        data-mobile-toolbar-stats={mobile ? "true" : undefined}
-        style={{
-          marginLeft: mobile ? 0 : "auto",
-          display: "flex", alignItems: "center", justifyContent: "flex-end",
-          flex: mobile ? 1 : undefined,
-          minWidth: 0,
-          gap: mobile ? 7 : 10,
-          paddingLeft: mobile ? 6 : 12,
-          paddingRight: mobile ? 6 : 12,
-          height: "100%",
-          overflow: "hidden",
-          visibility: covered ? "hidden" : "visible",
-          pointerEvents: covered ? "none" : "auto",
-          background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-          border: "none",
-          borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
-          fontSize: 11, color: "var(--text-muted)",
-          whiteSpace: "nowrap", cursor: showChat ? "pointer" : "default",
-          fontVariantNumeric: "tabular-nums",
-          transition: "color 0.1s, background 0.1s",
-        }}
-        onMouseEnter={(event) => {
-          if (showChat && !covered) event.currentTarget.style.color = "var(--text)";
-        }}
-        onMouseLeave={(event) => {
-          event.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)";
-        }}
-      >
-        {mobile ? (
-          <>
-            {tokens && tokens.input > 0 && (
-              <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                </svg>
-                {formatCompact(tokens.input)}
-              </span>
-            )}
-            {tokens && tokens.output > 0 && (
-              <span className="mobile-session-stat-io" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                </svg>
-                {formatCompact(tokens.output)}
-              </span>
-            )}
-            {costText && (
-              <span className="mobile-session-stat-cost" style={{ color: "var(--text)", fontWeight: 500, flexShrink: 0 }}>
-                {costText}
-              </span>
-            )}
-            {mobileContextText && (
-              <span style={{ color: contextColor, flexShrink: 0 }}>
-                {mobileContextText}
-              </span>
-            )}
-            {!hasMobileValues && showChat && (
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-dim)" }}>
-                {translate("session.title")}
-              </span>
-            )}
-          </>
-        ) : (
-          <>
-            {tokens && tokens.input > 0 && (
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
-                </svg>
-                {formatCompact(tokens.input)}
-              </span>
-            )}
-            {tokens && tokens.output > 0 && (
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
-                </svg>
-                {formatCompact(tokens.output)}
-              </span>
-            )}
-            {tokens && tokens.cacheRead > 0 && (
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                </svg>
-                {formatCompact(tokens.cacheRead)}
-              </span>
-            )}
-            {costText && (
-              <span style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
-                {costText}
-              </span>
-            )}
-            {desktopContextText && (
-              <span style={{ display: "flex", alignItems: "center", gap: 4, color: contextColor }}>
-                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" /><line x1="1" y1="9" x2="9" y2="9" />
-                </svg>
-                {desktopContextText}
-              </span>
-            )}
-          </>
-        )}
-      </button>
-    );
-  };
-
   const renderMainFileToggle = (mobile: boolean) => {
     const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
     return (
@@ -2540,7 +2381,7 @@ export function AppShell() {
         aria-label={rightPanelOpen ? translate("files.hidePanel") : translate("files.showPanel")}
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
-          marginLeft: !mobile && !sessionStats && !contextUsage ? "auto" : 0,
+          marginLeft: "auto",
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -2620,19 +2461,6 @@ export function AppShell() {
         .session-info-popover,
         .session-info-popover::after {
           animation: none;
-        }
-      }
-      .mobile-session-stats {
-        container-type: inline-size;
-      }
-      @container (max-width: 158px) {
-        .mobile-session-stat-io {
-          display: none !important;
-        }
-      }
-      @container (max-width: 88px) {
-        .mobile-session-stat-cost {
-          display: none !important;
         }
       }
       @media (max-width: 640px) {
@@ -2775,7 +2603,6 @@ export function AppShell() {
                 </button>
               )}
               {!isNarrowMobile && renderChatToolbarActions(true)}
-              {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
                 <div
@@ -2806,7 +2633,6 @@ export function AppShell() {
             <>
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
-              {renderSessionStatsButton(false)}
             </>
           )}
           {!isMobile && renderMainFileToggle(false)}

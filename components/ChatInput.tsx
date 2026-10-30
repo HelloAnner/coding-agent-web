@@ -116,7 +116,7 @@ interface Props {
   onAttachFiles?: (files: File[]) => void;
   /** Harness whose model list this composer shows. Defaults to pi. */
   harness?: string;
-  /** An open session already belongs to one harness. The control stays visible and does not change it. */
+  /** An open session already belongs to one harness. Hide the harness selector when locked. */
   harnessLocked?: boolean;
   /** User picked another harness. Not called on mount. */
   onHarnessChange?: (id: string) => void;
@@ -2753,7 +2753,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 onSetDefault={usingForeignModels ? undefined : onSetDefaultModel}
               />
             )}
-            {!compact && (
+            {!harnessLocked && (
                 <div
                   ref={harnessMenuRef}
                   style={{ position: "relative", flexShrink: 0 }}

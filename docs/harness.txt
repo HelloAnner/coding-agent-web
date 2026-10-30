@@ -171,8 +171,8 @@ provider 只作分组，endpoint 与认证由 profile 的 env/原生设置决定
 前端与会话规则
 --------------
 
-  新建输入框        可选 harness，再选其模型/profile；发送中锁 harness，Claude 同时锁 profile
-  所有已有会话      harness 固定，按钮保留、变淡、点不开
+  新建输入框        可选 harness，再选其模型/profile；发送中隐藏 harness 选择，Claude 同时锁 profile
+  所有已有会话      harness 固定，输入框下方不再显示 harness 标签/选择按钮
   pi 已有会话       可换模型，包括运行中；从下一次模型请求生效
   grok 已有会话     可选下一轮使用的官方模型，下一次 CLI 启动时传入
   dsh 已有会话      菜单可选，但活跃 ACP session 的实际切模尚未闭环，见上面的缺口
@@ -182,6 +182,8 @@ Claude 要换模型，先显式新建对话，再选 profile。不会因点模�
 也不会把旧索引改指向另一模型。服务端同时固定 harness、provider、profile id、cwd
 和 profile 根目录，并拒绝原生 /model 指令绕过选择限制。
 不要把已有 profile 条目的 model/configDir 改成另一模型；新增 profile 和目录再开会话。
+
+所有 harness 的顶部工具栏均不显示 token、缓存、费用和上下文用量摘要；/session 仍可查看详情。
 
 打开已有对话必须用该会话自己的 harness，不继承新建框上一次的选择。
 pi 的原生会话文件决定当前模型；文件与索引不一致时修正索引，不反向覆盖文件。

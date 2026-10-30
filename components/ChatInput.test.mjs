@@ -464,7 +464,7 @@ test("picked files go to the chat's attach handler, or attach as images without 
   assert.deepEqual(pick(() => ({ onAttachFiles: undefined })), { attached: [], images: [[photo, report]], value: "" });
 });
 
-test("a running composer can still change model, and a locked harness cannot", () => {
+test("a running composer can still change model without showing its locked harness", () => {
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -487,9 +487,20 @@ test("a running composer can still change model, and a locked harness cannot", (
   const model = html.match(/<div class="model-selector[\s\S]*?<\/button>/)?.[0] ?? "";
   assert.match(model, /title="Change model"/);
   assert.doesNotMatch(model, /disabled/);
-  const harness = html.match(/<button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="pi"[^>]*>/)?.[0] ?? "";
-  assert.match(harness, /disabled=""/);
-  assert.match(harness, /opacity:0\.5/);
+  assert.doesNotMatch(html, /<button[^>]*aria-label="pi"/);
+});
+
+test("only fresh composers show the harness selector, for every harness", () => {
+  for (const harness of ["pi", "claude-code", "dsh", "grok"]) {
+    for (const harnessLocked of [false, true]) {
+      const html = renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(ChatInput, {
+        onSend() {}, onAbort() {}, isStreaming: false, harness, harnessLocked,
+      })));
+      const selector = new RegExp(`<button[^>]*aria-label="${harness}"`);
+      assert.equal(selector.test(html), !harnessLocked, `${harness}: locked=${harnessLocked}`);
+      assert.match(html, /<textarea/);
+    }
+  }
 });
 
 test("Claude profiles are selectable only before a chat starts", () => {
