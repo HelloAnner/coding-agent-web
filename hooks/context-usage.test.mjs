@@ -5,7 +5,7 @@ import { Script, createContext } from "node:vm";
 import ts from "typescript";
 import { createJiti } from "jiti";
 
-const { runtimeStatusUrl } = await createJiti(import.meta.url, { interopDefault: true }).import("../lib/claude-code-client.ts");
+const { runtimeStatusUrl } = await createJiti(import.meta.url, { interopDefault: true }).import("../lib/harness-client.ts");
 
 const source = ts.createSourceFile("useAgentSession.ts", await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true);
 const nodes = [];

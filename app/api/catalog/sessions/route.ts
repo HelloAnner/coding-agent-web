@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { findHarness } from "@/harness/registry";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
 import { dshRunningIds } from "@/harness/dsh/runtime";
+import { grokRunningIds } from "@/harness/grok/runtime";
 import { CatalogHarnessLockedError, listCatalogSessionInfos, upsertCatalogSession } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export async function GET() {
   return NextResponse.json({
     sessions: listed.sessions,
     sessionListVersion: listed.sessionListVersion,
-    runningSessionIds: [...claudeRunningIds(), ...dshRunningIds()],
+    runningSessionIds: [...claudeRunningIds(), ...dshRunningIds(), ...grokRunningIds()],
     awaitingInputSessionIds: claudeAwaitingInputIds(),
     completionNotificationSuppressedSessionIds: [],
   }, { headers: { "Cache-Control": "no-store" } });

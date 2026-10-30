@@ -1,10 +1,8 @@
 import type { AgentMessage } from "./types";
-import { agentStatusUrl } from "./agent-client";
 
 export { newGrokSessionId as newClaudeSessionId } from "./grok-client";
 export function claudeSessionUrl(id: string): string { return `/api/claude-code/${encodeURIComponent(id)}`; }
 export function claudeEventsUrl(id: string): string { return `${claudeSessionUrl(id)}/events`; }
-export function runtimeStatusUrl(harness: string, id: string): string { return harness === "claude-code" ? `${claudeSessionUrl(id)}?state=1` : agentStatusUrl(id); }
 
 export class ClaudeTrustRequiredError extends Error {
   constructor(readonly cwd: string) { super(`Trust this Claude Code project: ${cwd}`); }

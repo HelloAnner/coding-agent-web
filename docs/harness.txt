@@ -122,6 +122,10 @@ grok：官方模型生态，不是通用 provider 路由器
   每问启动一次原生 grok，传 --model。已有会话可为下一轮选择另一个官方模型，
   不复制上下文、不切 harness；恢复依靠同一 cwd 下的 grok 原生日志。
   用 streaming-json/NDJSON，不走 ACP，也不能套用 Claude 的 stream-json 控制协议。
+  网页支持服务端 steer / followUp 队列：steer 先中断当前 CLI，等其退出后优先续跑；
+  followUp 等当前轮结束，逐条恢复同一会话。中间不报完成，Stop 会清空队列，Recall
+  取回文字与附件。队列和运行状态可跨浏览器重连，但队列不跨网页服务重启持久化。
+  侧栏首屏与运行轮询均包含 grok；会话状态从自己的 ?state=1 读取，不查询 Pi。
   图片：headless 没有图片参数，附件先写到临时目录，再在提问末尾列出路径，
   让 grok 自己的文件工具打开；读历史时这段标记会去掉。
   目前未接原生斜杠命令、思考档位和用量/成本统计。
@@ -265,6 +269,8 @@ grok：
   SIGINT 中断，3 秒不退再 SIGTERM；进程关闭后才最终结算这一轮。
   PI_WEB_GROK_BIN 可指定二进制；默认找 ~/.local/bin/grok，再找 ~/.grok/bin/grok。
   GROK_DEFAULT_MODEL 未设置时回退 grok-4.7。
+  harness/grok/{runtime,client}.test.mjs 覆盖状态、队列优先级、关闭边界、附件召回和
+  前端分流（假 CLI / hook 检查，不代表真实 provider 或部署浏览器已验收）。
   PI_WEB_GROK_PERMISSION_MODE 当前默认 bypassPermissions；这是宽松默认，不是接入模板。
 
 dsh：

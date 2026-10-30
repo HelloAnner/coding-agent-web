@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "@/lib/tool-result-images";
 import {
   abortGrokPrompt,
+  clearGrokQueue,
   grokSessionFile,
+  grokState,
   isGrokRunning,
   sendGrokPrompt,
 } from "@/harness/grok/runtime";
@@ -28,8 +30,9 @@ function readImages(raw: unknown): Array<{ data: string; mimeType: string }> {
 /**
  * POST /api/grok/[id] - one command for a grok session.
  *
- *   { type: "prompt", message, cwd, model?, images? }
+ *   { type: "prompt", message, cwd, model?, images?, streamingBehavior? }
  *   { type: "abort" }
+ *   { type: "clear_queue" }
  *   { type: "get_state" }
  *
  * The reply itself does not come back here: it streams on /events.
@@ -46,11 +49,19 @@ export async function POST(
     return NextResponse.json({ error: "Expected JSON" }, { status: 400 });
   }
 
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
+  }
+
   switch (body.type) {
     case "prompt": {
       const message = typeof body.message === "string" ? body.message : "";
       const cwd = typeof body.cwd === "string" ? body.cwd : "";
       const model = typeof body.model === "string" ? body.model : undefined;
+      const streamingBehavior = body.streamingBehavior;
+      if (streamingBehavior !== undefined && streamingBehavior !== "steer" && streamingBehavior !== "followUp") {
+        return NextResponse.json({ error: "Invalid streaming behavior" }, { status: 400 });
+      }
       if (!cwd || !path.isAbsolute(cwd)) {
         return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
       }
@@ -65,23 +76,26 @@ export async function POST(
       }
       if (!message.trim() && images.length === 0) return NextResponse.json({ error: "Message is empty" }, { status: 400 });
       try {
-        await sendGrokPrompt({ sessionId: id, cwd, text: message, model, images });
+        const result = await sendGrokPrompt({ sessionId: id, cwd, text: message, model, images }, streamingBehavior);
+        return NextResponse.json({
+          success: true,
+          data: { sessionId: id, sessionFile: grokSessionFile(cwd, id), accepted: true, queued: result.queued },
+        });
       } catch (error) {
         return NextResponse.json(
           { error: error instanceof Error ? error.message : String(error) },
           { status: 500 },
         );
       }
-      return NextResponse.json({
-        success: true,
-        data: { sessionId: id, sessionFile: grokSessionFile(cwd, id), accepted: true },
-      });
     }
     case "abort": {
       return NextResponse.json({ success: true, data: { aborted: abortGrokPrompt(id) } });
     }
+    case "clear_queue": {
+      return NextResponse.json({ success: true, data: clearGrokQueue(id) });
+    }
     case "get_state": {
-      return NextResponse.json({ success: true, data: { isStreaming: isGrokRunning(id) } });
+      return NextResponse.json({ success: true, data: grokState(id) });
     }
     default:
       return NextResponse.json({ error: `Unknown command: ${String(body.type)}` }, { status: 400 });
@@ -97,7 +111,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const cwd = new URL(req.url).searchParams.get("cwd") ?? "";
+  const search = new URL(req.url).searchParams;
+  if (search.get("state") === "1") {
+    return NextResponse.json({ running: isGrokRunning(id), state: grokState(id) }, { headers: { "Cache-Control": "no-store" } });
+  }
+  const cwd = search.get("cwd") ?? "";
   if (!cwd || !path.isAbsolute(cwd)) {
     return NextResponse.json({ error: "cwd must be an absolute path" }, { status: 400 });
   }

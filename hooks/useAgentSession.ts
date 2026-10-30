@@ -15,9 +15,10 @@ import type {
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
 import { isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
-import { claudeEventsUrl, claudeSessionUrl, ClaudeTrustRequiredError, mergeClaudeHistory, newClaudeSessionId, runtimeStatusUrl, sendClaudeCommand, upsertClaudeMessage } from "@/lib/claude-code-client";
+import { claudeEventsUrl, claudeSessionUrl, ClaudeTrustRequiredError, mergeClaudeHistory, newClaudeSessionId, sendClaudeCommand, upsertClaudeMessage } from "@/lib/claude-code-client";
 import { grokEventsUrl, grokSessionUrl, newGrokSessionId, sendGrokCommand } from "@/lib/grok-client";
 import { dshEventsUrl, dshSessionUrl, newDshSessionId, sendDshCommand } from "@/lib/dsh-client";
+import { runtimeStatusUrl } from "@/lib/harness-client";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -2150,9 +2151,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, applyLiveUsage, cancelEventStreamGrace, dispatch, handleExtensionUiRequest, loadSession, markPromptLanded, notifyPromptStage, onAgentEnd, onToolEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage, syncLiveModel]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  // Grok has no queued commands and no RPC: one `grok -p` child per prompt, and
-  // the reply arrives on the session's own event stream. So a send only starts
-  // the run and shows the user's bubble; everything after it is streamed.
+  // Grok runs one `grok -p` child per turn. The server owns its prompt queue;
+  // this initial send shows an optimistic bubble and replies arrive over SSE.
   const submitGrokPrompt = useCallback(async (text: string, images?: AttachedImage[]) => {
     const cwd = grokCwdRef.current;
     if (!cwd || agentRunningRef.current) {
@@ -3010,11 +3010,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       return;
     }
-    if (runtimeHarnessRef.current === "dsh") {
-      // dsh takes one prompt per turn: the server holds the queued text until the
-      // running turn settles, and steering cancels it first.
+    if (runtimeHarnessRef.current === "dsh" || runtimeHarnessRef.current === "grok") {
+      // Both run one prompt per turn: queue on the server until settlement;
+      // steering interrupts the current turn before starting the next one.
+      const isGrok = runtimeHarnessRef.current === "grok";
+      const send = isGrok ? sendGrokCommand : sendDshCommand;
       try {
-        await sendDshCommand(sid, {
+        await send(sid, {
           type: "prompt",
           message,
           streamingBehavior: behavior,
@@ -3025,10 +3027,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           ...(images?.length ? { images: images.map((img) => ({ data: img.data, mimeType: img.mimeType })) } : {}),
         });
       } catch (e) {
-        console.error("Failed to submit dsh streaming prompt:", e);
-        // The request is the dispatch: only a clear rejection means nothing was
-        // queued. A transport failure may have been accepted server-side.
-        if (!(e instanceof TypeError)) restore();
+        console.error("Failed to submit streaming prompt:", e);
+        // Grok restores even unconfirmed sends so a lost response cannot lose text.
+        if (isGrok || !(e instanceof TypeError)) restore();
         addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       }
       return;
@@ -3086,7 +3087,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         ? await sendClaudeCommand<RecalledPrompts>(sid, { type: "clear_queue" })
         : runtimeHarnessRef.current === "dsh"
           ? await sendDshCommand<RecalledPrompts>(sid, { type: "clear_queue" })
-          : await sendAgentCommand<RecalledPrompts>(sid, { type: "clear_queue" });
+          : runtimeHarnessRef.current === "grok"
+            ? await sendGrokCommand<RecalledPrompts>(sid, { type: "clear_queue" })
+            : await sendAgentCommand<RecalledPrompts>(sid, { type: "clear_queue" });
       // clearQueue also emits an empty queue_update, but that only reaches us
       // while SSE is connected — clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });
