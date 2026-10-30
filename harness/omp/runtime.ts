@@ -16,6 +16,7 @@ import { readOmpTranscript, type OmpMessage } from "./transcript";
 export interface OmpPrompt {
   id: string; cwd: string; provider?: string; modelId?: string; thinkingLevel?: string;
   message?: string; images?: Array<{ data: string; mimeType: string }>; requestId?: string;
+  streamingBehavior?: "steer" | "followUp";
 }
 const IDLE_MS = 10 * 60_000;
 let checkedBinary: { binary: string; check: Promise<void> } | null = null;
@@ -42,6 +43,9 @@ export class OmpRun {
   private starting = false;
   private promptStarting = false;
   private stopping = false;
+  private steered = false;
+  // ponytail: pending prompts survive browser reconnects, not a web server restart.
+  private readonly queued: { steering: OmpPrompt[]; followUp: OmpPrompt[] } = { steering: [], followUp: [] };
   private generation = 0;
   private promptId: string | null = null;
   private idle: ReturnType<typeof setTimeout> | null = null;
@@ -63,6 +67,7 @@ export class OmpRun {
     listener({ type: "omp_snapshot", messages: this.messages });
     for (const tool of this.mapper?.tools.values() ?? []) listener(tool);
     for (const request of this.inputs.values()) listener(request);
+    listener({ type: "queue_update", ...this.queuedMessages() });
     return () => { this.subscribers.delete(listener); this.release(); };
   }
   private publish(event: AgentEventLike): void {
@@ -81,7 +86,7 @@ export class OmpRun {
       model: typeof model.provider === "string" && typeof model.id === "string" ? { provider: model.provider, id: model.id } : undefined,
       thinkingLevel: this.nativeState.thinkingLevel,
       contextUsage: this.nativeState.contextUsage,
-      queuedMessages: { steering: [], followUp: [] },
+      queuedMessages: this.queuedMessages(),
     } };
   }
   view() {
@@ -107,7 +112,7 @@ export class OmpRun {
   }
   private lock(prompt = false): number {
     if (this.isBusy) throw new OmpError("OMP is already working in this conversation", 409);
-    this.starting = true; this.promptStarting = prompt; this.stopping = false;
+    this.starting = true; this.promptStarting = prompt; this.stopping = false; this.steered = false;
     if (this.idle) clearTimeout(this.idle);
     this.idle = null;
     return ++this.generation;
@@ -153,7 +158,7 @@ export class OmpRun {
       this.rpc = null; this.bridge?.close(); this.bridge = null;
       for (const id of this.inputs.keys()) this.publish({ type: "extension_ui_closed", id });
       this.inputs.clear();
-      this.settle(this.stopping ? undefined : error instanceof OmpError ? error.message : "OMP connection failed. Check native session and Pi model settings.");
+      this.settle(this.stopping && !this.steered ? undefined : error instanceof OmpError ? error.message : "OMP connection failed. Check native session and Pi model settings.");
       this.release();
     });
     this.bridge = new OmpModelBridge(rpc, source);
@@ -195,6 +200,32 @@ export class OmpRun {
     if (input.requestId && this.accepted.has(input.requestId)) return { ...this.identity(), accepted: true };
     if (!input.message?.trim() && !input.images?.length) throw new OmpError("Message is empty");
     if (input.message?.trimStart().startsWith("/")) throw new OmpError("OMP slash commands are not exposed by this web adapter; use the model and session controls");
+    if (input.streamingBehavior && this.isBusy) {
+      if (!this.active || this.stopping && !this.steered) throw new OmpError("OMP is preparing or stopping; wait before queueing another prompt", 409);
+      (input.streamingBehavior === "steer" ? this.queued.steering : this.queued.followUp).push(input);
+      this.rememberRequest(input);
+      this.publish({ type: "queue_update", ...this.queuedMessages() });
+      if (input.streamingBehavior === "steer") this.interrupt(true);
+      return { ...this.identity(), accepted: true, queued: true };
+    }
+    return this.startPrompt(input);
+  }
+  private rememberRequest(input: OmpPrompt): void {
+    if (!input.requestId) return;
+    this.accepted.add(input.requestId);
+    if (this.accepted.size > 128) this.accepted.delete(this.accepted.values().next().value!);
+  }
+  queuedMessages(): { steering: string[]; followUp: string[] } {
+    return { steering: this.queued.steering.map((input) => input.message ?? ""), followUp: this.queued.followUp.map((input) => input.message ?? "") };
+  }
+  clearQueue() {
+    const cleared = this.queuedMessages();
+    const images = [...this.queued.steering, ...this.queued.followUp].flatMap((input) => input.images ?? []);
+    this.queued.steering.length = this.queued.followUp.length = 0;
+    this.publish({ type: "queue_update", ...this.queuedMessages() });
+    return { ...cleared, ...(images.length ? { images } : {}) };
+  }
+  private async startPrompt(input: OmpPrompt) {
     const generation = this.lock(true);
     try {
       await this.open(input);
@@ -202,7 +233,7 @@ export class OmpRun {
       this.starting = false; this.active = true;
       this.promptId = randomUUID();
       await this.rpc!.request({ type: "prompt", message: input.message ?? "", images: input.images?.map((image) => ({ type: "image", ...image })) }, this.promptId);
-      if (input.requestId) { this.accepted.add(input.requestId); if (this.accepted.size > 128) this.accepted.delete(this.accepted.values().next().value!); }
+      this.rememberRequest(input);
       return { ...this.identity(), accepted: true };
     } catch (error) { if (generation === this.generation) { this.starting = false; this.settle(this.stopping ? undefined : error instanceof OmpError ? error.message : "OMP prompt failed. Check native session and Pi model settings."); } throw error; }
   }
@@ -223,7 +254,7 @@ export class OmpRun {
       return;
     }
     if (frame.type === "prompt_result" && frame.id === this.promptId && frame.agentInvoked === false) { this.settle(); return; }
-    if (frame.type === "agent_start") { this.active = true; this.stopping = false; }
+    if (frame.type === "agent_start") this.active = true;
     if (frame.type === "agent_end") {
       if (frame.isTerminal !== false) this.settle();
       return;
@@ -232,11 +263,24 @@ export class OmpRun {
   }
   private settle(error?: string): void {
     const active = this.active || this.promptStarting;
-    const aborted = this.stopping;
+    const aborted = this.stopping && !this.steered;
     this.active = false; this.promptStarting = false; this.promptId = null;
     if (this.stopTimer) clearTimeout(this.stopTimer);
     this.stopTimer = null;
     this.mapper?.finish();
+    if (active && !aborted && !error && this.rpc?.alive) {
+      const next = this.queued.steering.shift() ?? this.queued.followUp.shift();
+      if (next) {
+        this.publish({ type: "queue_update", ...this.queuedMessages() });
+        void this.startPrompt(next).catch(() => {
+          // Preparation failed before delivery: retain the accepted prompt for Recall.
+          if (this.stopping && !this.steered) return;
+          (next.streamingBehavior === "steer" ? this.queued.steering : this.queued.followUp).unshift(next);
+          this.publish({ type: "queue_update", ...this.queuedMessages() });
+        });
+        return;
+      }
+    }
     if (active) {
       if (error) this.publish({ type: "prompt_error", errorMessage: error });
       this.publish({ type: "agent_end" });
@@ -246,21 +290,30 @@ export class OmpRun {
   }
   private scheduleIdle(): void {
     if (this.idle) clearTimeout(this.idle);
-    this.idle = setTimeout(() => { if (!this.isBusy) this.close(); else this.scheduleIdle(); }, IDLE_MS);
+    this.idle = setTimeout(() => { if (!this.isBusy && !this.queued.steering.length && !this.queued.followUp.length) this.close(); else this.scheduleIdle(); }, IDLE_MS);
     this.idle.unref();
   }
   abort(): boolean {
+    const cleared = this.clearQueue();
+    const stopped = this.interrupt(false);
+    return stopped || cleared.steering.length + cleared.followUp.length > 0;
+  }
+  private interrupt(steer: boolean): boolean {
     if (!this.isBusy) return false;
-    this.stopping = true;
+    const alreadyStopping = this.stopping;
+    this.stopping = true; this.steered = steer;
+    if (alreadyStopping) return true;
     const rpc = this.rpc;
+    const generation = this.generation;
+    const stillStopping = () => this.rpc === rpc && this.generation === generation && this.stopping;
     if (rpc) {
       for (const id of this.inputs.keys()) {
         this.publish({ type: "extension_ui_closed", id });
         try { rpc.write({ type: "extension_ui_response", id, cancelled: true }); } catch { rpc.close(); break; }
       }
       this.inputs.clear();
-      void rpc.request({ type: "abort" }).catch(() => { if (this.rpc === rpc && this.stopping) rpc.close(); });
-      this.stopTimer = setTimeout(() => { if (this.rpc === rpc && this.stopping) rpc.close(); }, 3000);
+      void rpc.request({ type: "abort" }).catch(() => { if (stillStopping()) rpc.close(); });
+      this.stopTimer = setTimeout(() => { if (stillStopping()) rpc.close(); }, 3000);
       this.stopTimer.unref();
     }
     return true;
@@ -311,13 +364,14 @@ export class OmpRun {
     finally { this.starting = false; this.scheduleIdle(); }
   }
   private release(): void {
-    if (this.rpc || this.isBusy || this.subscribers.size) return;
+    if (this.rpc || this.isBusy || this.subscribers.size || this.queued.steering.length || this.queued.followUp.length) return;
     if (this.idle) clearTimeout(this.idle);
     this.idle = null;
     if (registry().runs.get(this.id) === this) registry().runs.delete(this.id);
   }
   close(): void {
-    if (this.isBusy) this.stopping = true;
+    if (this.isBusy) { this.stopping = true; this.steered = false; }
+    this.clearQueue();
     if (this.idle) clearTimeout(this.idle);
     if (this.stopTimer) clearTimeout(this.stopTimer);
     this.idle = this.stopTimer = null;

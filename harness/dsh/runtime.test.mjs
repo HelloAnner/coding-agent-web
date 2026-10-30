@@ -35,6 +35,7 @@ const runtime = await jiti.import("./runtime.ts");
 const catalogRoute = await jiti.import("../../app/api/catalog/sessions/route.ts");
 const runningRoute = await jiti.import("../../app/api/agent/running/route.ts");
 const db = await jiti.import("../../lib/catalog-db.ts");
+const sessionRoute = await jiti.import("../../app/api/dsh/[id]/route.ts");
 after(() => {
   db.closeCatalogDb();
   delete globalThis[Symbol.for("pi-web.dshAcp")];
@@ -164,4 +165,73 @@ test("a prompt sent while a turn runs is queued, steered, cleared or dropped", a
     { type: "agent_settled", aborted: true },
   );
   assert.equal(runtime.isDshRunning(id), false);
+});
+
+test("dsh state uses its own endpoint; Recall preserves images and late streaming sends announce delivery", async () => {
+  const id = "dsh-state";
+  const context = { params: Promise.resolve({ id }) };
+  const run = runtime.getDshSession(id);
+  const events = [];
+  run.onEvent((event) => events.push(event));
+  await runtime.sendDshPrompt(prompt(id), "followUp");
+  assert.ok(events.some((event) => event.type === "message_end" && event.message.role === "user"));
+  const images = [{ data: "eA==", mimeType: "image/png" }];
+  await runtime.sendDshPrompt({ ...prompt(id), text: "keep image", images }, "followUp");
+  const snapshot = await (await sessionRoute.GET(new Request(`http://localhost/api/dsh/${id}?state=1`), context)).json();
+  assert.equal(snapshot.running, true);
+  assert.deepEqual(snapshot.state.queuedMessages, { steering: [], followUp: ["keep image"] });
+  assert.deepEqual(runtime.clearDshQueue(id), { steering: [], followUp: ["keep image"], images });
+  runtime.abortDshPrompt(id);
+  await assert.rejects(runtime.sendDshPrompt(prompt(id), "steer"), /stopping/);
+  complete({ stopReason: "cancelled" }); await drain();
+  assert.equal(runtime.dshState(id).isStreaming, false);
+  const response = await sessionRoute.POST(new Request("http://localhost", { method: "POST", body: JSON.stringify({ type: "prompt", message: "bad", cwd: process.cwd(), streamingBehavior: "bad" }) }), context);
+  assert.equal(response.status, 400);
+});
+
+test("a steer accepted during initialization interrupts after admission instead of being silently ignored", async () => {
+  const id = "dsh-initial-steer";
+  let release;
+  ready = () => new Promise((resolve) => { release = resolve; });
+  const sending = runtime.sendDshPrompt(prompt(id));
+  await runtime.sendDshPrompt({ ...prompt(id), text: "steer during ready" }, "steer");
+  ready = async () => {}; release(); await sending;
+  assert.deepEqual(calls.at(-1), { method: "session/cancel", params: { sessionId: "native-id" } });
+  complete({ stopReason: "cancelled" }); await drain();
+  assert.equal(calls.at(-1).params.prompt[0].text, "steer during ready");
+  complete({ stopReason: "end_turn" }); await drain();
+  assert.equal(runtime.isDshRunning(id), false);
+});
+
+test("Stop during a queued turn's preparation does not restore cancelled work into the queue", async () => {
+  const id = "dsh-queued-start-stop";
+  await runtime.sendDshPrompt(prompt(id));
+  await runtime.sendDshPrompt({ ...prompt(id), text: "cancel next" }, "followUp");
+  let release;
+  ready = () => new Promise((resolve) => { release = resolve; });
+  complete({ stopReason: "end_turn" }); await drain();
+  runtime.abortDshPrompt(id);
+  ready = async () => {}; release(); await drain();
+  assert.equal(runtime.isDshRunning(id), false);
+  assert.deepEqual(runtime.getDshSession(id).queuedMessages(), { steering: [], followUp: [] });
+});
+
+test("kernel exit settles the old turn once; its late rejection cannot end or duplicate a queued successor", async () => {
+  const id = "dsh-restart-queue";
+  const run = runtime.getDshSession(id);
+  const events = [];
+  run.onEvent((event) => events.push(event));
+  await runtime.sendDshPrompt(prompt(id));
+  const oldFail = fail;
+  await runtime.sendDshPrompt({ ...prompt(id), text: "recover next" }, "followUp");
+  for (const listener of exits) listener("kernel exited");
+  await drain();
+  assert.equal(calls.at(-1).params.prompt[0].text, "recover next");
+  const count = calls.filter((call) => call.method === "session/prompt").length;
+  oldFail(new Error("old pending request rejected")); await drain();
+  assert.equal(runtime.isDshRunning(id), true);
+  assert.equal(calls.filter((call) => call.method === "session/prompt").length, count);
+  assert.equal(events.filter((event) => event.type === "agent_settled").length, 0);
+  complete({ stopReason: "end_turn" }); await drain();
+  assert.equal(events.filter((event) => event.type === "agent_settled").length, 1);
 });

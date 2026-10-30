@@ -150,6 +150,10 @@ export interface AgentSessionLike {
    */
   readonly systemPrompt: string;
   readonly agent: {
+    steeringMode?: "all" | "one-at-a-time";
+    followUpMode?: "all" | "one-at-a-time";
+    peekQueuedMessages?(): PiAgentMessage[];
+    clearSteeringQueue?(): void;
     state?: {
       /** Replayed from the transcript's system messages since Pi 0.86; never assign it. */
       readonly systemPrompt?: string;

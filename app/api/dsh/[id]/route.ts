@@ -1,7 +1,7 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { dshSessionsRoot } from "@/harness/dsh";
-import { abortDshPrompt, clearDshQueue, isDshRunning, sendDshPrompt, type DshStreamingBehavior } from "@/harness/dsh/runtime";
+import { abortDshPrompt, clearDshQueue, dshState, isDshRunning, sendDshPrompt, type DshStreamingBehavior } from "@/harness/dsh/runtime";
 import { readDshTranscript } from "@/harness/dsh/transcript";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,8 @@ export async function POST(
     return NextResponse.json({ error: "Expected JSON" }, { status: 400 });
   }
 
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
+
   switch (body.type) {
     case "prompt": {
       const message = typeof body.message === "string" ? body.message : "";
@@ -56,9 +58,8 @@ export async function POST(
       const provider = typeof body.provider === "string" ? body.provider : undefined;
       const model = typeof body.model === "string" ? body.model : undefined;
       const sessionPath = typeof body.sessionPath === "string" ? body.sessionPath : undefined;
-      const streamingBehavior: DshStreamingBehavior | undefined = body.streamingBehavior === "steer"
-        ? "steer"
-        : body.streamingBehavior === "followUp" ? "followUp" : undefined;
+      if (body.streamingBehavior !== undefined && body.streamingBehavior !== "steer" && body.streamingBehavior !== "followUp") return NextResponse.json({ error: "Invalid streaming behavior" }, { status: 400 });
+      const streamingBehavior = body.streamingBehavior as DshStreamingBehavior | undefined;
       let images: Array<{ data: string; mimeType: string }> | undefined;
       try {
         images = readImages(body.images);
@@ -92,7 +93,7 @@ export async function POST(
       return NextResponse.json({ success: true, data: clearDshQueue(id) });
     }
     case "get_state": {
-      return NextResponse.json({ success: true, data: { isStreaming: isDshRunning(id) } });
+      return NextResponse.json({ success: true, data: dshState(id) });
     }
     default:
       return NextResponse.json({ error: `Unknown command: ${String(body.type)}` }, { status: 400 });
@@ -116,7 +117,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const sessionPath = new URL(req.url).searchParams.get("path") ?? "";
+  const search = new URL(req.url).searchParams;
+  if (search.get("state") === "1") return NextResponse.json({ running: isDshRunning(id), state: dshState(id) }, { headers: { "Cache-Control": "no-store" } });
+  const sessionPath = search.get("path") ?? "";
   if (!sessionPath || !path.isAbsolute(sessionPath) || !insideSessionsRoot(sessionPath)) {
     return NextResponse.json({ error: "path must be a dsh session directory" }, { status: 400 });
   }

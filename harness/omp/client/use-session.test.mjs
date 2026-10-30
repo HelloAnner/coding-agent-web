@@ -129,6 +129,23 @@ test("a delayed history read cannot replace newer SSE messages or a newer read",
   assert.deepEqual(state.writes.filter(([key]) => key === "view").map(([, value]) => value.context.messages[0].content), ["newer request"]);
 });
 
+test("OMP queue controls use native endpoints, strip preview URLs and restore failed sends", async () => {
+  const state = setup();
+  state.state.id = "omp-existing"; state.state.known = true; state.state.busy = true;
+  await state.native.queue("now", "steer", [{ data: "eA==", mimeType: "image/png", previewUrl: "local-preview" }]);
+  await state.native.queue("later", "followUp");
+  await state.native.recallQueue();
+  assert.deepEqual(state.calls.map(({ body }) => body.type), ["prompt", "prompt", "clear_queue"]);
+  assert.equal(state.calls[0].body.streamingBehavior, "steer");
+  assert.equal(state.calls[1].body.streamingBehavior, "followUp");
+  assert.equal(state.calls[0].body.images[0].previewUrl, undefined);
+  const failing = setup(async () => { throw new TypeError("network lost"); });
+  failing.state.id = "omp-existing"; failing.state.known = true;
+  await failing.native.queue("restore this", "steer");
+  assert.equal(failing.calls.length, 1);
+  assert.ok(failing.writes.some(([kind, text]) => kind === "restore" && text === "restore this"));
+});
+
 test("model selection changes only after native confirmation, while snapshots and rejected approvals stay native", async () => {
   const state = setup(async (_id, body) => { if (body.type === "set_model") throw new OmpClientError("Not available in Pi", 400); return identity; });
   state.state.id = "omp-existing"; state.state.known = true;

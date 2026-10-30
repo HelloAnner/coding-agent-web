@@ -29,6 +29,7 @@ export interface DshPrompt {
   model?: string | null;
   /** The kernel session directory this chat already has, when it has one. */
   sessionPath?: string | null;
+  streamingBehavior?: DshStreamingBehavior;
 }
 
 /** A prompt sent while a turn runs: `steer` preempts that turn, `followUp` waits for it. */
@@ -44,7 +45,10 @@ class DshSession {
   readonly replay: AgentEventLike[] = [];
   isStreaming = false;
   aborted = false;
+  interrupted = false;
   model = "";
+  /** The current turn owns settlement; old ACP promises cannot settle its successor. */
+  settleCurrent: ((error: string) => void) | null = null;
   /** The kernel's id for this chat, known once the session is open. */
   acpSessionId: string | null = null;
   /** The kernel's session directory, stored in the catalog row. */
@@ -105,9 +109,13 @@ class DshSession {
     this.publishQueue();
     // Steering is the only behavior that preempts work: the kernel's own cancel
     // ends the running turn, and the queue then starts the next one.
-    if (behavior === "steer" && this.isStreaming && this.acpSessionId) {
-      dshKernel().notify("session/cancel", { sessionId: this.acpSessionId });
-    }
+    if (behavior === "steer") this.interrupt();
+  }
+
+  interrupt(): void {
+    if (!this.settleCurrent || !this.acpSessionId || this.interrupted) return;
+    this.interrupted = true;
+    dshKernel().notify("session/cancel", { sessionId: this.acpSessionId });
   }
 
   shiftQueue(): DshPrompt | null {
@@ -116,12 +124,13 @@ class DshSession {
     return next ?? null;
   }
 
-  clearQueue(): { steering: string[]; followUp: string[] } {
+  clearQueue() {
     const cleared = this.queuedMessages();
+    const images = [...this.queued.steering, ...this.queued.followUp].flatMap((prompt) => prompt.images ?? []);
     this.queued.steering.length = 0;
     this.queued.followUp.length = 0;
     this.publishQueue();
-    return cleared;
+    return { ...cleared, ...(images.length ? { images } : {}) };
   }
 }
 
@@ -144,13 +153,8 @@ function watchKernel(): void {
   dshKernel().onExit((reason) => {
     for (const run of registry().values()) {
       run.acpSessionId = null;
-      if (!run.isStreaming) continue;
-      run.isStreaming = false;
-      run.publish({ type: "prompt_error", errorMessage: reason });
-      run.publish({ type: "agent_end" });
-      run.publish({ type: "agent_settled", aborted: run.aborted });
-      // The next prompt respawns the kernel and resumes this chat from its log.
-      drainQueue(run);
+      // Settlement invalidates the old request before any queued turn resumes.
+      run.settleCurrent?.(reason);
     }
   });
 }
@@ -170,6 +174,11 @@ export function isDshRunning(sessionId: string): boolean {
 
 export function dshRunningIds(): string[] {
   return [...registry().values()].filter((run) => run.isStreaming).map((run) => run.sessionId);
+}
+
+export function dshState(sessionId: string) {
+  const run = registry().get(sessionId);
+  return { isStreaming: run?.isStreaming === true, queuedMessages: run?.queuedMessages() ?? { steering: [], followUp: [] } };
 }
 
 /** The ACP model option is the route, encoded as `[provider, model]`. */
@@ -236,6 +245,7 @@ async function openAcpSession(run: DshSession, prompt: DshPrompt): Promise<void>
 async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolean): Promise<{ sessionPath: string }> {
   run.isStreaming = true;
   run.aborted = false;
+  run.interrupted = false;
   run.replay.length = 0;
   const client = dshKernel();
   try {
@@ -244,6 +254,8 @@ async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolea
     if (run.aborted) throw new Error("dsh prompt was cancelled before it started");
   } catch (error) {
     run.isStreaming = false;
+    run.publish({ type: "agent_end" });
+    run.publish({ type: "agent_settled", aborted: run.aborted });
     throw error;
   }
 
@@ -278,7 +290,8 @@ async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolea
     if (settled) return;
     settled = true;
     unsubscribe();
-    mapper.finish(error ? "error" : run.aborted ? "aborted" : stopReason);
+    run.settleCurrent = null;
+    mapper.finish(error ? "error" : run.aborted || run.interrupted ? "aborted" : stopReason);
     run.isStreaming = false;
     if (error) run.publish({ type: "prompt_error", errorMessage: error });
     // A queued prompt continues the same run: no agent_end between turns keeps
@@ -288,6 +301,7 @@ async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolea
     run.publish({ type: "agent_settled", aborted: run.aborted });
   };
 
+  run.settleCurrent = (error) => settle(undefined, error);
   // The prompt request settles at the end of the turn, so it is not awaited.
   void client
     .request<{ stopReason?: string }>("session/prompt", {
@@ -303,6 +317,8 @@ async function startDshTurn(run: DshSession, prompt: DshPrompt, announce: boolea
     })
     .then((result) => settle(result?.stopReason))
     .catch((error: unknown) => settle(undefined, error instanceof Error ? error.message : String(error)));
+  // A steer accepted during ready/resume must interrupt once the prompt is actually admitted.
+  if (run.queuedMessages().steering.length) run.interrupt();
 
   return { sessionPath: run.sessionPath ?? "" };
 }
@@ -312,10 +328,9 @@ function drainQueue(run: DshSession): boolean {
   const next = run.shiftQueue();
   if (!next) return false;
   void startDshTurn(run, next, true).catch((error: unknown) => {
-    run.isStreaming = false;
+    // Opening failed before delivery: retain the accepted prompt for Recall, not silent loss/retry.
+    if (!run.aborted) run.enqueue(next.streamingBehavior ?? "followUp", next);
     run.publish({ type: "prompt_error", errorMessage: error instanceof Error ? error.message : String(error) });
-    run.publish({ type: "agent_end" });
-    run.publish({ type: "agent_settled", aborted: false });
   });
   return true;
 }
@@ -331,14 +346,14 @@ export async function sendDshPrompt(
   const run = getDshSession(prompt.sessionId);
   if (!prompt.text.trim() && !prompt.images?.length) throw new Error("empty prompt");
   if (run.isStreaming) {
-    if (!behavior) throw new Error("dsh is already answering in this chat");
-    run.enqueue(behavior, prompt);
+    if (!behavior || run.aborted) throw new Error("dsh is already answering or stopping in this chat");
+    run.enqueue(behavior, { ...prompt, streamingBehavior: behavior });
     return { sessionPath: run.sessionPath ?? prompt.sessionPath ?? "", queued: true };
   }
-  return startDshTurn(run, prompt, false);
+  return startDshTurn(run, prompt, behavior !== undefined);
 }
 
-export function clearDshQueue(sessionId: string): { steering: string[]; followUp: string[] } {
+export function clearDshQueue(sessionId: string) {
   return getDshSession(sessionId).clearQueue();
 }
 
@@ -350,7 +365,7 @@ export function abortDshPrompt(sessionId: string): boolean {
   const hadQueued = cleared.steering.length + cleared.followUp.length > 0;
   if (!run.isStreaming) return hadQueued;
   run.aborted = true;
-  if (run.acpSessionId) dshKernel().notify("session/cancel", { sessionId: run.acpSessionId });
+  run.interrupt();
   return true;
 }
 

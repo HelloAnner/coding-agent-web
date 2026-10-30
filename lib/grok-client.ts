@@ -48,6 +48,7 @@ export async function sendGrokCommand<T = unknown>(
     data?: T;
     error?: string;
   };
-  if (!res.ok || body.error) throw new Error(body.error ?? `HTTP ${res.status}`);
+  if (!res.ok || body?.error) throw new Error(body?.error ?? `HTTP ${res.status}`);
+  if (body?.success !== true) throw new TypeError("Invalid response from Grok; send acceptance is unconfirmed");
   return body.data as T;
 }

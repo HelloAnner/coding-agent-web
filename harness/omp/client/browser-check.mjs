@@ -16,10 +16,11 @@ const temp = await mkdtemp(path.join(tmpdir(), "omp-browser-"));
 const calls = [], streams = new Set();
 let browser, server;
 let messages = [], running = false, model = { provider: "shared", modelId: "first" };
+let queuedMessages = { steering: [], followUp: [] };
 const emit = (frame) => { for (const stream of streams) stream.write(`data: ${JSON.stringify(frame)}\n\n`); };
 const view = (id) => ({ sessionId: id, filePath: "/omp/2026-10-30T00-00-00-000Z_native-uuid.jsonl", tree: [], leafId: null,
   context: { messages, entryIds: messages.map((message) => message.nativeId), oldestEntryId: null, hasMore: false, turnsBefore: 0, model, thinkingLevel: "medium" },
-  running, state: { isStreaming: running, isPromptRunning: false, model: { provider: model.provider, id: model.modelId }, thinkingLevel: "medium", queuedMessages: { steering: [], followUp: [] } },
+  running, state: { isStreaming: running, isPromptRunning: false, model: { provider: model.provider, id: model.modelId }, thinkingLevel: "medium", queuedMessages },
 });
 try {
   await writeFile(path.join(temp, "loader.cjs"), `const ts=require(${JSON.stringify(require.resolve("typescript"))});module.exports=function(source){return ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText}`);
@@ -42,6 +43,9 @@ try {
         {agent.extensionDialog && <button data-testid="approval" onClick={() => agent.respondToExtensionUi(agent.extensionDialog, { value: "Approve" })}>{agent.extensionDialog.title}</button>}
         {agent.notices.map(notice => <p key={notice.id}>{notice.message}</p>)}
       </div><ChatInput ref={input} onSend={agent.handleSend} onAbort={agent.handleAbort} isStreaming={agent.agentRunning}
+        onSteer={agent.agentRunning ? agent.handleSteer : undefined} onFollowUp={agent.agentRunning ? agent.handleFollowUp : undefined}
+        onPromptWithStreamingBehavior={agent.agentRunning ? agent.handlePromptWithStreamingBehavior : undefined}
+        queuedMessages={agent.queuedMessages} onRecallQueue={agent.handleRecallQueue}
         harness={harness} onHarnessChange={setHarness} harnessLocked={Boolean(session) || agent.agentRunning}
         model={agent.displayModel} modelList={agent.modelList} modelNames={agent.modelNames} onModelChange={agent.handleModelChange}
         modelControlsLocked={harness === "omp" && (agent.agentRunning || agent.modelSwitching)} modelSwitching={agent.modelSwitching}
@@ -63,7 +67,7 @@ try {
     try {
       const url = new URL(req.url, "http://localhost");
       const json = (value) => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(value)); };
-      if (url.pathname === "/") { res.setHeader("Content-Type", "text/html"); res.end('<!doctype html><style>body{margin:24px}main{height:650px;display:flex;flex-direction:column}main>div{flex:1;overflow:auto}:root{--bg:white;--bg-panel:white;--text:black;--text-muted:#555;--border:#bbb;--bg-hover:#eee}</style><div id="root"></div><script src="/bundle.js"></script>'); return; }
+      if (url.pathname === "/") { res.setHeader("Content-Type", "text/html"); res.end('<!doctype html><meta charset="utf-8"><style>body{margin:24px}main{height:650px;display:flex;flex-direction:column}main>div{flex:1;overflow:auto}:root{--bg:white;--bg-panel:white;--text:black;--text-muted:#555;--border:#bbb;--bg-hover:#eee}</style><div id="root"></div><script src="/bundle.js"></script>'); return; }
       if (url.pathname.endsWith(".js")) { res.setHeader("Content-Type", "text/javascript"); res.end(await readFile(path.join(temp, "out", path.basename(url.pathname)))); return; }
       let raw = ""; for await (const chunk of req) raw += chunk;
       const body = raw ? JSON.parse(raw) : null;
@@ -80,11 +84,19 @@ try {
           res.write(`data: ${JSON.stringify({ type: "omp_snapshot", messages })}\n\n`); return;
         }
         if (!body) { json(view(id)); return; }
-        if (body.type === "ensure_session") { model = { provider: body.provider, modelId: body.modelId }; json({ data: identity() }); return; }
-        if (body.type === "set_model") { model = { provider: body.provider, modelId: body.modelId }; json({ data: { provider: model.provider, id: model.modelId } }); return; }
+        if (body.type === "ensure_session") { model = { provider: body.provider, modelId: body.modelId }; json({ success: true, data: identity() }); return; }
+        if (body.type === "set_model") { model = { provider: body.provider, modelId: body.modelId }; json({ success: true, data: { provider: model.provider, id: model.modelId } }); return; }
+        if (body.type === "clear_queue") {
+          const recalled = queuedMessages; queuedMessages = { steering: [], followUp: [] };
+          emit({ type: "queue_update", ...queuedMessages }); json({ success: true, data: recalled }); return;
+        }
+        if (body.type === "prompt" && body.streamingBehavior) {
+          queuedMessages[body.streamingBehavior === "steer" ? "steering" : "followUp"].push(body.message);
+          emit({ type: "queue_update", ...queuedMessages }); json({ success: true, data: { ...identity(), queued: true } }); return;
+        }
         if (body.type === "prompt") {
           running = true; const message = { role: "user", content: body.message, timestamp: Date.now(), nativeId: `u${messages.length}` }; messages.push(message);
-          emit({ type: "agent_start" }); emit({ type: "message_end", message }); json({ data: identity() }); return;
+          emit({ type: "agent_start" }); emit({ type: "message_end", message }); json({ success: true, data: identity() }); return;
         }
         if (body.type === "extension_ui_response" || body.type === "abort") {
           const message = { role: "assistant", content: [{ type: "text", text: "OMP fixture answer" }], timestamp: Date.now(), nativeId: `a${messages.length}` }; messages.push(message);
@@ -115,6 +127,15 @@ try {
   await firstAccepted;
   await page.getByTestId("status").filter({ hasText: "running" }).waitFor();
   await page.waitForFunction(() => document.querySelector(".model-selector > button")?.disabled === true);
+  await composer.fill("OMP queued follow-up");
+  await page.getByRole("button", { name: "Follow-up", exact: true }).click();
+  await page.getByText(/^queued · 1$/i).waitFor();
+  await composer.fill("OMP steer now");
+  await page.getByRole("button", { name: "Steer", exact: true }).click();
+  await page.getByText(/^queued · 2$/i).waitFor();
+  await page.getByRole("button", { name: "Recall to input", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("textarea")?.value.includes("OMP queued follow-up") && document.querySelector("textarea")?.value.includes("OMP steer now"));
+  await composer.fill("");
   emit({ type: "extension_ui_request", id: "approval", method: "select", title: "Approve native bash", options: ["Approve", "Deny"] });
   await page.getByTestId("approval").click();
   await page.getByTestId("status").filter({ hasText: "idle" }).waitFor();
@@ -128,12 +149,14 @@ try {
   await page.getByTestId("status").filter({ hasText: "running" }).waitFor();
   await page.getByRole("button", { name: /Stop/ }).click();
   await page.getByTestId("status").filter({ hasText: "idle" }).waitFor();
-  const prompts = calls.filter(({ body }) => body?.type === "prompt");
+  const queued = calls.filter(({ body }) => body?.streamingBehavior);
+  assert.deepEqual(queued.map(({ body }) => body.streamingBehavior), ["followUp", "steer"]);
+  const prompts = calls.filter(({ body }) => body?.type === "prompt" && !body.streamingBehavior);
   assert.equal(prompts.length, 2);
   assert.equal(prompts[0].path, prompts[1].path, "reload and the second turn keep the exact native web identity");
   assert.equal(calls.some(({ path }) => path.startsWith("/api/agent/")), false, "OMP never creates or calls a Pi agent");
   assert.deepEqual(errors, []);
-  console.log("PASS: real OMP composer/hook shares Pi models, locks controls, approves, reloads, sends two turns and stops without Pi agent calls");
+  console.log("PASS: real OMP composer/hook shares Pi models, locks controls, approves, reloads, sends two turns, steers, queues, recalls and stops without Pi agent calls");
 } finally {
   await browser?.close();
   server?.closeAllConnections();

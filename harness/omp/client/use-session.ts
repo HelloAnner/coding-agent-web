@@ -120,6 +120,26 @@ export function useOmpSession() {
           if (context.known || prepared.has(id)) void load(id, false, true);
         } finally { submitting = false; }
       },
+      async queue(text: string, behavior: "steer" | "followUp", images?: AttachedImage[]) {
+        const context = ui().current();
+        if (!context.id || !context.cwd || submitting) {
+          ui().restore(text, images);
+          ui().notice("Wait for OMP to finish preparing this conversation before queueing a message.");
+          return;
+        }
+        try {
+          await sendOmpCommand(context.id, { type: "prompt", requestId: newOmpId(), cwd: context.cwd, message: text,
+            streamingBehavior: behavior, images: images?.map(({ data, mimeType }) => ({ data, mimeType })) });
+        } catch (error) {
+          ui().restore(text, images);
+          ui().notice(error instanceof OmpClientError ? error.message : "Could not confirm the OMP queue send; it was restored and was not sent again.", !(error instanceof OmpClientError));
+        }
+      },
+      async recallQueue() {
+        const id = ui().current().id;
+        if (!id) return null;
+        return sendOmpCommand<{ steering: string[]; followUp: string[]; images?: Array<{ data: string; mimeType: string }> }>(id, { type: "clear_queue" });
+      },
       async selectModel(provider: string, modelId: string): Promise<boolean> {
         const context = ui().current();
         if (context.busy) return false;

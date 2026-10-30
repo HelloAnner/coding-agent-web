@@ -10,9 +10,10 @@ export class ClaudeTrustRequiredError extends Error {
 
 export async function sendClaudeCommand<T = unknown>(id: string, command: Record<string, unknown>): Promise<T> {
   const response = await fetch(claudeSessionUrl(id), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) });
-  const body = await response.json().catch(() => ({})) as { data?: T; error?: string; requiresTrust?: boolean; cwd?: string };
-  if (body.requiresTrust) throw new ClaudeTrustRequiredError(body.cwd ?? "");
-  if (!response.ok || body.error) throw new Error(body.error ?? `HTTP ${response.status}`);
+  const body = await response.json().catch(() => ({})) as { success?: boolean; data?: T; error?: string; requiresTrust?: boolean; cwd?: string };
+  if (body?.requiresTrust) throw new ClaudeTrustRequiredError(body.cwd ?? "");
+  if (!response.ok || body?.error) throw new Error(body?.error ?? `HTTP ${response.status}`);
+  if (body?.success !== true) throw new TypeError("Invalid response from Claude Code; send acceptance is unconfirmed");
   return body.data as T;
 }
 

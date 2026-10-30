@@ -228,6 +228,36 @@ test("missing CLI fails once without losing or inventing a native session", asyn
   assert.equal(db.readCatalogSession(id), null);
 });
 
+test("late queue sends are visible, Recall preserves images, and disconnect leaves pending work recallable but not spinning", async (t) => {
+  const root = setup(t);
+  const p = profile(root); writeProfiles([p]);
+  const id = randomUUID();
+  const run = runtime.getClaudeRun(id);
+  const events = [], written = [];
+  t.after(run.onEvent((event) => events.push(event)));
+  run.profile = p; run.cwd = root;
+  run.child = { stdin: { writable: true, write: (value) => written.push(JSON.parse(value)), end() {} }, kill() {} };
+  run.start = async () => {};
+  const images = [{ data: "eA==", mimeType: "image/png" }];
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "late follow-up", images, streamingBehavior: "followUp" });
+  assert.ok(events.some((event) => event.type === "message_end" && event.message.role === "user"));
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "recall image", images, streamingBehavior: "followUp" });
+  assert.deepEqual(run.clearQueue(), { steering: [], followUp: ["recall image"], images });
+  await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "pending after disconnect", images, streamingBehavior: "followUp" });
+  run.child = null; run.settle("disconnected");
+  assert.equal(written.length, 1, "disconnect must not consume or dispatch another queued prompt");
+  assert.equal(runtime.claudeState(id).running, false);
+  assert.equal(runtime.claudeRunningIds().includes(id), false);
+  assert.deepEqual(run.clearQueue(), { steering: [], followUp: ["pending after disconnect"], images });
+  const invalid = runtime.getClaudeRun(randomUUID());
+  invalid.child = { stdin: { writable: true, write: () => assert.fail("must not send into another native identity"), end() {} }, kill() {} };
+  invalid.beginTurn();
+  invalid.enqueue("followUp", { text: "keep after reset", images, promptId: randomUUID() });
+  invalid.receive({ type: "conversation_reset" });
+  assert.equal(invalid.isStreaming, false);
+  assert.deepEqual(invalid.clearQueue(), { steering: [], followUp: ["keep after reset"], images });
+});
+
 test("steer interrupts the running turn and follow-ups drain in order", { skip: process.platform === "win32" }, async (t) => {
   const root = setup(t);
   const p = profile(root);
@@ -333,6 +363,7 @@ createInterface({input:process.stdin}).on('line', line => {
   assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
   await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "stopped too", streamingBehavior: "followUp" });
   assert.equal(run.abort(), true);
+  await assert.rejects(runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "too soon", streamingBehavior: "followUp" }), /stopping/);
   await waitFor(run, (event) => event.type === "agent_settled");
   assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
   assert.equal(readFileSync(log, "utf8").trim().split("\n").filter((line) => line.startsWith("user:")).join(","), "user:first");
@@ -474,7 +505,7 @@ test("installed Claude CLI codes, asks, resumes and stops through its native pro
   await runtime.sendClaudePrompt({ id, cwd: root, profileId: p.id, text: "Resume after restart" });
   await resumed;
   assert.match(JSON.stringify(lastMessages), /Second turn/);
-  assert.equal(db.readCatalogSession(id).sessionPath, p.configDir);
+  assert.equal(db.readCatalogSession(id).sessionPath, readClaudeTranscript(p.configDir, id).path);
   assert.deepEqual(callbackErrors, []);
   assert.ok(events.some((event) => event.type === "extension_ui_request" && event.questions));
   hold = true;

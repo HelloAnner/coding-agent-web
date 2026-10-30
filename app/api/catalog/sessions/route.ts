@@ -3,6 +3,7 @@ import { findHarness } from "@/harness/registry";
 import { claudeAwaitingInputIds, claudeRunningIds } from "@/harness/claude-code/runtime";
 import { dshRunningIds } from "@/harness/dsh/runtime";
 import { grokRunningIds } from "@/harness/grok/runtime";
+import { getAwaitingInputRpcSessionIds, getCompletionNotificationSuppressedRpcSessionIds, getRunningRpcSessionIds } from "@/lib/rpc-manager";
 import { ompAwaitingInputIds, ompRunningIds } from "@/harness/omp/runtime";
 import { guardOmpCatalogWrite } from "@/harness/omp/catalog";
 import { CatalogHarnessLockedError, listCatalogSessionInfos, upsertCatalogSession } from "@/lib/catalog-db";
@@ -15,9 +16,9 @@ export async function GET() {
   return NextResponse.json({
     sessions: listed.sessions,
     sessionListVersion: listed.sessionListVersion,
-    runningSessionIds: [...claudeRunningIds(), ...dshRunningIds(), ...grokRunningIds(), ...ompRunningIds()],
-    awaitingInputSessionIds: [...claudeAwaitingInputIds(), ...ompAwaitingInputIds()],
-    completionNotificationSuppressedSessionIds: [],
+    runningSessionIds: [...getRunningRpcSessionIds(), ...claudeRunningIds(), ...dshRunningIds(), ...grokRunningIds(), ...ompRunningIds()],
+    awaitingInputSessionIds: [...getAwaitingInputRpcSessionIds(), ...claudeAwaitingInputIds(), ...ompAwaitingInputIds()],
+    completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 

@@ -40,7 +40,7 @@ async function promptInput(id: string, body: Record<string, unknown>): Promise<O
   }
   if (body.message !== undefined && typeof body.message !== "string") throw new OmpError("Expected a text message");
   if (typeof body.message === "string" && Buffer.byteLength(body.message) > 1024 * 1024) throw new OmpError("Message exceeds the OMP input limit", 413);
-  if (body.streamingBehavior !== undefined) throw new OmpError("OMP queue controls are not exposed by this adapter");
+  if (body.streamingBehavior !== undefined && (body.type !== "prompt" || body.streamingBehavior !== "steer" && body.streamingBehavior !== "followUp")) throw new OmpError("Invalid OMP streaming behavior");
   const images: Array<{ data: string; mimeType: string }> = [];
   if (body.images !== undefined) {
     if (!Array.isArray(body.images) || body.images.length > 8) throw new OmpError("Expected at most 8 images");
@@ -57,6 +57,7 @@ async function promptInput(id: string, body: Record<string, unknown>): Promise<O
   return { id, cwd, message: typeof body.message === "string" ? body.message : undefined, images, requestId,
     provider: typeof body.provider === "string" ? body.provider : undefined,
     modelId: typeof body.modelId === "string" ? body.modelId : undefined,
+    streamingBehavior: body.streamingBehavior as OmpPrompt["streamingBehavior"],
     thinkingLevel: typeof body.thinkingLevel === "string" ? body.thinkingLevel : undefined,
   };
 }
@@ -81,6 +82,7 @@ export async function POST(req: Request, { params }: RouteContext): Promise<Resp
       return Response.json({ success: true, data: { aborted: run?.abort() ?? false } });
     }
     indexed(id);
+    if (body.type === "clear_queue") return Response.json({ success: true, data: run?.clearQueue() ?? { steering: [], followUp: [] } });
     if (body.type === "get_state") {
       await run?.refreshState();
       return Response.json({ success: true, data: run?.state().state ?? { isStreaming: false } });

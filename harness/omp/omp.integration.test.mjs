@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createJiti } from "jiti";
 
-const jiti = createJiti(import.meta.url, { interopDefault: true });
+const jiti = createJiti(import.meta.url, { interopDefault: true, alias: { "@": process.cwd() } });
 let available = false;
 try { available = execFileSync(process.env.PI_WEB_OMP_BIN || "omp", ["--version"], { encoding: "utf8" }).trim() === "omp/18.3.0"; } catch {}
 
@@ -21,13 +21,14 @@ test("native OMP uses Pi configuration for two turns, tool approval, model chang
   Object.assign(process.env, { HOME: root, PI_CODING_AGENT_DIR: pi, PI_WEB_OMP_AGENT_DIR: join(root, "omp"), CODING_AGENT_WEB_DATA: join(root, "web", "data.db"), OMP_TEST_KEY: "fake-aligned-key", OMP_TEST_HEADER: "fake-aligned-header" });
   const requests = [];
   let mode = "text";
+  let held;
   const server = createServer(async (req, res) => {
     let raw = ""; for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     requests.push({ headers: req.headers, body });
     if (mode === "error") { res.writeHead(401, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "rejected fake-aligned-key fake-aligned-header" } })); return; }
     res.writeHead(200, { "Content-Type": "text/event-stream" });
-    if (mode === "hang") { res.write(": waiting\n\n"); return; }
+    if (mode === "hang") { res.write(": waiting\n\n"); held?.(); return; }
     const tool = ["tool", "ask"].includes(mode) && !body.messages.slice(body.messages.findLastIndex((message) => message.role === "user") + 1).some((message) => message.role === "tool");
     const delta = tool ? { tool_calls: [{ index: 0, id: randomUUID(), type: "function", function: mode === "ask"
       ? { name: "ask", arguments: JSON.stringify({ questions: [{ id: "color", question: "Pick a color", options: [{ label: "Blue", description: "The blue option" }, { label: "Red" }] }] }) }
@@ -147,6 +148,29 @@ test("native OMP uses Pi configuration for two turns, tool approval, model chang
     assert.ok(failures.some((event) => event.type === "prompt_error"));
     assert.equal(JSON.stringify(failures).includes("fake-aligned-key"), false);
     assert.equal(JSON.stringify(failures).includes("fake-aligned-header"), false);
+    mode = "hang";
+    const requestHeld = new Promise((resolve) => { held = resolve; });
+    await wait(() => run.prompt({ id, cwd, message: "wait for queue check" }), (event) => event.type === "agent_start");
+    await requestHeld;
+    const queuedEvents = [];
+    const stopQueueEvents = run.onEvent((event) => queuedEvents.push(event));
+    const followUp = await handleOmpCommand(new Request(`http://localhost/api/omp/${id}`, { method: "POST", body: JSON.stringify({ type: "prompt", cwd, message: "queued-follow-up-marker", streamingBehavior: "followUp", requestId: "native-queued-follow-up" }) }), { params: Promise.resolve({ id }) });
+    assert.equal(followUp.status, 200);
+    assert.equal((await followUp.json()).data.queued, true);
+    assert.deepEqual(run.state().state.queuedMessages, { steering: [], followUp: ["queued-follow-up-marker"] });
+    for (const endpoint of ["../../app/api/catalog/sessions/route.ts", "../../app/api/agent/running/route.ts"]) {
+      const route = await jiti.import(endpoint);
+      assert.ok((await (await route.GET()).json()).runningSessionIds.includes(id));
+    }
+    mode = "text";
+    await wait(() => run.prompt({ id, cwd, message: "queued-steer-marker", streamingBehavior: "steer" }));
+    stopQueueEvents();
+    assert.equal(queuedEvents.filter((event) => event.type === "agent_settled").length, 1);
+    assert.equal(queuedEvents.at(-1).aborted, false);
+    const delivered = queuedEvents.filter((event) => event.type === "message_end" && event.message.role === "user").map((event) => JSON.stringify(event.message.content));
+    assert.ok(delivered[0].includes("queued-steer-marker"));
+    assert.ok(delivered[1].includes("queued-follow-up-marker"));
+    assert.deepEqual(run.state().state.queuedMessages, { steering: [], followUp: [] });
     mode = "hang";
     const started = wait(() => run.prompt({ id, cwd, message: "wait" }), (event) => event.type === "agent_start");
     await started;

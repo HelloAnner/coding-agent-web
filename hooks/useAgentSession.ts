@@ -1882,6 +1882,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         break;
       }
       case "agent_start":
+        if (!sdkAgentActiveRef.current && !rpcPromptPendingRef.current) promptRunIdRef.current += 1;
         markPromptLanded();
         cancelEventStreamGrace();
         sdkAgentActiveRef.current = true;
@@ -2176,6 +2177,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const sid = sessionIdRef.current ?? newGrokSessionId();
     sessionIdRef.current = sid;
+    promptRunIdRef.current += 1;
     const imageBlocks = images?.map((img) => ({
       type: "image" as const,
       source: { type: "base64" as const, media_type: img.mimeType, data: img.data },
@@ -2231,6 +2233,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const sid = sessionIdRef.current ?? newDshSessionId();
     sessionIdRef.current = sid;
+    promptRunIdRef.current += 1;
     const imageBlocks = images?.map((img) => ({
       type: "image" as const,
       source: { type: "base64" as const, media_type: img.mimeType, data: img.data },
@@ -2286,6 +2289,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? newClaudeSessionId();
     const promptId = newClaudeSessionId();
     sessionIdRef.current = sid;
+    promptRunIdRef.current += 1;
     const imageBlocks = images?.map(({ data, mimeType }) => ({ type: "image" as const, source: { type: "base64" as const, data, media_type: mimeType } }));
     const userMessage: AgentMessage & { nativeId: string } = { role: "user", nativeId: promptId, timestamp: Date.now(), content: imageBlocks?.length ? [...(text.trim() ? [{ type: "text" as const, text }] : []), ...imageBlocks] : text };
     dispatch({ type: "start" });
@@ -3004,6 +3008,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       addNotice({ type: "error", message: "No active session for the queued message" });
       return;
     }
+    if (runtimeHarnessRef.current === "omp") return omp.queue(message, behavior, images);
     if (runtimeHarnessRef.current === "claude-code") {
       // Claude Code has no native queue to join: the server keeps the prompt
       // until the running turn ends, then writes it as the next turn.
@@ -3022,8 +3027,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         console.error("Failed to submit Claude Code streaming prompt:", e);
         // The request is the dispatch: only a clear rejection means nothing was
         // queued. A transport failure may have been accepted server-side.
-        if (!(e instanceof TypeError)) restore();
-        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        restore();
+        if (e instanceof TypeError) addUnconfirmedSendNotice();
+        else addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       }
       return;
     }
@@ -3045,9 +3051,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
       } catch (e) {
         console.error("Failed to submit streaming prompt:", e);
-        // Grok restores even unconfirmed sends so a lost response cannot lose text.
-        if (isGrok || !(e instanceof TypeError)) restore();
-        addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+        // A lost response may have queued the prompt; preserve the draft without auto-resending.
+        restore();
+        if (e instanceof TypeError) addUnconfirmedSendNotice();
+        else addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
       }
       return;
     }
@@ -3068,7 +3075,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isPromptRejectedError(e)) addNotice({ type: "error", message: e.message });
       else addUnconfirmedSendNotice();
     }
-  }, [addNotice, addUnconfirmedSendNotice, composerDraftKey, editEntryId, restoreSubmission]);
+  }, [addNotice, addUnconfirmedSendNotice, composerDraftKey, editEntryId, omp, restoreSubmission]);
 
   const handleSteer = useCallback(async (message: string, images?: AttachedImage[]) => {
     await sendStreamingPrompt(message, "steer", images);
@@ -3101,7 +3108,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     try {
-      const result = runtimeHarnessRef.current === "claude-code"
+      const result = runtimeHarnessRef.current === "omp" ? await omp.recallQueue() : runtimeHarnessRef.current === "claude-code"
         ? await sendClaudeCommand<RecalledPrompts>(sid, { type: "clear_queue" })
         : runtimeHarnessRef.current === "dsh"
           ? await sendDshCommand<RecalledPrompts>(sid, { type: "clear_queue" })
@@ -3116,7 +3123,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to recall queued messages:", e);
       addNotice({ type: "error", message: "Failed to recall queued messages" });
     }
-  }, [addNotice, restoreRecalledPrompts]);
+  }, [addNotice, omp, restoreRecalledPrompts]);
 
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     if (runtimeHarnessRef.current === "omp") return omp.selectThinking(level);

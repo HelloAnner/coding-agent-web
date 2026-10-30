@@ -46,7 +46,9 @@ omp --mode rpc-ui --no-pty --no-title --approval-mode always-ask …
 - 协商传输 v2；stdout 支持严格 JSONL、跨字节 UTF-8、`rpc_chunk` 重组，坏帧/断流令 pending 失败并关闭进程。
 - `prompt` 成功响应只是 ACK；同 id 的后续异步错误仍处理。
 - `agent_end.isTerminal:false` 不清 busy；`isTerminal !== false` 才结束主轮。兼容 `agentInvoked:false` 的本地完成语义，但网页不开放原生 slash commands。
-- 停止先取消待回答 UI 并发原生 `abort`；仍未收口时关闭进程。未结算前保持锁，启动中取消不会继续提交 prompt。
+- 网页拥有 steer / followUp 队列：steer 通过原生 `abort` 中断当前轮，等终态后优先执行；followUp 按轮依次发送。队列切换不发网页完成通知，重连/状态读取回放当前队列；同 requestId 不重复入队。
+- Recall 返回未发送的文字和图片；停止清空队列、取消待回答 UI 并发原生 `abort`，仍未收口时关闭进程。未结算前保持锁，启动中取消不会继续提交 prompt。原生准备期间新增队列请求明确拒绝并保留草稿，不冒充已接收。
+- 队列仅存于服务进程；原生断开或后续准备失败时不自动重发，尚未发送的消息保留给 Recall，不伪报持续运行。
 - 断开浏览器只取消订阅，不停止 agent。重连恢复快照/工具/待回答问题，不重发 prompt；HTTP 发送结果不确定时保留草稿、查询状态，不自动重试。
 - 首屏 `/api/catalog/sessions` 和权威 `/api/agent/running` 均聚合 OMP **web id** 与待输入状态；轻量状态读取不会启动已回收的 CLI。
 
@@ -88,7 +90,8 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 | 图片 | 接线与服务端校验已具备；原生 stdin 物理帧合计最多 1 MiB，含 JSON/base64 开销；未完成真实视觉 provider/大 blob 验收 |
 | 用量 | 原生上下文状态和会话历史统计；未接全站 OMP 用量聚合/独立统计面板 |
 | MCP、skills、扩展 | 由 OMP 原生加载；网页没有 OMP 专属管理面板，custom TUI 请求明确取消 |
-| 原生 slash commands、队列/steer/follow-up、手动分支/压缩、后台任务面板 | 未开放，不借 Pi API 伪造这些能力 |
+| steer / followUp 队列、召回、停止清队 | 已接网页队列与原生中断/逐轮发送，支持文字和图片召回 |
+| 原生 slash commands、手动分支/压缩、后台任务面板 | 未开放，不借 Pi API 伪造这些能力 |
 
 历史读取有 **64 MiB** 上限，暂不分页；超限明确报错，不截断覆盖日志。只索引网页创建的 OMP 会话，不批量导入终端历史。网页/终端不能同时写同一日志；目前仅单服务 owner，不支持多服务实例共同管理原生进程，也不承诺重启后接回后台任务。
 
@@ -119,8 +122,10 @@ node harness/omp/client/browser-check.mjs
 
 - `omp.test.mjs`：分块/UTF-8/坏帧、元数据不泄密、原始 API/签名保留、启动期取消、原生有效分支。
 - `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、原生批准/取消/ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。未安装 18.3.0 时此项显式 skip。
-- `client/use-session.test.mjs`：trust、ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
-- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；同 Pi 模型列表、OMP 菜单、控件锁、审批、刷新、两轮、停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
+- `queue.test.mjs`：steer 优先、requestId 去重、终态边界、准备期间停止不复活队列、附件召回与断流收口。
+- `omp.integration.test.mjs` 另覆盖真实 CLI 的 steer→followUp 顺序、整个队列只结算一次及两种侧栏状态入口。
+- `client/use-session.test.mjs`：队列发送/召回、trust、ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
+- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；同 Pi 模型列表、OMP 菜单、控件锁、审批、刷新、两轮、steer/排队/召回/停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
 - 公共回归覆盖 catalog 身份、旧 Pi 标签修复、trust、模型加载、原有 harness 运行路径。
 - `npm pack --dry-run` 确认扩展包含在发布包；打包探针把扩展复制到无仓库 `node_modules` 祖先的临时目录，真实 CLI 仍能加载 OMP 自带模型 SDK；未进行推理。
 

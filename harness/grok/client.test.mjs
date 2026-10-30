@@ -44,6 +44,7 @@ function setup(t) {
     return Response.json({ sessionId: url.split("/").at(-1).split("?")[0], filePath: "/native/chat_history.jsonl", tree: [], leafId: null, context: { messages: server.history, entryIds: [], oldestEntryId: null, hasMore: false, turnsBefore: 0, thinkingLevel: "off", model: { provider: "grok", modelId: "grok-test" } } });
   };
   const hook = renderHook(useAgentSession, {
+    t: (key) => key,
     harness: "grok", harnessModel: { provider: "grok", modelId: "grok-test" }, session: null,
     newSessionCwd: "/project", newSessionDraftKey: "new:grok-test",
     chatInputRef: { current: { rekeyDraft() {}, restoreSubmission: (...args) => restored.push(args), prependText: (text) => restored.push([text]) } },
@@ -119,7 +120,6 @@ test("the composer exposes Grok streaming controls", () => {
   const expression = /const supportsStreamingPrompts = (.+);/.exec(source)?.[1];
   assert.ok(expression);
   const supports = new Function("composerHarness", "foreignHarness", `return ${expression};`);
-  assert.equal(supports("grok", true), true);
-  assert.equal(supports("pi", false), true);
+  for (const harness of ["pi", "claude-code", "dsh", "grok", "omp"]) assert.equal(supports(harness, harness !== "pi"), true);
   assert.equal(supports("unsupported", true), false);
 });

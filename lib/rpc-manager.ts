@@ -349,6 +349,7 @@ export class AgentSessionWrapper {
   private extensionWidgetGenerations = new Map<string, number>();
   private extensionWidgetsResetting = false;
   private pendingPromptCount = 0;
+  private promptStopGeneration = 0;
   // Prompts waiting for the running compaction to finish (ParkedPrompt above).
   private parkedDuringCompaction: ParkedPrompt[] = [];
   private activeMutatingCommands = 0;
@@ -619,6 +620,38 @@ export class AgentSessionWrapper {
     if (parked.some((entry) => entry.streamingBehavior === undefined)) this.emit({ type: "prompt_done", aborted: true });
     const images = parked.flatMap((entry) => entry.images ?? []).map(({ data, mimeType }) => ({ data, mimeType }));
     return { ...this.parkedQueueMessages(parked), ...(images.length ? { images } : {}) };
+  }
+
+  /** Recall native queues and compaction-parked prompts through the same Stop/Recall path. */
+  private recallQueuedPrompts(): RecalledPrompts {
+    const agent = this.inner.agent;
+    const images: Array<{ data: string; mimeType: string }> = [];
+    if (agent.peekQueuedMessages && agent.clearSteeringQueue) {
+      const { steeringMode, followUpMode } = agent;
+      try {
+        // Preview both full queues before clearing them. No await: the loop cannot drain mid-recall.
+        agent.steeringMode = agent.followUpMode = "all";
+        const steering = agent.peekQueuedMessages();
+        agent.clearSteeringQueue();
+        for (const message of [...steering, ...agent.peekQueuedMessages()]) {
+          if (message.role !== "user" || !Array.isArray(message.content)) continue;
+          for (const block of message.content) {
+            if (block.type === "image") images.push({ data: block.data, mimeType: block.mimeType });
+          }
+        }
+      } finally {
+        agent.steeringMode = steeringMode;
+        agent.followUpMode = followUpMode;
+      }
+    }
+    const cleared = this.inner.clearQueue();
+    const recalled = this.recallParkedPrompts();
+    images.push(...(recalled.images ?? []));
+    return {
+      steering: [...cleared.steering, ...recalled.steering],
+      followUp: [...cleared.followUp, ...recalled.followUp],
+      ...(images.length ? { images } : {}),
+    };
   }
 
   /**
@@ -995,6 +1028,7 @@ export class AgentSessionWrapper {
 
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
+    const stopGeneration = this.promptStopGeneration;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {
       throw new Error("Session is being copied to a new session");
@@ -1017,6 +1051,7 @@ export class AgentSessionWrapper {
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
+        if (this.forceShutdownOnIdle || stopGeneration !== this.promptStopGeneration) throw new Error("Session is stopping; wait before sending another prompt");
       }
       // A session whose folder was deleted outside pi-web stays readable, but a
       // run there would reach the model only for its tools to fail (and `write`
@@ -1033,6 +1068,7 @@ export class AgentSessionWrapper {
         // this submission starts a run or joins its streaming queue.
         const releaseAdmission = await this.acquirePromptAdmission();
         try {
+          if (this.forceShutdownOnIdle || stopGeneration !== this.promptStopGeneration) throw new Error("Session is stopping; wait before sending another prompt");
           if (this.inner.isBashRunning) {
             throw new Error("Cannot send a prompt while a shell command is running");
           }
@@ -1120,9 +1156,18 @@ export class AgentSessionWrapper {
               source: "rpc",
               // Match pi's RPC contract: acknowledge only after synchronous prompt
               // validation and extension preflight have accepted the submission.
-              // Every disposition (handled, queued, started) is an acceptance; a
-              // rejected prompt never calls this and rejects `prompt` instead.
-              preflightResult: () => acceptPreflight(),
+              // Accept every disposition unless Stop cancelled an asynchronous preflight.
+              preflightResult: (disposition) => {
+                if ((this.forceShutdownOnIdle || stopGeneration !== this.promptStopGeneration) && disposition !== "handled") {
+                  // An async input handler may finish after Stop cleared the native queues.
+                  this.recallQueuedPrompts();
+                  // SDK acceptance callbacks must not throw: that strands its starting-run lock.
+                  void this.inner.abort().catch((error) => console.error("[pi-web] late prompt abort failed:", error));
+                  rejectPreflight(new Error("Session is stopping; this prompt was not sent"));
+                  return;
+                }
+                acceptPreflight();
+              },
             });
           } catch (error) {
             finishPrompt();
@@ -1182,6 +1227,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort": {
+        this.promptStopGeneration += 1;
         this.forceShutdownOnIdle = true;
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
@@ -1197,7 +1243,7 @@ export class AgentSessionWrapper {
         // Stop ends the compaction, whose end would send the parked prompts:
         // they go back to the composer instead, as the TUI's abort restores
         // queued messages to the editor.
-        const recalled = this.recallParkedPrompts();
+        const recalled = this.recallQueuedPrompts();
         try {
           await this.withFinalIdleReset(() => this.inner.abort());
           return recalled.steering.length || recalled.followUp.length ? recalled : null;
@@ -1438,26 +1484,28 @@ export class AgentSessionWrapper {
         // Full clear only: pi has no single-item dequeue, and clear+requeue
         // races against the agent loop pulling messages mid-flight. Prompts
         // parked during compaction come back too, as the TUI's clearAllQueues().
-        const cleared = this.inner.clearQueue();
-        if (this.parkedDuringCompaction.length === 0) return cleared;
-        const recalled = this.recallParkedPrompts();
-        return {
-          steering: [...cleared.steering, ...recalled.steering],
-          followUp: [...cleared.followUp, ...recalled.followUp],
-          ...(recalled.images ? { images: recalled.images } : {}),
-        };
+        return this.recallQueuedPrompts();
       }
 
-      case "steer": {
-        const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
-        return null;
-      }
-
+      case "steer":
       case "follow_up": {
-        const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
-        await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
-        return null;
+        this.pendingPromptCount += 1;
+        const releaseAdmission = await this.acquirePromptAdmission();
+        try {
+          if (this.forceShutdownOnIdle || stopGeneration !== this.promptStopGeneration) throw new Error("Session is stopping; wait before sending another prompt");
+          const images = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+          if (type === "steer") await this.inner.steer(command.message as string, images?.length ? images : undefined);
+          else await this.inner.followUp(command.message as string, images?.length ? images : undefined);
+          if (stopGeneration !== this.promptStopGeneration) {
+            this.recallQueuedPrompts();
+            throw new Error("Session is stopping; this prompt was not queued");
+          }
+          return null;
+        } finally {
+          this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
+          releaseAdmission();
+          this.resetIdleTimer();
+        }
       }
 
       case "get_tools": {

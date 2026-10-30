@@ -954,7 +954,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const foreignHarness = composerHarness !== "pi";
   const sharedModelControls = composerHarness === "pi" || composerHarness === "omp";
-  const supportsStreamingPrompts = !foreignHarness || composerHarness === "claude-code" || composerHarness === "dsh" || composerHarness === "grok";
+  const supportsStreamingPrompts = ["pi", "claude-code", "dsh", "grok", "omp"].includes(composerHarness);
   // The pi file's model is the one this chat will send. A catalog pair left
   // over from another harness must not stay on the row.
   useEffect(() => {

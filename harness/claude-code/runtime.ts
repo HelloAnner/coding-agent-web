@@ -38,6 +38,8 @@ class ClaudeRun {
   /** Prompts accepted while a turn runs; written to the CLI one turn at a time. */
   private queued: { steering: ClaudeQueuedMessage[]; followUp: ClaudeQueuedMessage[] } = { steering: [], followUp: [] };
   private steerInterrupting = false;
+  private promptWritten = false;
+  get pendingMessageCount(): number { return this.queued.steering.length + this.queued.followUp.length; }
 
   constructor(readonly id: string) {}
   get streamingMessage() { return this.mapper?.message ?? null; }
@@ -51,7 +53,7 @@ class ClaudeRun {
     listener(this.queueUpdate());
     return () => {
       this.subscribers.delete(listener);
-      if (!this.child && !this.isStreaming && !this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
+      if (!this.child && !this.isStreaming && !this.pendingMessageCount && !this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
     };
   }
   queuedMessages(): { steering: string[]; followUp: string[] } {
@@ -68,18 +70,19 @@ class ClaudeRun {
     this.publishQueue();
     // Steering is the only behavior that preempts work: the CLI's own interrupt
     // ends the turn, and the queue is written right after its result.
-    if (behavior === "steer" && this.isStreaming && this.child) this.interruptForSteer();
+    if (behavior === "steer" && this.isStreaming && this.promptWritten) this.interruptForSteer();
   }
-  clearQueue(): { steering: string[]; followUp: string[] } {
+  clearQueue() {
     const cleared = this.queuedMessages();
+    const images = [...this.queued.steering, ...this.queued.followUp].flatMap((message) => message.images);
     this.queued = { steering: [], followUp: [] };
     this.publishQueue();
-    return cleared;
+    return { ...cleared, ...(images.length ? { images } : {}) };
   }
   private interruptForSteer(): void {
     if (this.steerInterrupting) return;
     this.steerInterrupting = true;
-    void this.request({ subtype: "interrupt" }).catch(() => { this.steerInterrupting = false; });
+    this.interruptTurn();
   }
   publish(event: AgentEventLike): void {
     for (const listener of this.subscribers) { try { listener(event); } catch { /* a broken browser must not stop the CLI */ } }
@@ -145,7 +148,7 @@ class ClaudeRun {
       if (this.child !== child || !line.trim()) return;
       let record: Record<string, unknown>;
       try { record = object(JSON.parse(line)); }
-      catch { this.settle("Claude Code emitted invalid stream-json"); this.close(); return; }
+      catch { this.invalidSession = true; this.settle("Claude Code emitted invalid stream-json"); this.close(false); return; }
       this.receive(record);
     });
     child.stderr.setEncoding("utf8");
@@ -159,7 +162,7 @@ class ClaudeRun {
       if (this.isStreaming) this.settle(this.aborted ? undefined : this.redact(this.stderr.trim().split("\n").at(-1) || reason));
       for (const id of [...this.inputs.keys()]) this.removeInput(id);
       this.tasks.disconnect();
-      if (!this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
+      if (!this.pendingMessageCount && !this.subscribers.size && registry().runs.get(this.id) === this) registry().runs.delete(this.id);
     };
     child.on("error", (error) => closed(`Claude Code could not start: ${error.message}`));
     child.on("close", (code) => closed(`Claude Code exited before completing the turn (${code})`));
@@ -175,7 +178,7 @@ class ClaudeRun {
       const error = "Claude Code changed its native session identity. Start a new chat; this web session will not follow a different UUID.";
       if (this.isStreaming) this.settle(error);
       else this.publish({ type: "prompt_error", errorMessage: error });
-      this.close();
+      this.close(false);
       return;
     }
     if (record.type === "control_response") {
@@ -272,6 +275,7 @@ class ClaudeRun {
     this.isStreaming = true;
     this.aborted = false;
     this.mapper = new ClaudeEventMapper((event) => this.publish(event));
+    this.promptWritten = false;
     this.publish({ type: "agent_start" });
   }
   writeUserMessage(message: ClaudeQueuedMessage, announce: boolean): void {
@@ -280,6 +284,8 @@ class ClaudeRun {
       ...(message.text.trim() ? [{ type: "text", text: message.text }] : []),
       ...imageBlocks,
     ] } });
+    this.promptWritten = true;
+    if (this.queued.steering.length && !this.aborted) this.interruptForSteer();
     // Queued prompts have no optimistic bubble: publish the delivery so the
     // message shows up when its own turn starts, not at the end of the queue.
     if (!announce) return;
@@ -287,6 +293,8 @@ class ClaudeRun {
   }
   /** Write the next queued prompt and keep the run alive. At most one per turn. */
   private drainQueue(): boolean {
+    // A disconnected CLI cannot accept another message. Keep its queue available for Recall.
+    if (this.invalidSession || !this.child?.stdin.writable) return false;
     const next = this.queued.steering.shift() ?? this.queued.followUp.shift();
     if (!next) return false;
     this.publishQueue();
@@ -308,7 +316,7 @@ class ClaudeRun {
     if (!this.isStreaming) return;
     if (this.stopTimer) clearTimeout(this.stopTimer);
     this.stopTimer = null;
-    this.mapper?.finish(this.aborted);
+    this.mapper?.finish(this.aborted || this.steerInterrupting);
     this.isStreaming = false;
     // A steer interrupt ends the native turn with an error subtype on purpose;
     // the user asked for that boundary, so it is not a prompt failure.
@@ -328,7 +336,7 @@ class ClaudeRun {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       if (this.isStreaming) return;
-      if (this.backgroundTasks.size || this.inputs.size) this.scheduleIdle();
+      if (this.backgroundTasks.size || this.inputs.size || this.pendingMessageCount) this.scheduleIdle();
       else this.close();
     }, IDLE_MS);
     this.idleTimer.unref();
@@ -339,22 +347,26 @@ class ClaudeRun {
     const hadQueued = this.queued.steering.length + this.queued.followUp.length > 0;
     if (hadQueued) this.clearQueue();
     if (!this.isStreaming) return hadQueued;
+    if (this.aborted) return true;
     this.aborted = true;
-    if (!this.child) return true;
-    // The native host interrupt ends the current turn without discarding its session.
+    if (this.promptWritten) this.interruptTurn();
+    return true;
+  }
+  private interruptTurn(): void {
+    // Both Stop and Steer need the same bounded native interrupt and signal fallback.
     const child = this.child;
+    if (!child) return;
     const turn = this.mapper;
     const stillStopping = () => this.child === child && this.mapper === turn && this.isStreaming;
     void this.request({ subtype: "interrupt" }).catch(() => { if (stillStopping()) child.kill("SIGINT"); });
     this.stopTimer = setTimeout(() => { if (stillStopping()) child.kill("SIGINT"); }, 3000);
     this.stopTimer.unref();
-    setTimeout(() => { if (stillStopping()) this.close(); }, 8000).unref();
-    return true;
+    setTimeout(() => { if (stillStopping()) this.close(!this.steerInterrupting); }, 8000).unref();
   }
-  close(): void {
+  close(discardQueue = true): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.stopTimer) clearTimeout(this.stopTimer);
-    if (this.queued.steering.length + this.queued.followUp.length) this.clearQueue();
+    if (discardQueue && this.pendingMessageCount) this.clearQueue();
     const child = this.child;
     if (!child) return;
     if (this.isStreaming) { this.aborted = true; child.kill("SIGINT"); }
@@ -389,7 +401,7 @@ export function claudeState(id: string) {
   const run = registry().runs.get(id);
   const queued = run?.queuedMessages();
   return {
-    running: Boolean(run?.isStreaming || run?.tasks.hasActivity || run?.inputs.size || queued?.steering.length || queued?.followUp.length),
+    running: Boolean(run?.isStreaming || run?.tasks.hasActivity || run?.inputs.size),
     state: { isStreaming: Boolean(run?.isStreaming), isPromptRunning: false, queuedMessages: queued ?? { steering: [], followUp: [] } },
   };
 }
@@ -410,7 +422,7 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
   // A steer or follow-up that races the end of a turn is simply the next turn:
   // the CLI is already idle, so there is nothing to queue against.
   if (run.isStreaming) {
-    if (!prompt.streamingBehavior) throw new Error("Claude Code is already answering in this session");
+    if (!prompt.streamingBehavior || run.aborted) throw new Error("Claude Code is already answering or stopping in this session");
     run.enqueue(prompt.streamingBehavior, message);
     return { sessionPath: claudeTranscriptFile(profile.configDir, prompt.id) ?? "", provider: profile.provider, model: profile.id, queued: true };
   }
@@ -423,7 +435,7 @@ export async function sendClaudePrompt(prompt: { id: string; cwd: string; profil
     // the harness setting, not the conversation's file.
     const sessionPath = claudeTranscriptFile(profile.configDir, prompt.id) ?? "";
     upsertCatalogSession({ id: prompt.id, cwd, harness: "claude-code", provider: profile.provider, model: profile.id, title: existing?.title || prompt.text.trim().slice(0, 100) || profile.name, sessionPath, profilePath: profile.configDir });
-    run.writeUserMessage(message, false);
+    run.writeUserMessage(message, prompt.streamingBehavior !== undefined);
     return { sessionPath: sessionPath, provider: profile.provider, model: profile.id };
   } catch (error) {
     if (run.mapper === turn) run.settle();
