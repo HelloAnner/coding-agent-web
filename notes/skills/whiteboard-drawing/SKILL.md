@@ -1,6 +1,6 @@
 ---
 name: whiteboard-drawing
-description: 用 notes_board 工具的规则：形状字段、坐标、追加和重画。画架构图、流程图、概念图之前用，风格按 whiteboard-style 执行。
+description: 用 notes_board 工具的规则：形状字段、坐标、追加和重画。画架构图、流程图、概念图之前用，风格按 excalidraw-diagram 执行。
 ---
 
 # 画白板：工具规则
@@ -9,7 +9,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 
 改已有的白板之前，先用 `notes_board` `action: "read"` 读它现在的元素（每行一个：类型、坐标、尺寸、文字）。用户可能自己手改过，以读到的为准。
 
-风格（几个节点、多大字、怎么留白）不在这里，先读 `whiteboard-style`。
+风格（概念怎么配模式、多大字、怎么留白、怎么上色）不在这里，先读 `excalidraw-diagram`。
 
 ## 形状
 
@@ -22,7 +22,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 | `arrow` | 有方向的流向，用 `to` 给终点 | — |
 | `line` | 分隔线、无方向的连接，用 `to` 给终点 | — |
 
-`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16，标题 20~28，说明和旁注 13~14）。**形状默认就落在语义色板的基调上**（fill `#e8ecf7` + stroke `#263d8f`）；换语义就按 `whiteboard-style` 的色板成对换，不要只换一个；旁注、标签、箭头短语保持 `transparent`。线条是 `roughness 0`、`opacity 100`，不要手绘感。
+`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16，标题 20~28，说明和旁注 13~14）。**形状默认就落在语义色板的基调上**（fill `#e8ecf7` + stroke `#263d8f`）；换语义就按 `excalidraw-diagram` 的色板成对换，不要只换一个；旁注、标签、箭头短语保持 `transparent`。线条是 `roughness 0`、`opacity 100`，不要手绘感。
 
 ## 坐标
 

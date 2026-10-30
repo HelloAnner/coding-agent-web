@@ -27,7 +27,7 @@ export interface BoardShape {
 }
 
 // 主体/中性的语义色对：没显式给颜色的形状也落在色板的基调上，
-// 不会出现一块纯白框（见 notes/skills/whiteboard-style/references/color-palette.md）。
+// 不会出现一块纯白框（见 notes/skills/excalidraw-diagram/references/color-palette.md）。
 const STROKE = "#263d8f";
 const FILL = "#e8ecf7";
 // 字压在浅色填充上：用色板里的 on-light 文字色，不用描边色。

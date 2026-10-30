@@ -33,7 +33,7 @@ ${focus.trim()}
 
 - 先 notes_board action=read ${boardPath}，看现有元素、坐标和留白，不要凭记忆。
 - replace=true 重画时，把用户手改过的文字、坐标和要保留的旧元素一起重画进去。
-- whiteboard-style 和 whiteboard-drawing 的完整规则已在本次提示词里，无需另读文件。需要配色细节时可以 read notes/skills/whiteboard-style/references/color-palette.md。绘图时必须调用 notes_board action=draw。
+- excalidraw-diagram 和 whiteboard-drawing 的完整规则已在本次提示词里，无需另读文件。需要模板和完整色板时 read notes/skills/excalidraw-diagram/references/ 下的文件。绘图时必须调用 notes_board action=draw。
 
 做完用两三句话说：改了什么；或者为什么没改。`;
 }
@@ -77,7 +77,7 @@ export async function digestSession(
 
     const { session } = await createNotesSession({
       systemPrompt: sessionDigestPrompt(boardPath, focus),
-      skills: ["whiteboard-style", "whiteboard-drawing"],
+      skills: ["excalidraw-diagram", "whiteboard-drawing"],
       tools: ["notes_board", "read"],
       onlyBoard: boardPath,
     });

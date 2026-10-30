@@ -78,11 +78,16 @@ test("a new board only lands in a folder that already exists", async () => {
 test("every drawing skill JSON example really draws instead of silently reading", async () => {
   const target = "已有/技能示例.excalidraw";
   await notes.createItem("已有", "技能示例", "board");
-  for (const name of ["whiteboard-style", "whiteboard-drawing"]) {
+  let calls = 0;
+  for (const name of ["excalidraw-diagram", "whiteboard-drawing"]) {
     const source = await readFile(path.join(process.cwd(), "notes", "skills", name, "SKILL.md"), "utf8");
-    const examples = [...source.matchAll(/```json\n([\s\S]*?)\n```/g)];
-    assert.ok(examples.length > 0, `${name} must have a runnable example`);
-    for (const [, json] of examples) {
+    // Element templates and scene fragments inside a skill are not tool calls;
+    // only a block carrying a board path is one, and that block must draw.
+    const examples = [...source.matchAll(/```json\n([\s\S]*?)\n```/g)]
+      .map(([, json]) => json)
+      .filter((json) => { try { return "path" in JSON.parse(json); } catch { return false; } });
+    for (const json of examples) {
+      calls += 1;
       const params = JSON.parse(json);
       assert.equal(params.action, "draw", `${name} must explicitly request drawing`);
       const result = await run(board, { ...params, path: target });
@@ -90,6 +95,7 @@ test("every drawing skill JSON example really draws instead of silently reading"
       assert.ok(JSON.parse((await notes.readItem(target)).content).elements.length > 0);
     }
   }
+  assert.ok(calls > 0, "some drawing skill must show a runnable notes_board call");
 });
 
 test("the tree tool lists the vault", async () => {

@@ -44,13 +44,13 @@ const { defaultNotesSettings, writeNotesSettings } = await jiti.import("./settin
 test("a board-only session receives drawing skill bodies without a file reader", async (t) => {
   const { session } = await createNotesSession({
     systemPrompt: sessionDigestPrompt("方案.excalidraw", "画出最终方案"),
-    skills: ["whiteboard-style", "whiteboard-drawing"],
+    skills: ["excalidraw-diagram", "whiteboard-drawing"],
     tools: ["notes_board"],
     onlyBoard: "方案.excalidraw",
   });
   t.after(() => session.dispose());
   assert.deepEqual(session.getActiveToolNames(), ["notes_board"]);
-  for (const name of ["whiteboard-style", "whiteboard-drawing"]) {
+  for (const name of ["excalidraw-diagram", "whiteboard-drawing"]) {
     const body = await readFile(path.join(process.cwd(), "notes", "skills", name, "SKILL.md"), "utf8");
     assert.ok(session.systemPrompt.includes(body), `${name} must be readable in the prompt itself`);
   }
@@ -65,7 +65,7 @@ test("notes inherits global model defaults in memory, not vault or coding resour
   assert.equal(modelLabel, "notes-test/preferred");
   assert.equal(session.thinkingLevel, "low");
   assert.deepEqual(session.getActiveToolNames(), []);
-  assert.doesNotMatch(session.systemPrompt, /name: whiteboard-/);
+  assert.doesNotMatch(session.systemPrompt, /name: (whiteboard|excalidraw)-/);
   assert.equal(session.settingsManager.getGlobalSettings().packages, undefined);
   assert.equal(session.settingsManager.getGlobalSettings().defaultTools, undefined);
   session.settingsManager.setDefaultModel("memory-only");
@@ -83,6 +83,8 @@ test("an explicitly configured notes model still takes precedence", async (t) =>
   assert.equal(session.model?.id, "custom");
   assert.equal(modelLabel, "notes/custom");
   assert.match(session.systemPrompt, /<available_skills>/);
-  assert.doesNotMatch(session.systemPrompt, /name: whiteboard-style/);
+  // Skill bodies are always inlined: a run that may not read files still gets
+  // the rules, so the reference-only path never loses the style.
+  assert.match(session.systemPrompt, /name: excalidraw-diagram/);
   assert.equal(await readFile(settingsPath, "utf8"), globalSettings);
 });

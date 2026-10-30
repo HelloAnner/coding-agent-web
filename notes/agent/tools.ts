@@ -164,7 +164,7 @@ export function notesAgentTools(board: NotesBoardSettings, options: { onlyBoard?
     defineTool({
       name: NOTES_BOARD_TOOL,
       label: "白板",
-      description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill whiteboard-style。",
+      description: "一块 Excalidraw 白板的读取和绘制。action=read（默认）先看白板上现在有什么：每行一个元素，带类型、坐标、尺寸和文字；action=draw 给一组 rectangle / ellipse / diamond / text / arrow / line 画上去，默认追加，replace=true 则清空重画。文字字体和字号来自笔记设置。风格见 skill excalidraw-diagram。",
       promptSnippet: "Read or draw an Excalidraw whiteboard in the vault",
       promptGuidelines: [
         "Read every same-topic board with notes_board action=read before changing one: the user edits boards by hand.",

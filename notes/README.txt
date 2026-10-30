@@ -51,7 +51,7 @@ Coding 的 @ 联动
 白板偏好（对齐 coleam00/excalidraw-diagram-skill）
   - 新元素：Cascadia 等宽字体、20px、语义色板（fill #e8ecf7 / stroke #263d8f）、
     strokeWidth 2、roughness 0、round 圆角、round 箭头；色板见
-    notes/skills/whiteboard-style/references/color-palette.md
+    notes/skills/excalidraw-diagram/references/color-palette.md
   - 画布背景 #ffffff；语言 zh-CN
   - 隐藏导出 / 载入场景 / 存图片 / 切换主题等画布菜单
   - 深色界面用 JetBrains Mono 与洋红主题，见 notes.css
@@ -82,7 +82,8 @@ Agent 内核（pi）
 
   内置技能
     note-writing          笔记结构：结论先行、删掉空小节
-    whiteboard-style      白板风格：先一句话主张、按概念选构图、留白、只画核心关系
+    excalidraw-diagram    白板风格：整体抄 coleam00/excalidraw-diagram-skill（论证优先、
+                          多缩放、证据块、容器纪律、模式库、语义色板、roughness 0）
                           借鉴 excalidraw-diagram-skill 的方法：同构检验、构图模式表、
                           容器纪律、留白即权重、画完核坐标
     whiteboard-drawing    notes_board 的字段、坐标、追加和重画规则
@@ -146,5 +147,5 @@ Agent 内核（pi）
 白板偏好（可配置的部分）
   设置 -> 白板：字体（Excalidraw 内置 8 种）、字号（10~64）。
   不配时是 Cascadia、20px；描边 #1b1b1f、细实线、round 圆角、白底是固定默认。
-  想要截图那种手写感：字体选 Excalifont 或 Virgil，字号 16~18，画法按 whiteboard-style。
+  想要手写感：字体选 Excalifont 或 Virgil，字号 16~18，元素 roughness 用 1（默认 0）。
   notes_board 的形状：rectangle / ellipse / diamond / text / arrow / line。
