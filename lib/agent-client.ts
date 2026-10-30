@@ -44,19 +44,19 @@ export async function sendAgentCommand<T = unknown>(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(command),
   });
-  const body = (await res.json().catch(() => ({}))) as {
+  const body = (await res.json().catch(() => null)) as {
     success?: boolean;
     data?: T;
     error?: string;
     code?: string;
     accepted?: boolean;
-  };
-  if (!res.ok || body.error) {
+  } | null;
+  if (!res.ok || body?.error || body?.success !== true) {
     throw new AgentCommandError(
-      body.error ?? `HTTP ${res.status}`,
+      body?.error ?? (res.ok ? "Invalid response from agent" : `HTTP ${res.status}`),
       res.status,
-      body.code,
-      body.accepted,
+      body?.code,
+      body?.accepted,
     );
   }
   return body.data as T;

@@ -697,6 +697,8 @@ export const enLocale: LocalePlugin = {
     "chat.dropAlreadyExists": "Already in the working directory and not replaced; the mention points to the existing file: {names}",
     "chat.dropFoldersUnsupported": "Folders cannot be dropped here; drop the files inside instead: {names}",
     "chat.dropFailed": "Upload failed: {message}",
+    "chat.sendUnconfirmed": "Couldn't confirm the message was sent. Its text is back in the input box: check the conversation before sending it again.",
+    "chat.sendNotReceived": "The message did not reach the server. Its text is back in the input box.",
     "chat.tokensSaved": "{saved} saved",
     "i18n.close": "Close",
     "i18n.copy": "Copy",
