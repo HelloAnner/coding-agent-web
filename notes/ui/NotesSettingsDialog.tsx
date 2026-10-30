@@ -39,6 +39,8 @@ export function NotesSettingsDialog({
   const [skills, setSkills] = useState<NotesAgentSkill[]>([]);
   const [fonts, setFonts] = useState<{ value: number; label: string }[]>([]);
   const [apiKeySet, setApiKeySet] = useState(false);
+  const [effective, setEffective] = useState<string | null>(null);
+  const [file, setFile] = useState<string | null>(null);
   const [draft, setDraft] = useState<NotesSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,10 +54,12 @@ export function NotesSettingsDialog({
     setSaved(false);
     fetch("/api/notes/settings", { cache: "no-store" })
       .then(async (response) => {
-        const body = await response.json() as { settings?: NotesSettings; apiKeySet?: boolean; skills?: NotesAgentSkill[]; fonts?: { value: number; label: string }[]; error?: string };
+        const body = await response.json() as { settings?: NotesSettings; apiKeySet?: boolean; effective?: string | null; file?: string; skills?: NotesAgentSkill[]; fonts?: { value: number; label: string }[]; error?: string };
         if (!response.ok || !body.settings) throw new Error(body.error || "读取设置失败");
         setDraft(body.settings);
         setApiKeySet(body.apiKeySet ?? false);
+        setEffective(body.effective ?? null);
+        setFile(body.file ?? null);
         setSkills(body.skills ?? []);
         setFonts(body.fonts ?? []);
       })
@@ -73,10 +77,11 @@ export function NotesSettingsDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agent: draft.agent, board: draft.board }),
       });
-      const body = await response.json() as { settings?: NotesSettings; apiKeySet?: boolean; skills?: NotesAgentSkill[]; error?: string };
+      const body = await response.json() as { settings?: NotesSettings; apiKeySet?: boolean; effective?: string | null; skills?: NotesAgentSkill[]; error?: string };
       if (!response.ok || !body.settings) throw new Error(body.error || "保存失败");
       setDraft(body.settings);
       setApiKeySet(body.apiKeySet ?? false);
+      setEffective(body.effective ?? null);
       setSkills(body.skills ?? []);
       setSaved(true);
       onSaved(body.settings);
@@ -126,12 +131,16 @@ export function NotesSettingsDialog({
               <p className="notes-settings-hint">
                 笔记 agent 用自己的模型。地址和模型留空时，直接用本机 pi 已经配好的默认模型。
               </p>
+              <p className="notes-settings-note">
+                当前生效：<strong>{effective ?? (agent.model ? `notes/${agent.model}` : "pi 默认模型")}</strong>
+              </p>
+              {file && <p className="notes-settings-note">配置文件：<code>{file}</code></p>}
               <div className="notes-settings-grid">
                 <ConfigField label="接口地址（Base URL）">
                   <input
                     className="notes-config-input"
                     value={agent.baseUrl}
-                    placeholder="https://api.deepseek.com/v1"
+                    placeholder="留空 = 用 pi 默认模型"
                     spellCheck={false}
                     onChange={(event) => setDraft({ ...draft, agent: { ...agent, baseUrl: event.target.value } })}
                   />
@@ -143,7 +152,7 @@ export function NotesSettingsDialog({
                     value={agent.apiKey}
                     placeholder={apiKeySet ? "已保存，留空表示不修改" : "sk-…（本地服务可留空）"}
                     spellCheck={false}
-                    autoComplete="off"
+                    autoComplete="new-password"
                     onChange={(event) => setDraft({ ...draft, agent: { ...agent, apiKey: event.target.value } })}
                   />
                 </ConfigField>
@@ -151,7 +160,7 @@ export function NotesSettingsDialog({
                   <input
                     className="notes-config-input"
                     value={agent.model}
-                    placeholder="deepseek-chat"
+                    placeholder="留空 = 用 pi 默认模型"
                     spellCheck={false}
                     onChange={(event) => setDraft({ ...draft, agent: { ...agent, model: event.target.value } })}
                   />

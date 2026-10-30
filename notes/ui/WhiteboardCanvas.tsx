@@ -20,10 +20,11 @@ type NormalizedTheme = "light" | "dark";
 function defaultAppState(board: NotesBoardSettings) {
   return {
     viewBackgroundColor: "#ffffff",
-    currentItemStrokeColor: "#1b1b1f",
-    currentItemStrokeWidth: 1,
+    currentItemBackgroundColor: "#e8ecf7",
+    currentItemStrokeColor: "#263d8f",
+    currentItemStrokeWidth: 2,
     currentItemStrokeStyle: "solid",
-    currentItemRoughness: 1,
+    currentItemRoughness: 0,
     currentItemRoundness: "round",
     currentItemArrowType: "round",
     currentItemStartArrowhead: null,

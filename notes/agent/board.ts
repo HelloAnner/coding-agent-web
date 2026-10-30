@@ -26,8 +26,12 @@ export interface BoardShape {
   fontSize?: number;
 }
 
-const STROKE = "#1b1b1f";
-const FILL = "transparent";
+// 主体/中性的语义色对：没显式给颜色的形状也落在色板的基调上，
+// 不会出现一块纯白框（见 notes/skills/whiteboard-style/references/color-palette.md）。
+const STROKE = "#263d8f";
+const FILL = "#e8ecf7";
+// 字压在浅色填充上：用色板里的 on-light 文字色，不用描边色。
+const TEXT = "#2d302e";
 const LINE_HEIGHT = 1.25;
 const DEFAULT_SIZE: Partial<Record<BoardShapeType, { width: number; height: number }>> = {
   rectangle: { width: 200, height: 100 },
@@ -71,7 +75,7 @@ function baseElement(type: string, x: number, y: number, width: number, height: 
     fillStyle: "solid",
     strokeWidth: 1,
     strokeStyle: "solid",
-    roughness: 1,
+    roughness: 0,
     opacity: 100,
     groupIds: [] as string[],
     frameId: null,
@@ -99,7 +103,7 @@ function textElement(
 ) {
   return {
     ...baseElement("text", x, y, width, height),
-    strokeColor: STROKE,
+    strokeColor: TEXT,
     backgroundColor: "transparent",
     roundness: null,
     text: label,
@@ -259,9 +263,10 @@ export function buildBoardScene(
     appState: {
       viewBackgroundColor: "#ffffff",
       currentItemStrokeColor: STROKE,
-      currentItemStrokeWidth: 1,
+      currentItemBackgroundColor: FILL,
+      currentItemStrokeWidth: 2,
       currentItemStrokeStyle: "solid",
-      currentItemRoughness: 1,
+      currentItemRoughness: 0,
       currentItemRoundness: "round",
       currentItemArrowType: "round",
       currentItemFontFamily: board.fontFamily,

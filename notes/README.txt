@@ -48,8 +48,10 @@ Coding 的 @ 联动
   该绝对路径渲染成带文件图标的 chip（lib/notes-mention-display.ts），
   不展示绝对路径。
 
-白板偏好（沿用 ~/Notes 里调好的设置）
-  - 新元素：Cascadia 等宽字体、20px、#1b1b1f 细实线、round 圆角、round 箭头
+白板偏好（对齐 coleam00/excalidraw-diagram-skill）
+  - 新元素：Cascadia 等宽字体、20px、语义色板（fill #e8ecf7 / stroke #263d8f）、
+    strokeWidth 2、roughness 0、round 圆角、round 箭头；色板见
+    notes/skills/whiteboard-style/references/color-palette.md
   - 画布背景 #ffffff；语言 zh-CN
   - 隐藏导出 / 载入场景 / 存图片 / 切换主题等画布菜单
   - 深色界面用 JetBrains Mono 与洋红主题，见 notes.css
