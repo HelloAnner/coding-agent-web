@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   accessNamesFrom,
   discoverAccessNames,
+  isAncestor,
   isLoopbackBind,
   mergeHostList,
   nextBuildArgs,
@@ -23,6 +24,16 @@ test("moves a restart to the build dir the running server is not serving", () =>
   assert.equal(otherDistDir(".next-common"), ".next-common-b");
   assert.equal(otherDistDir(".next-common-b"), ".next-common");
   assert.equal(otherDistDir("gone"), ".next-common");
+});
+
+test("sees the server as an ancestor when a restart runs under it", () => {
+  // 900 is the server, 300 the web terminal's shell, 200 make, 100 this process.
+  const tree = { 100: 200, 200: 300, 300: 900, 900: 1, 1: null };
+  const parentOf = (pid) => tree[pid] ?? null;
+  assert.equal(isAncestor(900, 100, parentOf), true);
+  assert.equal(isAncestor(900, 900, parentOf), false);
+  assert.equal(isAncestor(555, 100, parentOf), false);
+  assert.equal(isAncestor(1, 100, parentOf), true);
 });
 
 test("probes loopback when the bind address is every interface", () => {

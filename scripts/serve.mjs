@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = path.join(root, ".run");
 const pidFile = path.join(runDir, "server.pid");
 const logFile = path.join(runDir, "server.log");
+const restartLogFile = path.join(runDir, "restart.log");
 const envFile = path.join(root, ".env.local");
 // Two build dirs, alternating. A restart compiles into the one the running
 // server is not serving from, so the live app is untouched while webpack runs
@@ -161,6 +162,23 @@ export function discoverAccessNames(run = commandOutput) {
     localHostName,
     tailscaleDnsName,
   });
+}
+
+function ppidOf(pid) {
+  const value = Number(commandOutput("ps", ["-o", "ppid=", "-p", String(pid)]));
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+// Walking up from our own pid. The web terminal is a shell started by the
+// server, so a restart typed there runs underneath the process it is about to
+// stop: the build and the swap would die with it, halfway through.
+export function isAncestor(pid, from = process.pid, parentOf = ppidOf) {
+  let current = parentOf(from);
+  for (let step = 0; current && step < 32; step += 1) {
+    if (current === pid) return true;
+    current = parentOf(current);
+  }
+  return false;
 }
 
 function sleep(ms) {
@@ -406,6 +424,23 @@ async function restart() {
   console.log(`downtime ${seconds(swappingAt)}`);
 }
 
+// Same work, detached into its own session, for the case where the caller is
+// about to be stopped along with the server. Returns at once; the log says how
+// the build went and the caller's terminal stays usable until the swap.
+function restartDetached() {
+  fs.mkdirSync(runDir, { recursive: true });
+  const logFd = fs.openSync(restartLogFile, "w");
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "restart", "--detached"], {
+    cwd: root,
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+  });
+  fs.closeSync(logFd);
+  child.unref();
+  console.log(`restarting from pid ${child.pid}`);
+  console.log(`log ${path.relative(root, restartLogFile)}`);
+}
+
 async function stop() {
   const pid = readPid();
   if (!pid || !pidAlive(pid)) {
@@ -437,7 +472,9 @@ if (invokedDirectly) {
   } else if (command === "stop") {
     await stop();
   } else if (command === "restart") {
-    await restart();
+    const serverPid = readPid();
+    if (process.argv[3] === "--detached" || !serverPid || !isAncestor(serverPid)) await restart();
+    else restartDetached();
   } else {
     console.error("usage: node scripts/serve.mjs start|stop|restart");
     process.exit(1);
