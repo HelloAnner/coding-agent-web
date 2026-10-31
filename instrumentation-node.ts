@@ -31,6 +31,11 @@ export function registerNodeInstrumentation(): void {
   import("@/lib/catalog-sync")
     .then(({ repairCatalogSessionPaths }) => repairCatalogSessionPaths())
     .catch(() => {});
+  // Prompts accepted before the last stop: send again the ones the session file
+  // does not already hold, so a restart mid-run does not eat a queued message.
+  import("@/lib/prompt-intake")
+    .then(({ resumeOpenIntake }) => resumeOpenIntake())
+    .catch((error: unknown) => console.error("[coding-agent-web] Could not resume pending prompts:", error));
   // In production Next 16 answers SIGINT/SIGTERM with server.close() and waits
   // for every connection to end, without a timeout. SSE streams only end when
   // the client disconnects, so close them here or the process never exits.

@@ -1,0 +1,66 @@
+页面只是触发器
+================
+
+run、队列、图片都在 server 进程里。关页面、关电脑不影响。
+server 只有死了（restart、崩、重启机器）才会丢东西。
+
+已经成立的部分
+--------------
+
+回车 -> POST /api/agent/<id> -> server 里的 pi 会话 -> 队列 -> 模型。
+
+页面断开只摘掉一个监听者，不碰 run：
+
+    lib/agent-event-stream.ts   req.signal abort -> cleanup(listener)
+    lib/rpc-manager.ts          空闲回收前先问 isRunning()
+                                isRunning = 排队数 + 正在流式 + 压缩 + bash
+
+所以关掉浏览器，run 继续跑，跑完写进 pi 的会话 JSONL。再打开页面读 JSONL。
+重启机器同理，只是进程被挂起再恢复。
+
+真正的缺口：内存里的队列
+----------------------
+
+排队中的消息和还没交付的 steer 只在 pi 进程内存里。JSONL 只在交付后才有。
+所以 restart 或崩在两步之间，那条消息就没了，谁也不记得过。
+
+补的一层：intake 日志
+--------------------
+
+回车时先落盘，再交给 pi。交付证据是 JSONL 里出现同一条用户消息。
+
+```
+POST prompt
+    |
+    +-- intake 行（open，含图片文件）      ~/.coding-agent-web/intake/
+    |       files/<id>/0.png  ...
+    +-- pi send()（排队或直接跑）
+    |       |
+    |       +-- 报错 -> 删行删文件（草稿还在页面里）
+    |       +-- 接收 -> handed_at
+    |
+    +-- JSONL 出现这条用户消息 -> 删行删文件（已交付，无可恢复）
+
+server 启动
+    |
+    +-- 每条 open 行
+            +-- 会话文件没了          删行
+            +-- JSONL 已有同文本      删行（不重复发）
+            +-- 否则                  startRpcSession 再发一次，算一次尝试
+```
+
+数据落在 ~/.coding-agent-web/intake/intake.db（sqlite，WAL）。
+CODING_AGENT_WEB_INTAKE_DIR 可以换目录。
+
+边界
+----
+
+- 只记普通 prompt、steer、followUp。"/" 开头的命令和 "!" 开头的 shell 行
+  在 harness 里跑，不会变成用户消息，重放等于跑两遍，所以不记。
+- 重启后 steer / followUp 按普通 prompt 重发：它原来要插进去的那个 run 已经没了，
+  历史还在。
+- 判断靠文本比对（空白归一）。崩溃点恰好落在"交付了但 JSONL 还没写"，
+  重放会产生一条重复的用户消息。宁可重复，不可丢。
+- 同一条消息最多重发 3 次，失败 3 次就删行并打日志。
+- 图片仍以 base64 走请求体；落盘是为了恢复时能重新拼出 prompt。
+  一张 10MB、十条上限，写盘是瞬时的额外开销。
