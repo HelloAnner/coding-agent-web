@@ -313,6 +313,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.hidePanel": "隐藏文件面板",
     "files.showPanel": "显示文件面板",
     "files.noneOpen": "没有打开的文件",
+    "files.backToChat": "返回对话",
     "layout.resizeSidebar": "调整侧边栏宽度",
     "layout.resizeFilePanel": "调整文件面板宽度",
     "layout.resizeFileBrowser": "调整文件浏览器宽度",

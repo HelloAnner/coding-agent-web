@@ -313,6 +313,7 @@ export const enLocale: LocalePlugin = {
     "files.hidePanel": "Hide file panel",
     "files.showPanel": "Show file panel",
     "files.noneOpen": "No file open",
+    "files.backToChat": "Back to chat",
     "layout.resizeSidebar": "Resize sidebar",
     "layout.resizeFilePanel": "Resize file panel",
     "layout.resizeFileBrowser": "Resize file browser",

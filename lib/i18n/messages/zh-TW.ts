@@ -313,6 +313,7 @@ export const zhTWLocale: LocalePlugin = {
     "files.hidePanel": "隱藏檔案面板",
     "files.showPanel": "顯示檔案面板",
     "files.noneOpen": "沒有開啟的檔案",
+    "files.backToChat": "返回對話",
     "layout.resizeSidebar": "調整側邊欄寬度",
     "layout.resizeFilePanel": "調整檔案面板寬度",
     "layout.resizeFileBrowser": "調整檔案瀏覽器寬度",
