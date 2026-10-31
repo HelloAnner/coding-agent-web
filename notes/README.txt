@@ -53,7 +53,9 @@ Coding 的 @ 联动
     strokeWidth 2、roughness 0、round 圆角、round 箭头；色板见
     notes/skills/excalidraw-diagram/references/color-palette.md
   - 画布背景 #ffffff；语言 zh-CN
-  - 隐藏导出 / 载入场景 / 存图片 / 切换主题等画布菜单
+  - 画布菜单只留「导出图片…」（左上角菜单 → 导出图片）：PNG / SVG / 复制到剪贴板，
+    可选仅选中、背景、深色模式、包含画布数据、缩放 1×/2×/3×；
+    JSON 导出、载入场景、切换主题仍隐藏
   - 深色界面用 JetBrains Mono 与洋红主题，见 notes.css
 
 边界

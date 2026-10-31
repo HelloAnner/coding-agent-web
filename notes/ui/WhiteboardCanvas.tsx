@@ -153,7 +153,10 @@ function WhiteboardCanvas({
         theme={theme}
         autoFocus
         UIOptions={{
-          canvasActions: { export: false, loadScene: false, saveAsImage: false, toggleTheme: false },
+          // Save-as-image stays on: a scene lives only in this app, and that
+          // dialog is the one way to get a PNG/SVG out of it. The rest of the
+          // canvas menu (JSON export, load scene, theme) stays hidden.
+          canvasActions: { export: false, loadScene: false, saveAsImage: true, toggleTheme: false },
         }}
         renderTopRightUI={renderShapesTrigger}
         onChange={handleChange}
