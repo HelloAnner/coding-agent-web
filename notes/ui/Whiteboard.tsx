@@ -14,6 +14,11 @@ const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
 const AUTOSAVE_MS = 700;
 const VIEW_SAVE_MS = 600;
 
+/** A board's title: its file name without the extension, used for downloads. */
+function boardName(path: string): string {
+  return (path.split("/").pop() ?? path).replace(/\.excalidraw$/i, "");
+}
+
 /** A stored board: fetch its scene, autosave Excalidraw's serialized JSON. */
 export function Whiteboard({
   path,
@@ -242,6 +247,7 @@ export function Whiteboard({
       view={view}
       theme={isDark ? "dark" : "light"}
       board={board}
+      name={boardName(path)}
       onChange={handleChange}
       onViewChange={handleViewChange}
     />

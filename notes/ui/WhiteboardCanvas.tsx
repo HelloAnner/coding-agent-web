@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type Component
 import {
   CaptureUpdateAction,
   Excalidraw,
+  exportToBlob,
   restoreElements,
   serializeAsJSON,
 } from "@excalidraw/excalidraw";
@@ -74,6 +75,7 @@ function WhiteboardCanvas({
   view,
   theme,
   board,
+  name,
   onChange,
   onViewChange,
 }: {
@@ -81,6 +83,7 @@ function WhiteboardCanvas({
   view: NotesBoardView | null;
   theme: NormalizedTheme;
   board: NotesBoardSettings;
+  name: string;
   onChange: (scene: string) => void;
   onViewChange: (view: NotesBoardView) => void;
 }) {
@@ -144,8 +147,62 @@ function WhiteboardCanvas({
     onViewChange({ scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom.value });
     onChange(serializeAsJSON(elements, appState, files, "local"));
   }, [onChange, onViewChange]);
+  // Right-click -> 导出图片: the whole scene as a PNG named after the board.
+  // The export dialog does the same, but a board is usually exported to paste
+  // somewhere, and that is one click and a dialog too many.
+  const downloadImage = useCallback(async () => {
+    const scene = api.current;
+    if (!scene) return;
+    const appState = scene.getAppState();
+    const elements = scene.getSceneElements();
+    const files = scene.getFiles();
+    // The menu is Excalidraw's, and it closes on an outside pointerdown: send
+    // one so the download does not leave the menu hanging under the cursor.
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    const blob = await exportToBlob({
+      elements,
+      appState: { ...appState, exportBackground: true, exportWithDarkMode: appState.theme === "dark" },
+      files,
+      exportPadding: 16,
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${name}.png`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Revoking right away kills the download in Safari/Firefox.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [name]);
+  // Excalidraw builds its context menu from a fixed action list and has no prop
+  // for extra entries, so the item is appended to the rendered menu.
+  const boardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = boardRef.current;
+    if (!root) return;
+    const addExportItem = () => {
+      const menu = root.querySelector<HTMLElement>(".context-menu");
+      if (!menu || menu.querySelector('[data-testid="board-export-image"]')) return;
+      const item = document.createElement("li");
+      item.dataset.testid = "board-export-image";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "context-menu-item";
+      const label = document.createElement("div");
+      label.className = "context-menu-item__label";
+      label.textContent = "导出图片";
+      button.append(label);
+      button.addEventListener("click", () => void downloadImage());
+      item.append(button);
+      menu.append(item);
+    };
+    const observer = new MutationObserver(addExportItem);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [downloadImage]);
   return (
-    <div className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
+    <div ref={boardRef} className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
       <Excalidraw
         excalidrawAPI={takeApi}
         initialData={initialData}

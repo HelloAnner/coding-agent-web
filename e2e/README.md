@@ -26,6 +26,10 @@ It runs the real canvas in a temporary browser fixture without starting Next
 or touching notes/data. DPR changes without a resize must preserve rendered
 bounds, hit testing, viewport, canvas nodes, scene data, and undo history.
 
+Standalone whiteboard export check: `node e2e/whiteboard-export.mjs`. Same
+fixture, no server: the canvas right-click menu must list 导出图片, and that
+item must download the whole board as a PNG named after the board file.
+
 Coverage:
 
 - A 5,000-message session opens with exactly the last 50 entries, bounded
