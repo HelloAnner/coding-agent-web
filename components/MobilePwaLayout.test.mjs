@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const settingsCssSource = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
+const appShellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const chatWindowSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const chatInputSource = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
 const mcpConfigSource = await readFile(new URL("./McpConfig.tsx", import.meta.url), "utf8");
@@ -17,6 +18,11 @@ test("every class the keyboard-open rules target exists on its component", () =>
   assert.match(chatInputSource, /className=\{compact \? undefined : "chat-input-shell"\}/);
   assert.match(chatWindowSource, /className="chat-content /);
   assert.match(newSessionBarSource, /<div className="new-session-context">/);
+});
+
+test("mobile header sizing targets the actual chat and file headers", () => {
+  assert.match(appShellSource, /className="chat-topbar"/);
+  assert.match(appShellSource, /className="file-panel-header"/);
 });
 
 test("every .mcp-* rule in settings.css matches a class the MCP panel renders, and back", () => {

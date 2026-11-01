@@ -23,6 +23,10 @@ try {
   await writeFile(path.join(temp, "canvas.js"), ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText);
+  await writeFile(path.join(temp, "mobile.js"), ts.transpileModule(
+    await readFile(path.join(repo, "hooks/useIsMobile.ts"), "utf8"),
+    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } },
+  ).outputText);
   await writeFile(path.join(temp, "entry.js"), `
     import React from "react";
     import { createRoot } from "react-dom/client";
@@ -31,7 +35,7 @@ try {
     window.addEventListener("resize", () => window.resizeEvents++);
     const root = createRoot(document.getElementById("root"));
     const props = {
-      content: JSON.stringify({ elements: [], appState: {}, files: {} }),
+      content: JSON.stringify({ elements: [], appState: { viewModeEnabled: window.innerWidth > 640 }, files: {} }),
       view: { scrollX: 0, scrollY: 0, zoom: 1 },
       theme: "light", board: { fontFamily: 2, fontSize: 20 },
       onChange: scene => window.saved = JSON.parse(scene),
@@ -45,6 +49,7 @@ try {
       mode: "development", devtool: false, entry: path.join(temp, "entry.js"),
       output: { path: output, filename: "bundle.js", publicPath: "/" },
       resolve: {
+        alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js") },
         modules: ["node_modules", path.join(repo, "node_modules")],
         conditionNames: ["browser", "import", "production", "default"],
       },
@@ -63,8 +68,8 @@ try {
   server = createServer(async (request, response) => {
     try {
       if (request.url === "/") {
-        response.setHeader("Content-Type", "text/html");
-        response.end(`<!doctype html><link rel="stylesheet" href="/excalidraw.css">
+        response.setHeader("Content-Type", "text/html; charset=utf-8");
+        response.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/excalidraw.css"><link rel="stylesheet" href="/notes.css">
           <style>body{margin:0}#root{position:fixed;inset:40px 0 0 80px;display:flex}
           .notes-board{position:relative;flex:1;min-height:0}
           .notes-board>.excalidraw{position:absolute;inset:0}
@@ -72,12 +77,12 @@ try {
           <div id="root"></div><script src="/bundle.js"></script>`);
         return;
       }
-      const css = request.url === "/excalidraw.css";
+      const css = request.url === "/excalidraw.css" || request.url === "/notes.css";
       const file = css
-        ? path.join(repo, "node_modules/@excalidraw/excalidraw/dist/prod/index.css")
+        ? path.join(repo, request.url === "/notes.css" ? "notes/ui/notes.css" : "node_modules/@excalidraw/excalidraw/dist/prod/index.css")
         : path.resolve(output, `.${request.url}`);
       if (!css && !file.startsWith(output + path.sep)) { response.writeHead(404).end(); return; }
-      response.setHeader("Content-Type", css ? "text/css" : file.endsWith(".js") ? "text/javascript" : "application/octet-stream");
+      response.setHeader("Content-Type", css ? "text/css; charset=utf-8" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : "application/octet-stream");
       response.end(await readFile(file));
     } catch { response.writeHead(404).end(); }
   });
@@ -89,6 +94,7 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForSelector("canvas.static");
   await page.waitForFunction(() => window.saved && window.view);
+  assert.equal(await page.locator(".excalidraw--view-mode").count(), 0, "Desktop opens in edit mode even if file says view mode");
   await page.keyboard.press("o");
   await page.mouse.move(300, 240);
   await page.mouse.down();
@@ -108,7 +114,7 @@ try {
       let left = Infinity, top = Infinity, right = -1, bottom = -1;
       for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
         const i = (y * canvas.width + x) * 4;
-        if (pixels[i + 3] > 100 && pixels[i] < 120 && pixels[i + 1] < 120 && pixels[i + 2] < 120) {
+        if (pixels[i + 3] > 100 && pixels[i] < 120 && pixels[i + 1] < 120 && pixels[i + 2] < 180) {
           left = Math.min(left, x); top = Math.min(top, y);
           right = Math.max(right, x); bottom = Math.max(bottom, y);
         }
@@ -170,8 +176,47 @@ try {
   await page.waitForFunction(() => window.saved.elements.some((element) => !element.isDeleted));
   assert.deepEqual(await page.evaluate(() => window.view), view, "Reloading content must keep pan/zoom");
   await checkAlignment(refreshed);
+  // New opens choose the device default, not the last saved mode. A manual
+  // change survives status/content renders and crossing the mobile breakpoint.
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  mobile.on("pageerror", (error) => errors.push(error.message));
+  await mobile.goto(`http://127.0.0.1:${server.address().port}`);
+  await mobile.waitForSelector(".excalidraw--view-mode");
+  await mobile.evaluate((elements) => window.loadScene(JSON.stringify({ elements, appState: { viewModeEnabled: false }, files: {} })), refreshed);
+  await mobile.waitForFunction(() => window.saved?.elements.length === 1);
+  const beforePan = await mobile.evaluate(() => window.saved.elements);
+  const beforeView = await mobile.evaluate(() => window.view);
+  await mobile.mouse.move(180, 300);
+  await mobile.mouse.down();
+  await mobile.mouse.move(230, 340, { steps: 5 });
+  await mobile.mouse.up();
+  await mobile.waitForFunction((before) => window.view.scrollX !== before.scrollX || window.view.scrollY !== before.scrollY, beforeView);
+  assert.deepEqual(await mobile.evaluate(() => window.saved.elements), beforePan, "Viewing pans without editing elements");
+  const modeButton = await mobile.locator(".notes-board-mode").boundingBox();
+  assert.ok(modeButton.width >= 44 && modeButton.height >= 44, "Mobile mode toggle has a touch-sized target");
+  assert.ok(await mobile.evaluate((box) => {
+    const overlay = document.createElement("aside");
+    overlay.className = "notes-agent";
+    document.getElementById("root").append(overlay);
+    const above = overlay.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    overlay.remove();
+    return above;
+  }, modeButton), "Mode button stays below the mobile agent/drawer overlays");
+  await mobile.getByRole("button", { name: "编辑", exact: true }).click();
+  await mobile.waitForFunction(() => !document.querySelector(".excalidraw--view-mode"));
+  await mobile.getByRole("button", { name: "查看", exact: true }).click();
+  await mobile.waitForSelector(".excalidraw--view-mode");
+  await mobile.getByRole("button", { name: "编辑", exact: true }).click();
+  await mobile.waitForFunction(() => !document.querySelector(".excalidraw--view-mode"));
+  await mobile.evaluate(() => window.loadScene(JSON.stringify(window.saved)));
+  await mobile.setViewportSize({ width: 800, height: 600 });
+  await mobile.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await mobile.locator(".excalidraw--view-mode").count(), 0, "Manual edit mode is not reset by rerenders or resize");
+  await mobile.reload();
+  await mobile.waitForSelector(".excalidraw--view-mode");
+  await mobile.close();
   assert.deepEqual(errors, []);
-  console.log("Whiteboard: content updates and DPR transitions preserve rendered bounds, hit testing, viewport, scene, canvas nodes, and undo.");
+  console.log("Whiteboard: mobile view/edit defaults, manual toggles, content updates, DPR, hit testing and undo pass.");
 } finally {
   await browser?.close();
   if (server) await new Promise((resolve) => server.close(resolve));

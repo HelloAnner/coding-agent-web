@@ -24,6 +24,10 @@ try {
   await writeFile(path.join(temp, "canvas.js"), ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText);
+  await writeFile(path.join(temp, "mobile.js"), ts.transpileModule(
+    await readFile(path.join(repo, "hooks/useIsMobile.ts"), "utf8"),
+    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } },
+  ).outputText);
   await writeFile(path.join(temp, "entry.js"), `
     import React from "react";
     import { createRoot } from "react-dom/client";
@@ -39,7 +43,7 @@ try {
     const compiler = webpack({
       mode: "development", devtool: false, entry: path.join(temp, "entry.js"),
       output: { path: output, filename: "bundle.js", publicPath: "/" },
-      resolve: { modules: ["node_modules", path.join(repo, "node_modules")], conditionNames: ["browser", "import", "production", "default"] },
+      resolve: { alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js") }, modules: ["node_modules", path.join(repo, "node_modules")], conditionNames: ["browser", "import", "production", "default"] },
       module: { rules: [{ test: /\.css$/, type: "asset/source" }, { test: /\.m?js$/, resolve: { fullySpecified: false } }] },
       performance: { hints: false },
     });

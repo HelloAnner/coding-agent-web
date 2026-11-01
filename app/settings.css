@@ -2041,9 +2041,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .settings-dialog-backdrop,
+  .config-panel-root.is-modal,
+  .directory-picker-backdrop {
+    bottom: auto;
+    height: var(--app-viewport-height, 100dvh);
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
   .config-panel-root.is-modal > .config-panel-surface {
-    width: calc(100vw - 16px);
-    height: calc(100dvh - 16px);
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .directory-picker-panel {
+    max-width: 100% !important;
+    max-height: 100% !important;
   }
 
   .config-split-view {
@@ -2052,7 +2066,7 @@
 
   .config-sidebar {
     width: 100%;
-    height: 190px;
+    height: clamp(96px, calc(var(--app-viewport-height, 100dvh) * 0.35), 190px);
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
@@ -2073,8 +2087,29 @@
   }
 
   .settings-dialog-surface {
-    width: calc(100vw - 12px);
-    height: calc(100dvh - 12px);
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .settings-dialog-surface.notes-settings-surface {
+    height: auto;
+  }
+
+  .settings-dialog-close {
+    top: 3px;
+    right: 4px;
+  }
+
+  .config-close-button,
+  .config-button,
+  .config-sidebar-item,
+  .config-list-action-button {
+    min-height: 44px;
+  }
+
+  .config-close-button {
+    min-width: 44px;
   }
 
   .settings-section-tabs {
@@ -2086,7 +2121,7 @@
     width: 100%;
     max-width: 210px;
     min-width: 0;
-    height: 32px;
+    height: 44px;
     margin-left: 14px;
     padding: 0 9px;
     border: 1px solid var(--border);

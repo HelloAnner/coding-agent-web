@@ -334,7 +334,7 @@ button.notes-tree-toggle:hover {
 
 @media (max-width: 640px) {
   .notes-app .notes-tree-row {
-    height: 40px;
+    height: 44px;
   }
 
   .notes-crumb {
@@ -975,15 +975,77 @@ select.notes-config-input {
 
 @media (max-width: 640px) {
   .notes-agent {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: 4;
     width: auto;
     flex-basis: auto;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     border-left: 0;
+  }
+
+  .notes-board {
+    isolation: isolate;
+  }
+
+  .notes-board .notes-board-mode {
+    position: absolute;
+    top: 64px;
+    left: 8px;
+    z-index: 5;
+    min-height: 44px;
+    min-width: 44px;
+    padding-inline: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text);
+  }
+
+  .notes-agent-header,
+  .notes-note-bar {
+    height: 48px;
+  }
+
+  .notes-mode,
+  .notes-footer-button,
+  .notes-agent-icon,
+  .notes-agent-settings,
+  .notes-agent-send,
+  .notes-create-actions button {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .notes-row-plus,
+  .notes-row-delete,
+  button.notes-tree-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  .notes-note-body,
+  .notes-preview {
+    padding: 16px 16px 32px;
+  }
+
+  .notes-note-hint {
+    display: none;
   }
 
   .notes-settings-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notes-config-input,
+  .notes-create input,
+  .notes-title-input {
+    min-height: 44px;
+  }
+
+  .notes-settings-close {
+    top: 3px;
+    right: 4px;
+    width: 44px;
+    height: 44px;
   }
 }

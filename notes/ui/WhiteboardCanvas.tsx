@@ -10,6 +10,7 @@ import {
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, NormalizedZoomValue } from "@excalidraw/excalidraw/types";
 import type { NotesBoardSettings, NotesBoardView } from "@/notes/types";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import "@excalidraw/excalidraw/index.css";
 type NormalizedTheme = "light" | "dark";
 
@@ -46,7 +47,7 @@ function parseFile(content: string): Partial<ExcalidrawInitialDataState> | null 
   }
 }
 
-function parseScene(content: string, board: NotesBoardSettings, view: NotesBoardView | null): ExcalidrawInitialDataState {
+function parseScene(content: string, board: NotesBoardSettings, view: NotesBoardView | null, isMobile: boolean): ExcalidrawInitialDataState {
   const defaults = defaultAppState(board);
   // The file has no viewport (Excalidraw strips scroll and zoom from a saved
   // scene); the database row is the only place it comes from.
@@ -58,7 +59,8 @@ function parseScene(content: string, board: NotesBoardSettings, view: NotesBoard
   // crashing the page, and the next change rewrites it as valid JSON.
   return {
     elements: parsed?.elements ?? [],
-    appState: { ...defaults, ...(parsed?.appState ?? {}), ...viewport },
+    // Device defaults win over file state; Excalidraw still owns the mode toggle.
+    appState: { ...defaults, ...(parsed?.appState ?? {}), ...viewport, viewModeEnabled: isMobile },
     files: parsed?.files ?? {},
   };
 }
@@ -89,7 +91,9 @@ function WhiteboardCanvas({
 }) {
   // Mounted with one board's content by Whiteboard's key, so the scene is
   // parsed once per open file and per font change.
-  const initialData = useMemo(() => parseScene(content, board, view), [content, board, view]);
+  const isMobile = useIsMobile();
+  const [viewMode, setViewMode] = useState(isMobile);
+  const initialData = useMemo(() => parseScene(content, board, view, isMobile), [content, board, view, isMobile]);
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   const takeApi = useCallback((instance: ExcalidrawImperativeAPI) => { api.current = instance; }, []);
   const pixelRatio = useRef(window.devicePixelRatio);
@@ -116,7 +120,7 @@ function WhiteboardCanvas({
   // button in the top bar asks for it.
   const [shapesOpen, setShapesOpen] = useState(false);
   const toggleShapes = useCallback(() => setShapesOpen((open) => !open), []);
-  const renderShapesTrigger = useCallback((isMobile: boolean) => (isMobile ? null : (
+  const renderShapesTrigger = useCallback((canvasMobile: boolean) => (canvasMobile ? null : (
     <button
       type="button"
       className={`sidebar-trigger notes-shapes-trigger${shapesOpen ? " active" : ""}`}
@@ -134,6 +138,7 @@ function WhiteboardCanvas({
     // Excalidraw reports its own restore as a change; saving then would
     // overwrite the file with a half-loaded scene.
     if (appState.isLoading) return;
+    setViewMode(appState.viewModeEnabled);
     // Excalidraw 0.18's bitmap cache ignores DPR changes without a resize
     // (e.g. switching displays). Check on every redraw, not just resize/media
     // events. New identities rebuild caches, preserving geometry and history.
@@ -203,12 +208,27 @@ function WhiteboardCanvas({
   }, [downloadImage]);
   return (
     <div ref={boardRef} className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
+      {/* Excalidraw hides renderTopRightUI in mobile view mode. Keep the way
+          back to editing outside its toolbar so it is always reachable. */}
+      {isMobile && (
+        <button
+          type="button"
+          className="notes-mode notes-board-mode"
+          onClick={() => api.current?.updateScene({
+            appState: { viewModeEnabled: !api.current.getAppState().viewModeEnabled },
+            captureUpdate: CaptureUpdateAction.NEVER,
+          })}
+          title={viewMode ? "切换到编辑模式" : "切换到查看模式"}
+        >
+          {viewMode ? "编辑" : "查看"}
+        </button>
+      )}
       <Excalidraw
         excalidrawAPI={takeApi}
         initialData={initialData}
         langCode="zh-CN"
         theme={theme}
-        autoFocus
+        autoFocus={!isMobile}
         UIOptions={{
           // Save-as-image stays on: a scene lives only in this app, and that
           // dialog is the one way to get a PNG/SVG out of it. The rest of the
