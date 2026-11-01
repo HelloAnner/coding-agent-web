@@ -91,7 +91,7 @@ import type { ChatInputHandle } from "./ChatInput";
 import { NoteEditor } from "@/notes/ui/NoteEditor";
 import { Whiteboard } from "@/notes/ui/Whiteboard";
 import { notifyNotesChanged } from "@/lib/notes-watch";
-import type { NotesBoardSettings, NotesEditorControl, NotesFileKind } from "@/notes/types";
+import type { NotesEditorControl, NotesFileKind } from "@/notes/types";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { formatActiveDuration, formatCompactCount } from "@/lib/session-stats-format";
@@ -696,7 +696,6 @@ export function AppShell() {
   // The file column's tree: the project's files, or the notes vault.
   const [treeSource, setTreeSource] = useState<FileTreeSource>("project");
   useEffect(() => { setTreeSource(loadFileTreeSource()); }, []);
-  const [notesBoard, setNotesBoard] = useState<NotesBoardSettings>({ fontFamily: 3, fontSize: 20 });
   // The open editor's pending keystrokes: a move or delete of its file must
   // wait for them, or the debounced save would land on a path that is gone.
   const noteEditorRef = useRef<NotesEditorControl | null>(null);
@@ -1686,17 +1685,6 @@ export function AppShell() {
         ?? (lastNote ? `note:${lastNote.path}` : null);
     });
   }, [noteTabs, fileTabs, terminalTabs, agentTabs]);
-
-  // A whiteboard draws with the vault's tuned defaults; read them on first open.
-  useEffect(() => {
-    if (!noteTabs.some((tab) => tab.kind === "board")) return;
-    let alive = true;
-    fetch("/api/notes/settings", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() as Promise<{ settings?: { board?: NotesBoardSettings } }> : null)
-      .then((body) => { if (alive && body?.settings?.board) setNotesBoard(body.settings.board); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [noteTabs]);
 
   const handleOpenTerminal = useCallback((cwd: string) => {
     const existing = terminalTabs.find((tab) => tab.cwd === cwd);
@@ -3108,7 +3096,6 @@ export function AppShell() {
                     <Whiteboard
                       key={activeNoteTab.path}
                       path={activeNoteTab.path}
-                      board={notesBoard}
                       onSaveState={ignoreNoteSaveState}
                       onFlushReady={registerNoteEditor}
                     />

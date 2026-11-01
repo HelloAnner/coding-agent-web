@@ -13,7 +13,9 @@ notes 独立应用
   notes/ui/NotesApp.tsx          侧边栏树、新建/拖动/删除、标题和保存状态
   notes/ui/NoteEditor.tsx        Markdown 编辑与预览
   notes/ui/Whiteboard.tsx        白板读取与自动保存
-  notes/ui/WhiteboardCanvas.tsx  Excalidraw 实例与默认元素样式
+  notes/ui/WhiteboardCanvas.tsx  Excalidraw 实例
+  notes/ui/useBoardPreferences.ts  所有白板共用的偏好状态与自动保存
+  notes/board-style.ts          默认绘图样式与配置校验
   notes/ui/notes.css             编辑器、白板和树的样式
 
 路由
@@ -48,10 +50,13 @@ Coding 的 @ 联动
   该绝对路径渲染成带文件图标的 chip（lib/notes-mention-display.ts），
   不展示绝对路径。
 
-白板偏好（对齐 coleam00/excalidraw-diagram-skill）
-  - 新元素：Cascadia 等宽字体、20px、语义色板（fill #e8ecf7 / stroke #263d8f）、
-    strokeWidth 2、roughness 0、round 圆角、round 箭头；色板见
-    notes/skills/excalidraw-diagram/references/color-palette.md
+白板偏好
+  - 所有白板共用字体、字号、描边、填充、线宽、圆角、箭头、透明度和文字对齐。
+    在「样式」里修改后自动保存，Notes 和 Coding 的白板立即共用；已有元素不改。
+  - 配置文件在 data.db 同目录的 notes-settings.json，默认 ~/.coding-agent-web/notes-settings.json。
+    白板文件只存内容，不用它的旧 appState 覆盖全局绘图偏好；视口仍按白板保存。
+  - 未配置时：Cascadia 20px、透明背景、描边 #263d8f、线宽 2、roughness 0、圆角和圆箭头。
+    例：A 板把字体改成 Nunito，打开 B 板继续用 Nunito；旧文字不变。
   - 画布背景 #ffffff；语言 zh-CN
   - 画布菜单只留「导出图片…」（左上角菜单 → 导出图片）：PNG / SVG / 复制到剪贴板，
     可选仅选中、背景、深色模式、包含画布数据、缩放 1×/2×/3×；
@@ -73,7 +78,7 @@ Coding 的 @ 联动
 
 Agent 内核（pi）
   目录
-    notes/agent/settings.ts      笔记设置：仅白板字体字号
+    notes/agent/settings.ts      全局白板设置文件：字体、字号与绘图样式
     notes/agent/board.ts         形状列表 -> Excalidraw scene（纯函数）
     notes/agent/tools.ts         自定义 tool：notes_ls、notes_board、notes_sessions
     notes/agent/skills.ts        notes/skills 下的技能清单
@@ -154,10 +159,8 @@ Agent 内核（pi）
     - 会话在内存里，重启清空；长期记忆是落盘的文件。
     - GET /api/notes/settings 返回设置、字体选项、技能；PUT 合并保存。
     - 设置 API 不再读写、返回任何模型/认证字段；改字体字号不重建或清空独立聊天。
-    - 白板字体、字号来自设置，写入新元素和新白板的 appState；已有元素不改。
+    - agent 绘图默认继承全局偏好；只有显式指定的形状样式才覆盖它，不再往白板 appState 写偏好。
 
-白板偏好（可配置的部分）
-  设置 -> 白板：字体（Excalidraw 内置 8 种）、字号（10~64）。
-  不配时是 Cascadia、20px；描边 #1b1b1f、细实线、round 圆角、白底是固定默认。
-  想要手写感：字体选 Excalifont 或 Virgil，字号 16~18，元素 roughness 用 1（默认 0）。
+白板工具
+  设置 -> 白板：字体（Excalidraw 内置 8 种）、字号（10~64）；也可在画布「样式」里调整。
   notes_board 的形状：rectangle / ellipse / diamond / text / arrow / line。

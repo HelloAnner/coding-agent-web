@@ -1,4 +1,5 @@
 /** Shared between the notes API and its UI; no Node imports here. */
+import type { AppState } from "@excalidraw/excalidraw/types";
 
 export type NotesFileKind = "note" | "board";
 
@@ -49,11 +50,17 @@ export interface NotesMention {
 
 /* ------------------------------- agent ---------------------------------- */
 
-/** Defaults for every element drawn on a whiteboard from now on. */
+export type NotesBoardStyle = Omit<
+  Pick<AppState, Extract<keyof AppState, `currentItem${string}`>>,
+  "currentItemFontFamily" | "currentItemFontSize"
+>;
+
+/** Global defaults for new elements; existing elements keep their own style. */
 export interface NotesBoardSettings {
   /** Excalidraw FONT_FAMILY value (Virgil 1, Helvetica 2, Cascadia 3, Excalifont 5, ...). */
   fontFamily: number;
   fontSize: number;
+  style?: Partial<NotesBoardStyle>;
 }
 
 export interface NotesSettings {

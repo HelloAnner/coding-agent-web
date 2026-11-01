@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ConfigButton, ConfigField } from "@/components/SettingsUi";
 import { listenForPanelEscape } from "@/lib/stacked-dialog";
 import type { NotesAgentSkill, NotesSettings } from "@/notes/types";
+import { applyBoardPreferences } from "./useBoardPreferences";
 
 /**
  * Notes-wide whiteboard preferences and the unchanged agent's skills.
@@ -20,11 +21,9 @@ const SECTIONS: readonly { id: Section; label: string }[] = [
 export function NotesSettingsDialog({
   open,
   onClose,
-  onSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  onSaved: (settings: NotesSettings) => void;
 }) {
   const [section, setSection] = useState<Section>("board");
   const [skills, setSkills] = useState<NotesAgentSkill[]>([]);
@@ -63,20 +62,20 @@ export function NotesSettingsDialog({
       const response = await fetch("/api/notes/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: draft.board }),
+        body: JSON.stringify({ board: { fontFamily: draft.board.fontFamily, fontSize: draft.board.fontSize } }),
       });
       const body = await response.json() as { settings?: NotesSettings; skills?: NotesAgentSkill[]; error?: string };
       if (!response.ok || !body.settings) throw new Error(body.error || "保存失败");
       setDraft(body.settings);
       setSkills(body.skills ?? []);
       setSaved(true);
-      onSaved(body.settings);
+      applyBoardPreferences(body.settings.board);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "保存失败");
     } finally {
       setSaving(false);
     }
-  }, [draft, onSaved]);
+  }, [draft]);
 
   if (!open) return null;
 
@@ -113,7 +112,7 @@ export function NotesSettingsDialog({
           {!draft && !error && <div className="notes-settings-loading">加载设置…</div>}
           {section === "board" && board && (
             <section className="notes-settings-section">
-              <p className="notes-settings-hint">新画的元素用这里的字体和字号；白板上已有的元素保持自己的样式。</p>
+              <p className="notes-settings-hint">所有白板共用字体和绘图样式；已有元素保持不变。</p>
               <div className="notes-settings-grid">
                 <ConfigField label="字体">
                   <select

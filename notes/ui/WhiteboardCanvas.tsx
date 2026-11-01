@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   CaptureUpdateAction,
   Excalidraw,
@@ -10,33 +10,10 @@ import {
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, NormalizedZoomValue } from "@excalidraw/excalidraw/types";
 import type { NotesBoardSettings, NotesBoardView } from "@/notes/types";
+import { boardAppState, boardSettingsFromAppState } from "@/notes/board-style";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import "@excalidraw/excalidraw/index.css";
 type NormalizedTheme = "light" | "dark";
-
-/**
- * The whiteboard defaults: the vault's tuned style, with the font family and
- * size from the notes settings. They are the starting style of everything
- * drawn from now on; elements already in a scene keep their own style.
- */
-function defaultAppState(board: NotesBoardSettings) {
-  return {
-    viewBackgroundColor: "#ffffff",
-    currentItemBackgroundColor: "#e8ecf7",
-    currentItemStrokeColor: "#263d8f",
-    currentItemStrokeWidth: 2,
-    currentItemStrokeStyle: "solid",
-    currentItemRoughness: 0,
-    currentItemRoundness: "round",
-    currentItemArrowType: "round",
-    currentItemStartArrowhead: null,
-    currentItemEndArrowhead: "arrow",
-    currentItemOpacity: 100,
-    currentItemFontFamily: board.fontFamily,
-    currentItemFontSize: board.fontSize,
-    currentItemTextAlign: "left",
-  } as const;
-}
 
 /** A board file as JSON, or null while it is not one (a half-written file). */
 function parseFile(content: string): Partial<ExcalidrawInitialDataState> | null {
@@ -48,7 +25,7 @@ function parseFile(content: string): Partial<ExcalidrawInitialDataState> | null 
 }
 
 function parseScene(content: string, board: NotesBoardSettings, view: NotesBoardView | null, isMobile: boolean): ExcalidrawInitialDataState {
-  const defaults = defaultAppState(board);
+  const defaults = boardAppState(board);
   // The file has no viewport (Excalidraw strips scroll and zoom from a saved
   // scene); the database row is the only place it comes from.
   const viewport = view
@@ -59,8 +36,8 @@ function parseScene(content: string, board: NotesBoardSettings, view: NotesBoard
   // crashing the page, and the next change rewrites it as valid JSON.
   return {
     elements: parsed?.elements ?? [],
-    // Device defaults win over file state; Excalidraw still owns the mode toggle.
-    appState: { ...defaults, ...(parsed?.appState ?? {}), ...viewport, viewModeEnabled: isMobile },
+    // Drawing preferences are global; old scene defaults must not override them.
+    appState: { viewBackgroundColor: "#ffffff", ...(parsed?.appState ?? {}), ...defaults, ...viewport, viewModeEnabled: isMobile },
     files: parsed?.files ?? {},
   };
 }
@@ -80,6 +57,7 @@ function WhiteboardCanvas({
   name,
   onChange,
   onViewChange,
+  onBoardChange,
 }: {
   content: string;
   view: NotesBoardView | null;
@@ -88,14 +66,20 @@ function WhiteboardCanvas({
   name: string;
   onChange: (scene: string) => void;
   onViewChange: (view: NotesBoardView) => void;
+  onBoardChange: (board: NotesBoardSettings) => void;
 }) {
-  // Mounted with one board's content by Whiteboard's key, so the scene is
-  // parsed once per open file and per font change.
+  // Global preference updates change drawing defaults, never remount the scene.
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState(isMobile);
-  const initialData = useMemo(() => parseScene(content, board, view, isMobile), [content, board, view, isMobile]);
+  const [initialData] = useState(() => parseScene(content, board, view, isMobile));
   const api = useRef<ExcalidrawImperativeAPI | null>(null);
   const takeApi = useCallback((instance: ExcalidrawImperativeAPI) => { api.current = instance; }, []);
+  const lastStyle = useRef(JSON.stringify(boardAppState(board)));
+  useEffect(() => {
+    const appState = boardAppState(board);
+    lastStyle.current = JSON.stringify(appState);
+    api.current?.updateScene({ appState, captureUpdate: CaptureUpdateAction.NEVER });
+  }, [board]);
   const pixelRatio = useRef(window.devicePixelRatio);
   const shown = useRef(content);
   // Someone else rewrote the file (an agent, "存入笔记"). Swap the elements in
@@ -139,6 +123,12 @@ function WhiteboardCanvas({
     // overwrite the file with a half-loaded scene.
     if (appState.isLoading) return;
     setViewMode(appState.viewModeEnabled);
+    const next = boardSettingsFromAppState(appState);
+    const style = JSON.stringify(boardAppState(next));
+    if (style !== lastStyle.current) {
+      lastStyle.current = style;
+      onBoardChange(next);
+    }
     // Excalidraw 0.18's bitmap cache ignores DPR changes without a resize
     // (e.g. switching displays). Check on every redraw, not just resize/media
     // events. New identities rebuild caches, preserving geometry and history.
@@ -151,7 +141,7 @@ function WhiteboardCanvas({
     }
     onViewChange({ scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom.value });
     onChange(serializeAsJSON(elements, appState, files, "local"));
-  }, [onChange, onViewChange]);
+  }, [onChange, onViewChange, onBoardChange]);
   // Right-click -> 导出图片: the whole scene as a PNG named after the board.
   // The export dialog does the same, but a board is usually exported to paste
   // somewhere, and that is one click and a dialog too many.

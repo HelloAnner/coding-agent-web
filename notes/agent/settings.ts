@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { NotesBoardSettings, NotesSettings } from "../types";
+import { DEFAULT_BOARD_SETTINGS, normalizeBoardStyle } from "../board-style";
 
 /**
  * Notes' own settings file: whiteboard defaults only. Model/auth configuration
  * belongs to the source conversation (or pi defaults for the standalone panel).
  * Kept beside the app's SQLite database, not in the vault, so the notes tree
- * holds notes only. Written by the notes settings dialog, read by the agent
- * runtime and the whiteboard.
+ * holds notes only. Shared by every whiteboard and the agent runtime.
  */
 
 export const NOTES_SETTINGS_FILE = "notes-settings.json";
@@ -42,7 +42,7 @@ export function notesSettingsPath(): string {
 
 export function defaultNotesSettings(): NotesSettings {
   return {
-    board: { fontFamily: 3, fontSize: 20 },
+    board: { ...DEFAULT_BOARD_SETTINGS },
   };
 }
 
@@ -59,10 +59,12 @@ export function normalizeNotesSettings(raw: unknown): NotesSettings {
   const record = raw as Record<string, unknown>;
   const board = (typeof record.board === "object" && record.board !== null ? record.board : {}) as Record<string, unknown>;
   const fontFamily = positiveInt(board.fontFamily, defaults.board.fontFamily, 1, 99);
+  const style = normalizeBoardStyle(board.style);
   return {
     board: {
       fontFamily: BOARD_FONT_VALUES.has(fontFamily) ? fontFamily : defaults.board.fontFamily,
       fontSize: positiveInt(board.fontSize, defaults.board.fontSize, BOARD_FONT_SIZE_MIN, BOARD_FONT_SIZE_MAX),
+      ...(Object.keys(style).length ? { style } : {}),
     },
   };
 }
@@ -108,6 +110,10 @@ export function updateNotesSettings(patch: unknown): NotesSettings {
   const record = (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>;
   const board = (typeof record.board === "object" && record.board !== null ? record.board : null) as Partial<NotesBoardSettings> | null;
   return writeNotesSettings(normalizeNotesSettings({
-    board: board ? { ...current.board, ...board } : current.board,
+    board: board ? {
+      ...current.board,
+      ...board,
+      style: { ...current.board.style, ...normalizeBoardStyle(board.style) },
+    } : current.board,
   }));
 }

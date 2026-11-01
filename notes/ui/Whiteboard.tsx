@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import { subscribeNotesWatch } from "@/lib/notes-watch";
-import type { NotesBoardSettings, NotesBoardView, NotesEditorControl, NotesSaveState } from "@/notes/types";
+import type { NotesBoardView, NotesEditorControl, NotesSaveState } from "@/notes/types";
+import { saveBoardPreferences, useBoardPreferences } from "./useBoardPreferences";
 
 const Canvas = dynamic(() => import("./WhiteboardCanvas"), {
   ssr: false,
@@ -22,16 +23,15 @@ function boardName(path: string): string {
 /** A stored board: fetch its scene, autosave Excalidraw's serialized JSON. */
 export function Whiteboard({
   path,
-  board,
   onSaveState,
   onFlushReady,
 }: {
   path: string;
-  board: NotesBoardSettings;
   onSaveState: (state: NotesSaveState) => void;
   onFlushReady: (control: NotesEditorControl | null) => void;
 }) {
   const { isDark } = useTheme();
+  const board = useBoardPreferences();
   const [content, setContent] = useState<string | null>(null);
   const [view, setView] = useState<NotesBoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -239,7 +239,7 @@ export function Whiteboard({
   }, [onSaveState, path, save]);
 
   if (error) return <div className="notes-error">{error}</div>;
-  if (content === null) return <div className="dashboard-empty">加载白板…</div>;
+  if (content === null || board === null) return <div className="dashboard-empty">加载白板…</div>;
   return (
     <Canvas
       key={path}
@@ -250,6 +250,7 @@ export function Whiteboard({
       name={boardName(path)}
       onChange={handleChange}
       onViewChange={handleViewChange}
+      onBoardChange={saveBoardPreferences}
     />
   );
 }

@@ -10,38 +10,56 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { chromium } from "playwright";
 import ts from "typescript";
+import { createJiti } from "jiti";
 
 const require = createRequire(import.meta.url);
 const { webpack } = require("next/dist/compiled/webpack/webpack");
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const temp = await mkdtemp(path.join(tmpdir(), "whiteboard-rendering-"));
 const output = path.join(temp, "out");
+process.env.CODING_AGENT_WEB_DATA = path.join(temp, "data.db");
+const jiti = createJiti(import.meta.url, { interopDefault: true });
+const { readNotesSettings, updateNotesSettings, writeNotesSettings } = await jiti.import("../notes/agent/settings.ts");
+writeNotesSettings({ board: { fontFamily: 2, fontSize: 20 } });
+let settingsWrites = 0;
 let server;
 let browser;
 try {
-  const source = await readFile(path.join(repo, "notes/ui/WhiteboardCanvas.tsx"), "utf8");
-  await writeFile(path.join(temp, "canvas.js"), ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText);
-  await writeFile(path.join(temp, "mobile.js"), ts.transpileModule(
-    await readFile(path.join(repo, "hooks/useIsMobile.ts"), "utf8"),
-    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } },
-  ).outputText);
+  for (const [name, file] of Object.entries({
+    canvas: "notes/ui/WhiteboardCanvas.tsx", mobile: "hooks/useIsMobile.ts",
+    style: "notes/board-style.ts", preferences: "notes/ui/useBoardPreferences.ts",
+  })) {
+    await writeFile(path.join(temp, `${name}.js`), ts.transpileModule(await readFile(path.join(repo, file), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText);
+  }
   await writeFile(path.join(temp, "entry.js"), `
     import React from "react";
     import { createRoot } from "react-dom/client";
     import Canvas from "./canvas.js";
+    import { useBoardPreferences, saveBoardPreferences, applyBoardPreferences } from "./preferences.js";
     window.resizeEvents = 0;
     window.addEventListener("resize", () => window.resizeEvents++);
     const root = createRoot(document.getElementById("root"));
     const props = {
-      content: JSON.stringify({ elements: [], appState: { viewModeEnabled: window.innerWidth > 640 }, files: {} }),
+      content: JSON.stringify({ elements: [], appState: {
+        viewModeEnabled: window.innerWidth > 640,
+        currentItemBackgroundColor: "#e8ecf7", currentItemFontFamily: 1, currentItemFontSize: 42,
+      }, files: {} }),
       view: { scrollX: 0, scrollY: 0, zoom: 1 },
-      theme: "light", board: { fontFamily: 2, fontSize: 20 },
+      theme: "light", name: "test",
       onChange: scene => window.saved = JSON.parse(scene),
       onViewChange: view => window.view = view,
+      onBoardChange: saveBoardPreferences,
     };
-    window.loadScene = content => root.render(React.createElement(Canvas, { ...props, content }));
+    function Board({ content }) {
+      const board = useBoardPreferences();
+      window.preferences = board;
+      return board && React.createElement(Canvas, { ...props, content, board });
+    }
+    window.applyPreferences = applyBoardPreferences;
+    window.loadScene = content => root.render(React.createElement(Board, { content }));
+    window.openBoard = content => root.render(React.createElement(Board, { key: Math.random(), content }));
     window.loadScene(props.content);
   `);
   await new Promise((resolve, reject) => {
@@ -49,7 +67,7 @@ try {
       mode: "development", devtool: false, entry: path.join(temp, "entry.js"),
       output: { path: output, filename: "bundle.js", publicPath: "/" },
       resolve: {
-        alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js") },
+        alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js"), "@/notes/board-style": path.join(temp, "style.js") },
         modules: ["node_modules", path.join(repo, "node_modules")],
         conditionNames: ["browser", "import", "production", "default"],
       },
@@ -67,13 +85,24 @@ try {
   });
   server = createServer(async (request, response) => {
     try {
+      if (request.url === "/api/notes/settings") {
+        let settings = readNotesSettings();
+        if (request.method === "PUT") {
+          let body = "";
+          for await (const chunk of request) body += chunk;
+          settings = updateNotesSettings(JSON.parse(body));
+          settingsWrites++;
+        }
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ settings }));
+        return;
+      }
       if (request.url === "/") {
         response.setHeader("Content-Type", "text/html; charset=utf-8");
         response.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/excalidraw.css"><link rel="stylesheet" href="/notes.css">
           <style>body{margin:0}#root{position:fixed;inset:40px 0 0 80px;display:flex}
           .notes-board{position:relative;flex:1;min-height:0}
-          .notes-board>.excalidraw{position:absolute;inset:0}
-          .selected-shape-actions{display:none!important}</style>
+          .notes-board>.excalidraw{position:absolute;inset:0}</style>
           <div id="root"></div><script src="/bundle.js"></script>`);
         return;
       }
@@ -103,6 +132,8 @@ try {
   await page.waitForFunction(() => window.saved.elements.length === 1);
   await page.evaluate(() => { window.originalCanvases = [...document.querySelectorAll("canvas")]; });
   const original = await page.evaluate(() => window.saved.elements);
+  assert.equal(original[0].backgroundColor, "transparent", "New shapes have an outline, not a forced fill");
+  assert.equal(settingsWrites, 0, "Opening or drawing must not write unchanged preferences");
 
   // Read rendered pixels, not just stored coordinates: stale bitmaps can have
   // correct scene data/selection bounds while drawing at the wrong scale.
@@ -215,8 +246,86 @@ try {
   await mobile.reload();
   await mobile.waitForSelector(".excalidraw--view-mode");
   await mobile.close();
+
+  // Editing the real style toolbar must persist defaults globally, not just in
+  // this scene. Old appState values must lose to the shared settings on open.
+  await page.keyboard.press("t");
+  await page.mouse.click(700, 300);
+  await page.keyboard.type("Shared font");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "样式", exact: true }).click();
+  await page.getByTestId("font-family-code").click();
+  await page.getByTestId("fontSize-large").locator("..").click();
+  await page.getByTestId("color-top-pick-#e03131").click();
+  await page.waitForFunction(() => window.preferences.fontFamily === 8 && window.preferences.fontSize === 28);
+  await page.keyboard.press("r");
+  await page.mouse.move(700, 500);
+  await page.mouse.down();
+  await page.mouse.move(900, 600, { steps: 5 });
+  await page.mouse.up();
+  await page.getByTestId("strokeWidth-extraBold").locator("..").click();
+  await page.waitForFunction(() => window.preferences.style.currentItemStrokeWidth === 4);
+  await page.waitForTimeout(700);
+  const shared = readNotesSettings().board;
+  assert.equal(shared.fontFamily, 8);
+  assert.equal(shared.fontSize, 28);
+  assert.equal(shared.style.currentItemStrokeColor, "#e03131");
+  assert.equal(shared.style.currentItemStrokeWidth, 4);
+  assert.equal(shared.style.currentItemBackgroundColor, "transparent");
+  const existing = await page.evaluate(() => window.saved.elements);
+  assert.deepEqual(existing[0], refreshed[0], "Changing defaults leaves earlier elements alone");
+
+  // The settings dialog publishes defaults in place, without resetting the
+  // canvas, viewport, existing elements or undo history.
+  const next = updateNotesSettings({ board: { fontFamily: 2, fontSize: 24 } }).board;
+  const priorView = await page.evaluate(() => window.view);
+  await page.evaluate((board) => window.applyPreferences(board), next);
+  await page.waitForFunction(() => window.preferences.fontFamily === 2 && window.preferences.fontSize === 24);
+  assert.deepEqual(await page.evaluate(() => window.saved.elements), existing);
+  assert.deepEqual(await page.evaluate(() => window.view), priorView);
+  assert.ok(await page.evaluate(() => window.originalCanvases.every((c, i) => c === document.querySelectorAll("canvas")[i])));
+
+  // Switch before the debounce expires: the next board must use the current
+  // in-memory preference, not a stale server read or its own old appState.
+  await page.getByTestId("color-top-pick-#1971c2").click();
+  await page.waitForFunction(() => window.preferences.style.currentItemStrokeColor === "#1971c2");
+  const stale = JSON.stringify({ elements: refreshed, files: {}, appState: {
+    currentItemBackgroundColor: "#e8ecf7", currentItemStrokeColor: "#000000", currentItemStrokeWidth: 1,
+    currentItemFontFamily: 1, currentItemFontSize: 42,
+  } });
+  await page.evaluate((content) => window.openBoard(content), stale);
+  await page.waitForFunction(() => window.saved.elements.length === 1 && window.preferences.fontFamily === 2);
+  await page.keyboard.press("r");
+  await page.mouse.move(700, 500);
+  await page.mouse.down();
+  await page.mouse.move(900, 600, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForFunction(() => window.saved.elements.length === 2);
+  const box = await page.evaluate(() => window.saved.elements[1]);
+  assert.equal(box.backgroundColor, "transparent");
+  assert.equal(box.strokeColor, "#1971c2");
+  assert.equal(box.strokeWidth, 4);
+  assert.deepEqual(await page.evaluate(() => window.saved.elements[0]), refreshed[0]);
+
+  // A fresh browser context has no in-memory cache or browser preferences:
+  // fonts and style still come back from the global configuration file.
+  const fresh = await browser.newPage({ viewport: { width: 1000, height: 720 } });
+  fresh.on("pageerror", (error) => errors.push(error.message));
+  await fresh.goto(`http://127.0.0.1:${server.address().port}`);
+  await fresh.waitForFunction(() => window.preferences?.fontFamily === 2 && window.preferences.fontSize === 24);
+  await fresh.waitForSelector("canvas.static");
+  await fresh.keyboard.press("t");
+  await fresh.mouse.click(700, 300);
+  await fresh.keyboard.type("Restored font");
+  await fresh.keyboard.press("Escape");
+  await fresh.waitForFunction(() => window.saved?.elements.some((e) => e.type === "text"));
+  const text = await fresh.evaluate(() => window.saved.elements.find((e) => e.type === "text"));
+  assert.equal(text.fontFamily, 2);
+  assert.equal(text.fontSize, 24);
+  assert.equal(text.strokeColor, "#1971c2");
+  await fresh.close();
   assert.deepEqual(errors, []);
-  console.log("Whiteboard: mobile view/edit defaults, manual toggles, content updates, DPR, hit testing and undo pass.");
+  console.log("Whiteboard: transparent defaults, global styles/fonts, fresh opens, mobile modes, DPR, refresh, hit testing and undo pass.");
 } finally {
   await browser?.close();
   if (server) await new Promise((resolve) => server.close(resolve));

@@ -20,14 +20,11 @@ const temp = await mkdtemp(path.join(tmpdir(), "whiteboard-export-"));
 const output = path.join(temp, "out");
 let server, browser;
 try {
-  const source = await readFile(path.join(repo, "notes/ui/WhiteboardCanvas.tsx"), "utf8");
-  await writeFile(path.join(temp, "canvas.js"), ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText);
-  await writeFile(path.join(temp, "mobile.js"), ts.transpileModule(
-    await readFile(path.join(repo, "hooks/useIsMobile.ts"), "utf8"),
-    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } },
-  ).outputText);
+  for (const [name, file] of Object.entries({ canvas: "notes/ui/WhiteboardCanvas.tsx", mobile: "hooks/useIsMobile.ts", style: "notes/board-style.ts" })) {
+    await writeFile(path.join(temp, `${name}.js`), ts.transpileModule(await readFile(path.join(repo, file), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText);
+  }
   await writeFile(path.join(temp, "entry.js"), `
     import React from "react";
     import { createRoot } from "react-dom/client";
@@ -36,14 +33,14 @@ try {
       content: JSON.stringify({ elements: [], appState: {}, files: {} }),
       view: { scrollX: 0, scrollY: 0, zoom: 1 },
       theme: "light", board: { fontFamily: 2, fontSize: 20 }, name: "架构图",
-      onChange: () => {}, onViewChange: () => {},
+      onChange: () => {}, onViewChange: () => {}, onBoardChange: () => {},
     }));
   `);
   await new Promise((resolve, reject) => {
     const compiler = webpack({
       mode: "development", devtool: false, entry: path.join(temp, "entry.js"),
       output: { path: output, filename: "bundle.js", publicPath: "/" },
-      resolve: { alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js") }, modules: ["node_modules", path.join(repo, "node_modules")], conditionNames: ["browser", "import", "production", "default"] },
+      resolve: { alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js"), "@/notes/board-style": path.join(temp, "style.js") }, modules: ["node_modules", path.join(repo, "node_modules")], conditionNames: ["browser", "import", "production", "default"] },
       module: { rules: [{ test: /\.css$/, type: "asset/source" }, { test: /\.m?js$/, resolve: { fullySpecified: false } }] },
       performance: { hints: false },
     });

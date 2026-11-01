@@ -1,4 +1,5 @@
 import type { NotesBoardSettings } from "../types";
+import { boardAppState } from "../board-style";
 
 /**
  * A whiteboard's scene, built from a shape list instead of hand-written
@@ -26,11 +27,7 @@ export interface BoardShape {
   fontSize?: number;
 }
 
-// 主体/中性的语义色对：没显式给颜色的形状也落在色板的基调上，
-// 不会出现一块纯白框（见 notes/skills/excalidraw-diagram/references/color-palette.md）。
-const STROKE = "#263d8f";
-const FILL = "#e8ecf7";
-// 字压在浅色填充上：用色板里的 on-light 文字色，不用描边色。
+// Labels use the palette's readable text color, including on transparent boxes.
 const TEXT = "#2d302e";
 const LINE_HEIGHT = 1.25;
 const DEFAULT_SIZE: Partial<Record<BoardShapeType, { width: number; height: number }>> = {
@@ -61,7 +58,8 @@ function labelSize(label: string, fontSize: number): { width: number; height: nu
   };
 }
 
-function baseElement(type: string, x: number, y: number, width: number, height: number) {
+function baseElement(type: string, x: number, y: number, width: number, height: number, board: NotesBoardSettings) {
+  const style = boardAppState(board);
   return {
     id: randomId(),
     type,
@@ -70,16 +68,16 @@ function baseElement(type: string, x: number, y: number, width: number, height: 
     width,
     height,
     angle: 0,
-    strokeColor: STROKE,
-    backgroundColor: FILL,
-    fillStyle: "solid",
-    strokeWidth: 1,
-    strokeStyle: "solid",
-    roughness: 0,
-    opacity: 100,
+    strokeColor: style.currentItemStrokeColor,
+    backgroundColor: style.currentItemBackgroundColor,
+    fillStyle: style.currentItemFillStyle,
+    strokeWidth: style.currentItemStrokeWidth,
+    strokeStyle: style.currentItemStrokeStyle,
+    roughness: style.currentItemRoughness,
+    opacity: style.currentItemOpacity,
     groupIds: [] as string[],
     frameId: null,
-    roundness: { type: 3 },
+    roundness: style.currentItemRoundness === "round" ? { type: 3 } : null,
     seed: randomInt(),
     version: 1,
     versionNonce: randomInt(),
@@ -102,7 +100,7 @@ function textElement(
   containerId: string | null,
 ) {
   return {
-    ...baseElement("text", x, y, width, height),
+    ...baseElement("text", x, y, width, height, board),
     strokeColor: TEXT,
     backgroundColor: "transparent",
     roundness: null,
@@ -110,7 +108,7 @@ function textElement(
     originalText: label,
     fontSize,
     fontFamily: board.fontFamily,
-    textAlign: "left" as const,
+    textAlign: boardAppState(board).currentItemTextAlign,
     verticalAlign: "middle" as const,
     lineHeight: LINE_HEIGHT,
     containerId,
@@ -137,23 +135,24 @@ function shapeElement(shape: BoardShape, board: NotesBoardSettings) {
     const dy = Math.round((shape.to?.y ?? y) - y);
     // A line is the same element without heads: dividers inside a container,
     // and relations that have no direction.
+    const style = boardAppState(board);
     return [{
-      ...baseElement(shape.type, x, y, Math.abs(dx), Math.abs(dy)),
+      ...baseElement(shape.type, x, y, Math.abs(dx), Math.abs(dy), board),
       points: [[0, 0], [dx, dy]],
       lastCommittedPoint: null,
       startBinding: null,
       endBinding: null,
-      startArrowhead: null,
-      endArrowhead: shape.type === "arrow" ? "arrow" : null,
-      elbowed: false,
-      roundness: { type: 2 },
-      strokeColor: shape.strokeColor ?? STROKE,
+      startArrowhead: shape.type === "arrow" ? style.currentItemStartArrowhead : null,
+      endArrowhead: shape.type === "arrow" ? style.currentItemEndArrowhead : null,
+      elbowed: shape.type === "arrow" && style.currentItemArrowType === "elbow",
+      roundness: style.currentItemArrowType === "round" ? { type: 2 } : null,
+      ...(shape.strokeColor ? { strokeColor: shape.strokeColor } : {}),
     }];
   }
 
   const box = {
-    ...baseElement(shape.type, x, y, width, height),
-    backgroundColor: shape.backgroundColor ?? FILL,
+    ...baseElement(shape.type, x, y, width, height, board),
+    ...(shape.backgroundColor ? { backgroundColor: shape.backgroundColor } : {}),
     ...(shape.strokeColor ? { strokeColor: shape.strokeColor } : {}),
   };
   if (!label) return [box];
@@ -271,19 +270,7 @@ export function buildBoardScene(
     version: 2,
     source: "coding-agent-web",
     elements: [...kept, ...created],
-    appState: {
-      viewBackgroundColor: "#ffffff",
-      currentItemStrokeColor: STROKE,
-      currentItemBackgroundColor: FILL,
-      currentItemStrokeWidth: 2,
-      currentItemStrokeStyle: "solid",
-      currentItemRoughness: 0,
-      currentItemRoundness: "round",
-      currentItemArrowType: "round",
-      currentItemFontFamily: board.fontFamily,
-      currentItemFontSize: board.fontSize,
-      currentItemTextAlign: "left",
-    },
+    appState: { viewBackgroundColor: "#ffffff" },
     files: existing.files,
   }, null, 2);
 }

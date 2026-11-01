@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createJiti } from "jiti";
 
-const { buildBoardScene, describeScene, readSceneElements } = await import("./board.ts");
+const jiti = createJiti(import.meta.url, { interopDefault: true });
+const { buildBoardScene, describeScene, readSceneElements } = await jiti.import("./board.ts");
 
 const board = { fontFamily: 3, fontSize: 20 };
 
@@ -12,6 +14,8 @@ test("a labeled box becomes a shape with a bound text element", () => {
   const [shape, text] = scene.elements;
   assert.equal(shape.type, "rectangle");
   assert.equal(shape.width, 200);
+  assert.equal(shape.backgroundColor, "transparent");
+  assert.deepEqual(scene.appState, { viewBackgroundColor: "#ffffff" }, "scene files must not carry drawing preferences");
   assert.equal(shape.boundElements.length, 1);
   assert.equal(shape.boundElements[0].id, text.id);
   assert.equal(text.containerId, shape.id);
@@ -24,6 +28,32 @@ test("a labeled box becomes a shape with a bound text element", () => {
       assert.ok(element[key] !== undefined, `${element.type} is missing ${key}`);
     }
   }
+});
+
+test("generated shapes use global styles unless explicitly overridden", () => {
+  const scene = JSON.parse(buildBoardScene([
+    { type: "rectangle", x: 0, y: 0, label: "共享样式" },
+    { type: "ellipse", x: 250, y: 0, backgroundColor: "#ffffff", strokeColor: "#000000" },
+    { type: "arrow", x: 200, y: 50, to: { x: 250, y: 50 } },
+  ], { fontFamily: 6, fontSize: 28, style: {
+    currentItemBackgroundColor: "#a5d8ff", currentItemStrokeColor: "#e03131", currentItemStrokeWidth: 4,
+    currentItemStrokeStyle: "dashed", currentItemFillStyle: "hachure", currentItemRoughness: 1,
+    currentItemOpacity: 50, currentItemRoundness: "sharp", currentItemEndArrowhead: "dot",
+  } }));
+  const [box, text, ellipse, arrow] = scene.elements;
+  assert.equal(box.backgroundColor, "#a5d8ff");
+  assert.equal(box.strokeColor, "#e03131");
+  assert.equal(box.strokeWidth, 4);
+  assert.equal(box.strokeStyle, "dashed");
+  assert.equal(box.fillStyle, "hachure");
+  assert.equal(box.roughness, 1);
+  assert.equal(box.opacity, 50);
+  assert.equal(box.roundness, null);
+  assert.equal(text.fontFamily, 6);
+  assert.equal(text.fontSize, 28);
+  assert.equal(ellipse.backgroundColor, "#ffffff");
+  assert.equal(ellipse.strokeColor, "#000000");
+  assert.equal(arrow.endArrowhead, "dot");
 });
 
 test("arrows keep their own point list and end at `to`", () => {

@@ -24,7 +24,7 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 | `arrow` | 有方向的流向，用 `to` 给终点 | — |
 | `line` | 分隔线、无方向的连接，用 `to` 给终点 | — |
 
-`label` 是形状里的字，`\n` 换行。`fontSize` 显式给（节点 16，标题 20~28，说明和旁注 13~14）。**形状默认就落在语义色板的基调上**（fill `#e8ecf7` + stroke `#263d8f`）；换语义就按 `excalidraw-diagram` 的色板成对换，不要只换一个；旁注、标签、箭头短语保持 `transparent`。线条是 `roughness 0`、`opacity 100`，不要手绘感。
+`label` 是形状里的字，`\n` 换行。字体、字号、描边和填充默认继承全局白板偏好；未配置时形状背景透明，只画边框。**全局偏好优先于 `excalidraw-diagram` 的色板**，不要自行给框加底色。用户要求上色时才显式传 `backgroundColor` / `strokeColor`；需要文字层级时再显式给 `fontSize`。
 
 ## 坐标
 
@@ -38,11 +38,9 @@ description: 用 notes_board 工具的规则：形状字段、坐标、追加和
 
 ```json
 { "path": "架构/请求链路.excalidraw", "action": "draw", "replace": true, "elements": [
-  { "type": "ellipse", "x": 0, "y": 0, "label": "浏览器", "fontSize": 16,
-    "strokeColor": "#a56536", "backgroundColor": "#f7eadc" },
-  { "type": "rectangle", "x": 280, "y": 0, "width": 200, "height": 90, "label": "pi-web\nNext.js 路由", "fontSize": 16 },
-  { "type": "rectangle", "x": 560, "y": 0, "width": 200, "height": 90, "label": "harness\npi / claude / dsh", "fontSize": 16,
-    "strokeColor": "#3f6b5b", "backgroundColor": "#e8f1ee" },
+  { "type": "ellipse", "x": 0, "y": 0, "label": "浏览器" },
+  { "type": "rectangle", "x": 280, "y": 0, "width": 200, "height": 90, "label": "pi-web\nNext.js 路由" },
+  { "type": "rectangle", "x": 560, "y": 0, "width": 200, "height": 90, "label": "harness\npi / claude / dsh" },
   { "type": "text", "x": 300, "y": -30, "label": "POST", "fontSize": 14 },
   { "type": "arrow", "x": 160, "y": 50, "to": { "x": 280, "y": 50 } },
   { "type": "arrow", "x": 480, "y": 50, "to": { "x": 560, "y": 50 } },

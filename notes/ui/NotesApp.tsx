@@ -7,7 +7,7 @@ import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "@/components/Sideb
 import { SidebarMenu, type SidebarMenuAnchor } from "@/components/SidebarMenu";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { WebApp } from "@/lib/apps";
-import type { NotesBoardSettings, NotesEditorControl, NotesNode, NotesSaveState, NotesSettings } from "@/notes/types";
+import type { NotesEditorControl, NotesNode, NotesSaveState } from "@/notes/types";
 import { NoteEditor } from "./NoteEditor";
 import { NotesAgentPanel } from "./NotesAgentPanel";
 import { NotesSettingsDialog } from "./NotesSettingsDialog";
@@ -26,9 +26,6 @@ const SAVE_LABELS: Record<NotesSaveState, string> = {
   saving: "保存中…",
   error: "保存失败",
 };
-
-/** What a whiteboard uses until /api/notes/settings answers (Cascadia 20). */
-const DEFAULT_BOARD: NotesBoardSettings = { fontFamily: 3, fontSize: 20 };
 
 function SettingsIcon() {
   return (
@@ -131,7 +128,6 @@ export function NotesApp({
   const renameCancelled = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<NotesSaveState>("saved");
-  const [settings, setSettings] = useState<NotesSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   // Bumped when the agent rewrote a file: the open editor reloads from disk.
@@ -153,7 +149,6 @@ export function NotesApp({
   );
   const selectedFile = selectedNode && selectedNode.type !== "dir" ? selectedNode : null;
   const boardOpen = selectedFile?.type === "board";
-  const board = settings?.board ?? DEFAULT_BOARD;
 
   const refresh = useCallback(async () => {
     try {
@@ -177,22 +172,6 @@ export function NotesApp({
     if (!active) return;
     void refresh();
   }, [active, refresh]);
-
-  // Settings can change while another app is in front (another tab), so they
-  // are read on every return, like the tree.
-  useEffect(() => {
-    if (!active) return;
-    let alive = true;
-    fetch("/api/notes/settings", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json() as { settings?: NotesSettings };
-        if (alive && response.ok && body.settings) setSettings(body.settings);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [active]);
 
   // A reload or a shared link carries the open file in ?path=.
   useEffect(() => {
@@ -790,9 +769,8 @@ export function NotesApp({
           {selectedFile ? (
             selectedFile.type === "board" ? (
               <Whiteboard
-                key={`${selectedFile.path}:${vaultKey}:${board.fontFamily}:${board.fontSize}`}
+                key={`${selectedFile.path}:${vaultKey}`}
                 path={selectedFile.path}
-                board={board}
                 onSaveState={handleSaveState}
                 onFlushReady={registerEditor}
               />
@@ -838,7 +816,6 @@ export function NotesApp({
       <NotesSettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onSaved={setSettings}
       />
     </div>
   );
