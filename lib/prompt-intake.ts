@@ -298,9 +298,20 @@ export function intakeCommand(row: IntakeRow): IntakeCommand {
  * Send open rows again after a restart. Rows already in the session history are
  * closed instead, so this is safe to run on every boot.
  */
-export async function resumeOpenIntake(
+export function resumeOpenIntake(
   log: Pick<Console, "error" | "warn"> = console,
 ): Promise<void> {
+  // Instrumentation can be evaluated more than once (two runtimes, a re-register
+  // after a hot reload). Two passes would start a session twice and send the same
+  // row twice: one run, then "Agent is already processing" for the other.
+  if (resuming) return resuming;
+  resuming = doResumeOpenIntake(log).finally(() => { resuming = null; });
+  return resuming;
+}
+
+let resuming: Promise<void> | null = null;
+
+async function doResumeOpenIntake(log: Pick<Console, "error" | "warn">): Promise<void> {
   const histories = new Map<string, UserMessage[]>();
   for (const row of openIntake()) {
     try {
@@ -322,7 +333,11 @@ export async function resumeOpenIntake(
         continue;
       }
       const { session } = await startRpcSession(row.sessionId, filePath, undefined);
-      await session.send(intakeCommand(row));
+      // followUp: when the session is already running (an earlier recovered row
+      // woke it, or the page did), the prompt joins that run. A plain prompt throws
+      // "Agent is already processing" and the message would wait for the next boot.
+      // Ignored when idle, where it runs as an ordinary prompt.
+      await session.send({ ...intakeCommand(row), streamingBehavior: "followUp" });
       markIntakeHanded(row.id);
     } catch (error) {
       log.error(
