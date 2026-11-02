@@ -53,12 +53,15 @@ test("Pi metadata is shared without restricting APIs or leaking configuration/cr
   assert.doesNotMatch(JSON.stringify(metadata), /secret|private\.example|samplingParams|Authorization/);
   assert.throws(() => selectedOmpModel({}, "gateway"), /together/);
   assert.throws(() => selectedOmpModel({ scope: { visible: [model] }, runtime: { getError: () => undefined, getModel: () => undefined } }, model.provider, model.id), /listed but not registered/);
-  const context = piModelContext({ systemPrompt: ["native OMP instructions", "project context"], tools: [{ name: "read" }], messages: [{ role: "assistant", api: OMP_MODEL_API, piWebApi: "extension-private-api", provider: "gateway", model: "a/b", content: [{ type: "thinking", thinking: "reason", thinkingSignature: "signed" }] }] });
+  const context = piModelContext({ systemPrompt: ["native OMP instructions", "project context"], tools: [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} }, session: { cwd: "/private", settings: {} }, runner: { extensions: ["/private/ext"] } }], messages: [{ role: "assistant", api: OMP_MODEL_API, piWebApi: "extension-private-api", provider: "gateway", model: "a/b", content: [{ type: "thinking", thinking: "reason", thinkingSignature: "signed" }] }] });
   assert.equal(context.systemPrompt, "native OMP instructions\n\nproject context");
   assert.equal(context.messages[0].api, "extension-private-api");
   assert.equal(context.messages[0].content[0].thinkingSignature, "signed");
   assert.ok(!("piWebApi" in context.messages[0]));
-  assert.deepEqual(context.tools, [{ name: "read" }]);
+  // OMP tools carry ~330 KB of per-tool runtime blobs; Pi estimates tools by JSON
+  // size, so forwarding them clamps max_tokens to 1 and every reply truncates.
+  assert.deepEqual(context.tools, [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} } }]);
+  assert.ok(JSON.stringify(context.tools).length < 500);
   assert.throws(() => piModelContext({ messages: [{ role: "assistant", api: OMP_MODEL_API }] }), /original provider API/);
 });
 test("stopping during startup retains the lock and emits one aborted terminal without sending", async () => {
@@ -112,4 +115,12 @@ test("OMP history skips its title slot and abandoned branches, preserving model 
   assert.equal(result.messages.at(-2).content[0].toolCallId, "t");
   assert.throws(() => parseOmpTranscript("not a header\n"), /damaged/);
   assert.throws(() => parseOmpTranscript(JSON.stringify({ type: "session", id: "x", cwd: "/p" }) + "\n" + JSON.stringify({ type: "message", id: "a", parentId: "a" })), /cycle/);
+});
+test("OMP notices surface the native message instead of a guessed warning", async () => {
+  const { OmpEvents } = await jiti.import("./events.ts");
+  const events = [];
+  new OmpEvents("omp-notice", (event) => events.push(event), () => {}).push({ type: "notice", level: "error", message: "Previous response hit the 1-token output limit", source: "agent" });
+  assert.equal(events[0].method, "notify");
+  assert.equal(events[0].message, "Previous response hit the 1-token output limit");
+  assert.equal(events[0].notifyType, "error");
 });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
-import type { Context, ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { Context, ModelsSimpleStreamOptions, Tool } from "@earendil-works/pi-ai";
 import { ompModelMetadata, selectedOmpModel, type ProjectModels } from "./models";
 import { object, OmpError, readJsonLines, type Frame, type OmpRpc } from "./rpc";
 
@@ -13,7 +13,7 @@ export function piModelContext(raw: unknown): Context {
   return {
     ...(typeof context.systemPrompt === "string" ? { systemPrompt: context.systemPrompt }
       : Array.isArray(context.systemPrompt) && context.systemPrompt.every((part) => typeof part === "string") ? { systemPrompt: context.systemPrompt.join("\n\n") } : {}),
-    ...(Array.isArray(context.tools) ? { tools: context.tools as Context["tools"] } : {}),
+    ...(Array.isArray(context.tools) ? { tools: context.tools.map((raw) => ompTool(raw)) } : {}),
     messages: context.messages.map((rawMessage) => {
       const message = object(rawMessage);
       if (message.role === "assistant" && message.api === OMP_MODEL_API) {
@@ -24,6 +24,13 @@ export function piModelContext(raw: unknown): Context {
       return message;
     }) as Context["messages"],
   };
+}
+
+/** OMP tools also carry per-tool runtime blobs (session, runner, extension state). */
+export function ompTool(raw: unknown): Tool {
+  const tool = object(raw);
+  if (typeof tool.name !== "string") throw new OmpError("Invalid OMP tool definition");
+  return { name: tool.name, description: String(tool.description ?? ""), parameters: tool.parameters ?? { type: "object", properties: {} } };
 }
 
 /** Private inherited pipes: no HTTP listener, temporary credentials, or copied auth files. */

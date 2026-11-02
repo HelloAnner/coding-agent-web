@@ -27,7 +27,9 @@ export class OmpEvents {
     if (frame.type === "tool_execution_end" && typeof frame.toolCallId === "string") this.tools.delete(frame.toolCallId);
     if (frame.type === "agent_start" || String(frame.type).startsWith("tool_execution_") || String(frame.type).startsWith("auto_retry_") || String(frame.type).startsWith("auto_compaction_")) this.emit(frame as AgentEventLike);
     if (frame.type === "extension_error") this.emit({ type: "prompt_error", errorMessage: "An OMP extension failed. Check the native extension configuration." });
-    if (frame.type === "notice") this.emit({ type: "extension_ui_request", id: `${this.runId}:notice:${++this.serial}`, method: "notify", message: "OMP reported a runtime or session persistence notice. Check native session storage before closing this chat.", notifyType: "warning" });
+    if (frame.type === "notice") this.emit({ type: "extension_ui_request", id: `${this.runId}:notice:${++this.serial}`, method: "notify",
+      message: typeof frame.message === "string" && frame.message ? frame.message : "OMP reported a runtime notice.",
+      notifyType: frame.level === "error" ? "error" : frame.level === "info" ? "info" : "warning" });
   }
   finish(): void { this.streamingMessage = null; this.tools.clear(); }
 }

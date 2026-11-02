@@ -31,6 +31,8 @@ OMP 不创建 Pi `AgentSession`，不进入 `lib/rpc-manager.ts`，不写 Pi 会
 
 私有管道只发送模型显示/能力元数据与推理事件，不复制 endpoint、headers、凭据或认证文件，不监听额外 HTTP 端口。assistant 保留原始 API 标记供 Pi 的签名/replay 检查；浏览器事件移除签名。远端错误正文可能回显凭据，因此只展示脱敏后的模型标识、可识别的 HTTP 状态及排查提示。
 
+工具定义只转发 `name` / `description` / `parameters`。OMP 每个工具还附带 `session`、`tool`、`runner` 等原生运行态块，单次请求可达 4 MB；Pi 按 JSON 字节估算工具 token，超过上下文窗口就把 `max_tokens` clamp 到 1，表现为每条回复只吐一个词就 `stopReason: length`。
+
 ## 二、原生协议与生命周期
 
 运行方式：
