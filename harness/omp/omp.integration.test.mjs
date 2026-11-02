@@ -9,8 +9,9 @@ import { execFileSync } from "node:child_process";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { interopDefault: true, alias: { "@": process.cwd() } });
+const { ompVersionSupported } = await jiti.import("./runtime.ts");
 let available = false;
-try { available = execFileSync(process.env.PI_WEB_OMP_BIN || "omp", ["--version"], { encoding: "utf8" }).trim() === "omp/18.3.0"; } catch {}
+try { available = ompVersionSupported(execFileSync(process.env.PI_WEB_OMP_BIN || "omp", ["--version"], { encoding: "utf8" })); } catch {}
 
 test("native OMP uses Pi configuration for two turns, full tool permissions, model changes, abort, and exact resume", { skip: !available, timeout: 90000 }, async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "web-omp-integration-")));

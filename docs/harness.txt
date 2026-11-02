@@ -98,7 +98,8 @@ pi：开放、可组合的通用 coding harness
 
 omp：原生 OMP agent，模型配置与 Pi 完全共用
 
-  原生基线 omp/18.3.0。使用 --mode rpc-ui，RPC v2 支持分块；每条活跃会话一个 CLI，
+  原生基线 omp/18.3.0，18.x 同方言均接受（本机 18.7.0 已跑通原生集成测试），其他主版本拒绝启动。
+  使用 --mode rpc-ui，RPC v2 支持分块；每条活跃会话一个 CLI，
   多轮复用，空闲回收后按精确日志恢复。rpc-ui 才把 ask 的原生工具 UI 接到 RPC。
   agent、工具、审批、MCP、skills、扩展和会话由 OMP 管；不创建 Pi AgentSession。
 

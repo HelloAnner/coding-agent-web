@@ -19,15 +19,20 @@ export interface OmpPrompt {
   streamingBehavior?: "steer" | "followUp";
 }
 const IDLE_MS = 10 * 60_000;
+// ponytail: 18.x keeps the validated prompt_result/agent_end dialect; widen after the integration test passes on a new major.
+export function ompVersionSupported(stdout: string): boolean {
+  const match = /^omp\/(\d+)\.(\d+)\.(\d+)$/.exec(stdout.trim());
+  return match !== null && Number(match[1]) === 18 && Number(match[2]) >= 3;
+}
 let checkedBinary: { binary: string; check: Promise<void> } | null = null;
 async function checkBinary(binary: string): Promise<void> {
   if (checkedBinary?.binary === binary) return checkedBinary.check;
   const check = promisify(execFile)(binary, ["--version"], { timeout: 10_000, maxBuffer: 4096 }).then(({ stdout }) => {
-    if (stdout.trim() !== "omp/18.3.0") throw new OmpError("This adapter requires omp 18.3.0; other lifecycle dialects have not been validated", 503);
+    if (!ompVersionSupported(stdout)) throw new OmpError(`This adapter requires omp 18.3 or newer in the 18.x dialect; found ${stdout.trim() || "unknown version"}`, 503);
   }).catch((error) => {
     checkedBinary = null;
     if (error instanceof OmpError) throw error;
-    throw new OmpError("omp is not available. Install omp 18.3.0 or set PI_WEB_OMP_BIN", 503);
+    throw new OmpError("omp is not available. Install omp 18.3+ or set PI_WEB_OMP_BIN", 503);
   });
   checkedBinary = { binary, check };
   return check;

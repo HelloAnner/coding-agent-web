@@ -1,6 +1,6 @@
 # OMP harness
 
-已接入基础聊天。原生基线：`omp/18.3.0`，上游固定提交 [`62bc57be`](https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531)。其他版本明确拒绝启动，不假定协议 v2 等于应用语义兼容。
+已接入基础聊天。原生基线：`omp/18.3.0`，上游固定提交 [`62bc57be`](https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531)。18.x 同方言都接受（`ompVersionSupported`，18.3+）；其他主版本明确拒绝启动，不假定协议 v2 等于应用语义兼容。
 
 ## 一、模型和配置与 Pi 共用
 
@@ -111,7 +111,7 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 
 ## 六、验证证据与发布
 
-2026-10-30，本机 `omp/18.3.0`：
+2026-10-30，本机 `omp/18.3.0`；2026-11-06，本机 `omp/18.7.0` 同一套用例重跑通过：
 
 ```sh
 node_modules/.bin/tsc --noEmit
@@ -123,7 +123,7 @@ node harness/omp/client/browser-check.mjs
 已通过类型检查、lint 和全量回归（3229 tests，3223 pass、6 skip、0 fail）。测试数量会随并行开发变化，以本次运行记录为准。
 
 - `omp.test.mjs`：分块/UTF-8/坏帧、元数据不泄密、原始 API/签名保留、启动期取消、原生有效分支。
-- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、yolo 下 bash 直接执行且无审批、原生 ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。未安装 18.3.0 时此项显式 skip。
+- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、yolo 下 bash 直接执行且无审批、原生 ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。本机版本不满足 `ompVersionSupported` 时此项显式 skip。
 - `queue.test.mjs`：steer 优先、requestId 去重、终态边界、准备期间停止不复活队列、附件召回与断流收口。
 - `omp.integration.test.mjs` 另覆盖真实 CLI 的 steer→followUp 顺序、整个队列只结算一次及两种侧栏状态入口。
 - `client/use-session.test.mjs`：队列发送/召回、无 trust 重试的 ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
