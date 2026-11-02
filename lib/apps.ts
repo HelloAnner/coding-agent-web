@@ -2,10 +2,10 @@
  * The web apps this server hosts and the switcher in the sidebar's brand.
  * Each is a page of its own: "coding" is this coding agent's UI, "dashboard"
  * is the standalone app under dashboard/, "notes" is the personal notes and
- * whiteboards under notes/.
+ * whiteboards under notes/, and "plan" is the independent life-planning app.
  */
 export interface WebApp {
-  id: "coding" | "dashboard" | "notes";
+  id: "coding" | "dashboard" | "notes" | "plan";
   label: string;
   href: string;
 }
@@ -14,6 +14,7 @@ export const WEB_APPS: readonly WebApp[] = [
   { id: "coding", label: "Coding", href: "/" },
   { id: "dashboard", label: "Dashboard", href: "/dashboard" },
   { id: "notes", label: "Notes", href: "/notes" },
+  { id: "plan", label: "Plan", href: "/plan" },
 ];
 
 /** The app whose page `pathname` is, from the registry's hrefs. */
