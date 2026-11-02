@@ -74,6 +74,10 @@ try {
       calls.push({ path: url.pathname, body });
       if (url.pathname === "/api/harnesses") { json({ harnesses: [{ id: "pi", label: "pi" }, { id: "omp", label: "omp" }] }); return; }
       if (url.pathname === "/api/models") { json({ models: { "shared:first": "Shared first", "shared:second": "Shared second" }, modelList: ["first", "second"].map(id => ({ provider: "shared", id, name: `Shared ${id}` })), defaultModel: { provider: "shared", modelId: "first" }, defaultThinkingLevel: "medium", thinkingLevels: {}, thinkingLevelMaps: {}, thinkingLevelPins: {} }); return; }
+      if (url.pathname === "/api/harnesses/omp/models") { json({ path: "/tmp/.omp/agent", models: [
+        { key: "omp:first", name: "Omp first", provider: "native", model: "first", enabled: true, isDefault: true },
+        { key: "omp:second", name: "Omp second", provider: "native", model: "second", enabled: true },
+      ] }); return; }
       if (url.pathname.startsWith("/api/omp/")) {
         const id = url.pathname.split("/")[3];
         const identity = () => ({ sessionPath: view(id).filePath, provider: model.provider, model: model.modelId, cwd: "/fixture" });
@@ -116,10 +120,11 @@ try {
   await picker.filter({ hasText: "Shared first" }).waitFor();
   await page.getByRole("button", { name: "pi", exact: true }).click();
   await page.getByRole("option", { name: "omp", exact: true }).click();
+  await picker.filter({ hasText: "Omp first" }).waitFor();
   await picker.click();
-  await page.getByRole("option").filter({ hasText: "Shared second" }).click();
-  await picker.filter({ hasText: "Shared second" }).waitFor();
-  assert.equal(calls.some(({ path }) => path.includes("/harnesses/omp/models")), false, "OMP must not load an independent model list");
+  await page.getByRole("option").filter({ hasText: "Omp second" }).click();
+  await picker.filter({ hasText: "Omp second" }).waitFor();
+  assert.ok(calls.some(({ path }) => path.includes("/harnesses/omp/models")), "OMP reads its own model catalog");
   const composer = page.locator("textarea");
   const accepted = () => page.waitForResponse((response) => response.url().includes("/api/omp/") && response.request().method() === "POST" && response.request().postDataJSON()?.type === "prompt");
   const firstAccepted = accepted();
@@ -142,7 +147,8 @@ try {
   await page.getByTestId("messages").getByText("OMP fixture answer", { exact: true }).waitFor();
   await page.reload();
   await page.getByTestId("messages").getByText("OMP browser first turn", { exact: true }).waitFor();
-  await picker.filter({ hasText: "Shared second" }).waitFor();
+  // The fixture does not persist the picker choice, so the native default returns.
+  await picker.filter({ hasText: "Omp first" }).waitFor();
   const secondAccepted = accepted();
   await composer.fill("OMP browser second turn"); await composer.press("Enter");
   await secondAccepted;
@@ -156,7 +162,7 @@ try {
   assert.equal(prompts[0].path, prompts[1].path, "reload and the second turn keep the exact native web identity");
   assert.equal(calls.some(({ path }) => path.startsWith("/api/agent/")), false, "OMP never creates or calls a Pi agent");
   assert.deepEqual(errors, []);
-  console.log("PASS: real OMP composer/hook shares Pi models, locks controls, answers ask, reloads, sends two turns, steers, queues, recalls and stops without Pi agent calls");
+  console.log("PASS: real OMP composer/hook uses its own model catalog, locks controls, answers ask, reloads, sends two turns, steers, queues, recalls and stops without Pi agent calls");
 } finally {
   await browser?.close();
   server?.closeAllConnections();

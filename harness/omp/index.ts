@@ -1,7 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { HarnessDescriptor } from "../types";
 
 export const OMP_ID = /^omp-[a-zA-Z0-9-]{8,100}$/;
@@ -17,7 +16,8 @@ export function ompConfigIdentity(): string {
 }
 export function ompProcessEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  for (const name of ["PI_PACKAGE_DIR", "PI_PROFILE", "PI_CODING_AGENT_SESSION_DIR", "PI_SMOL_MODEL", "PI_SLOW_MODEL", "PI_PLAN_MODEL"]) delete env[name];
+  // omp's own role overrides (PI_SMOL_MODEL/PI_SLOW_MODEL/PI_PLAN_MODEL) stay: the terminal honors them too.
+  for (const name of ["PI_PACKAGE_DIR", "PI_PROFILE", "PI_CODING_AGENT_SESSION_DIR"]) delete env[name];
   env.PI_CONFIG_DIR = ".omp";
   env.PI_CODING_AGENT_DIR = ompAgentDir();
   env.OMP_PROFILE = "";
@@ -27,7 +27,7 @@ export function ompProcessEnv(): NodeJS.ProcessEnv {
 }
 export const ompHarness: HarnessDescriptor = {
   id: "omp", label: "omp",
-  // Model settings deliberately share Pi's editor and credentials, not OMP YAML.
-  configDir: getAgentDir,
-  async readChatModels(context) { return (await import("./models")).listOmpModels(context?.cwd); },
+  // Model settings are the native omp config, same as a terminal session.
+  configDir: ompAgentDir,
+  async readChatModels() { return (await import("./models")).listOmpModels(); },
 };

@@ -37,6 +37,11 @@ export function ompContent(raw: unknown, blobs?: string): AssistantContentBlock[
     return [];
   });
 }
+/** A provider error body can echo credentials. Keep the status, drop the body. */
+export function safeOmpError(errorMessage: string): string {
+  const status = /\b(?:4\d\d|5\d\d)\b/.exec(errorMessage)?.[0];
+  return `OMP model request failed${status ? ` (HTTP ${status})` : ""}. Check the provider, model and credentials in models.yml.`;
+}
 export function ompMessage(raw: unknown, id: string, blobs?: string): OmpMessage | null {
   const message = object(raw);
   const content = ompContent(message.content, blobs);
@@ -44,7 +49,7 @@ export function ompMessage(raw: unknown, id: string, blobs?: string): OmpMessage
   if (message.role === "assistant") return { role: "assistant", nativeId: id, content,
     provider: String(message.provider ?? ""), model: String(message.model ?? ""), timestamp,
     stopReason: typeof message.stopReason === "string" ? message.stopReason : undefined,
-    errorMessage: typeof message.errorMessage === "string" ? message.errorMessage : undefined,
+    errorMessage: typeof message.errorMessage === "string" ? safeOmpError(message.errorMessage) : undefined,
     ...(message.usage ? { usage: message.usage as Extract<AgentMessage, { role: "assistant" }>["usage"] } : {}),
   };
   const visible = content.filter((block): block is TextContent | ImageContent => block.type === "text" || block.type === "image");

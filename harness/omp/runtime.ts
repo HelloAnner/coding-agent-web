@@ -8,8 +8,7 @@ import { readCatalogSession, upsertCatalogSession, updateCatalogSession } from "
 import type { ExtensionUiRequest } from "../../lib/types";
 import { ompAgentDir, ompConfigIdentity, ompProcessEnv, ompSessionsRoot, OMP_ID } from "./index";
 import { OmpEvents, ompUiRequest } from "./events";
-import { OmpModelBridge } from "./model-bridge";
-import { readProjectModels, selectedOmpModel, type ProjectModels } from "./models";
+import { ompBinary, selectedOmpModel } from "./models";
 import { object, OmpError, OmpRpc, type Frame } from "./rpc";
 import { readOmpTranscript, type OmpMessage } from "./transcript";
 
@@ -42,7 +41,6 @@ export class OmpRun {
   readonly subscribers = new Set<(event: AgentEventLike) => void>();
   readonly inputs = new Map<string, ExtensionUiRequest>();
   rpc: OmpRpc | null = null;
-  private bridge: OmpModelBridge | null = null;
   private mapper: OmpEvents | null = null;
   private active = false;
   private starting = false;
@@ -55,7 +53,6 @@ export class OmpRun {
   private promptId: string | null = null;
   private idle: ReturnType<typeof setTimeout> | null = null;
   private stopTimer: ReturnType<typeof setTimeout> | null = null;
-  private source: ProjectModels | null = null;
   private nativeState: Frame = {};
   private nativeId = "";
   private file = "";
@@ -128,17 +125,13 @@ export class OmpRun {
     if (row && (row.harness !== "omp" || realpathSync(row.cwd) !== cwd || row.profilePath !== ompConfigIdentity())) throw new OmpError("This OMP session keeps its harness, project and configuration directory", 409);
     const transcript = row ? readOmpTranscript(this.id, row.sessionPath) : null;
     if (transcript && realpathSync(String(transcript.header.cwd)) !== cwd) throw new OmpError("OMP history belongs to another project", 409);
-    const source = await readProjectModels(cwd);
-    const model = selectedOmpModel(source, input.provider ?? row?.provider, input.modelId ?? row?.model);
-    if (input.images?.length && !model.input.includes("image")) throw new OmpError("This Pi model does not support image input");
+    // The model list is omp's own: models.yml, auth and the native catalog.
+    const requested = input.provider || input.modelId ? await selectedOmpModel(input.provider, input.modelId) : null;
+    if (requested && input.images?.length && !requested.input.includes("image")) throw new OmpError("This omp model does not support image input");
     if (row && (input.provider && input.provider !== row.provider || input.modelId && input.modelId !== row.model)) throw new OmpError("Use the model selector to change an existing OMP model", 409);
     if (this.stopping) throw new OmpError("OMP was stopped before sending");
-    this.source = source;
-    if (this.rpc?.alive) {
-      await this.bridge!.configure(source);
-      return;
-    }
-    const binary = process.env.PI_WEB_OMP_BIN?.trim() || "omp";
+    if (this.rpc?.alive) return;
+    const binary = ompBinary();
     await checkBinary(binary);
     if (this.stopping) throw new OmpError("OMP was stopped before starting");
     const piRoot = (await import("@earendil-works/pi-coding-agent")).getAgentDir();
@@ -147,11 +140,9 @@ export class OmpRun {
     const sessionDir = path.join(ompSessionsRoot(), this.id);
     mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     if (!statSync(sessionDir).isDirectory()) throw new OmpError("Invalid OMP session directory");
-    const selector = `${model.provider}/${model.id}`;
     const rpc = new OmpRpc(binary, ["--mode", "rpc-ui", "--no-pty", "--no-title", "--approval-mode", "yolo",
-      "--session-dir", sessionDir, "-e", path.join(process.cwd(), "harness", "omp", "model-extension.mjs"),
-      ...(row ? ["--resume", row.sessionPath] : ["--model", selector]),
-      "--smol", selector, "--slow", selector, "--plan", selector,
+      "--session-dir", sessionDir,
+      ...(row ? ["--resume", row.sessionPath] : requested ? ["--model", `${requested.provider}/${requested.id}`] : []),
     ], cwd, ompProcessEnv());
     this.rpc = rpc;
     this.cwd = cwd;
@@ -160,15 +151,14 @@ export class OmpRun {
     rpc.listeners.add((frame) => { if (this.rpc === rpc) this.receive(frame); });
     rpc.exits.add((error) => {
       if (this.rpc !== rpc) return;
-      this.rpc = null; this.bridge?.close(); this.bridge = null;
+      this.rpc = null;
       for (const id of this.inputs.keys()) this.publish({ type: "extension_ui_closed", id });
       this.inputs.clear();
-      this.settle(this.stopping && !this.steered ? undefined : error instanceof OmpError ? error.message : "OMP connection failed. Check native session and Pi model settings.");
+      this.settle(this.stopping && !this.steered ? undefined : error instanceof OmpError ? error.message : "OMP connection failed. Check the native session and omp model settings.");
       this.release();
     });
-    this.bridge = new OmpModelBridge(rpc, source);
     try {
-      await Promise.all([rpc.start(), this.bridge.configure()]);
+      await rpc.start();
       if (this.stopping) throw new OmpError("OMP was stopped before sending");
       if (!row) {
         const created = await rpc.request({ type: "new_session" });
@@ -181,14 +171,18 @@ export class OmpRun {
       const saved = readOmpTranscript(this.id, file);
       if (saved.header.id !== nativeId || realpathSync(String(saved.header.cwd)) !== cwd || row && (saved.header.id !== transcript!.header.id || saved.path !== transcript!.path)) throw new OmpError("OMP did not resume the expected native conversation", 409);
       this.nativeId = nativeId; this.file = saved.path;
-      const selected = await rpc.request({ type: "set_model", provider: model.provider, modelId: model.id });
-      if (selected.provider !== model.provider || selected.id !== model.id) throw new OmpError("OMP selected a different model", 409);
-      const level = input.thinkingLevel ?? (row ? transcript?.thinkingLevel : undefined) ?? source.scope.thinkingLevelPins[selector] ?? source.settings.getModelThinkingLevel(model.provider, model.id) ?? source.settings.getDefaultThinkingLevel();
-      if (level) await rpc.request({ type: "set_thinking_level", level });
+      if (requested) {
+        const selected = await rpc.request({ type: "set_model", provider: requested.provider, modelId: requested.id });
+        if (selected.provider !== requested.provider || selected.id !== requested.id) throw new OmpError("OMP selected a different model", 409);
+      }
+      // Only an explicit pin is applied; otherwise the native default role and thinking level stand.
+      const level = input.thinkingLevel ?? (row ? transcript?.thinkingLevel : undefined);
+      if (typeof level === "string") await rpc.request({ type: "set_thinking_level", level });
       this.nativeState = await rpc.request({ type: "get_state" });
       const actualModel = object(this.nativeState.model);
-      if (actualModel.provider !== model.provider || actualModel.id !== model.id) throw new OmpError("OMP did not confirm the selected Pi model", 409);
-      if (!row) upsertCatalogSession({ id: this.id, harness: "omp", cwd, provider: model.provider, model: model.id,
+      if (typeof actualModel.provider !== "string" || typeof actualModel.id !== "string") throw new OmpError("OMP did not confirm its model", 409);
+      if (requested && (actualModel.provider !== requested.provider || actualModel.id !== requested.id)) throw new OmpError("OMP did not confirm the selected model", 409);
+      if (!row) upsertCatalogSession({ id: this.id, harness: "omp", cwd, provider: actualModel.provider, model: actualModel.id,
         sessionPath: this.file, profilePath: ompConfigIdentity(), title: input.message?.trim().split("\n")[0].slice(0, 100) || "OMP" });
     } catch (error) { rpc.close(); throw error; }
   }
@@ -342,12 +336,9 @@ export class OmpRun {
     try {
       const row = this.row();
       await this.open({ id: this.id, cwd: row.cwd });
-      selectedOmpModel(this.source!, provider, modelId);
-      const previous = object(this.nativeState.model);
-      const thinking = previous.provider === provider && previous.id === modelId ? this.nativeState.thinkingLevel
-        : this.source!.settings.getModelThinkingLevel(provider, modelId) ?? this.source!.settings.getDefaultThinkingLevel() ?? this.nativeState.thinkingLevel;
+      await selectedOmpModel(provider, modelId);
+      // omp adapts the thinking level itself when the new model lacks the current one.
       const selected = await this.rpc!.request({ type: "set_model", provider, modelId });
-      if (typeof thinking === "string") await this.rpc!.request({ type: "set_thinking_level", level: thinking });
       this.nativeState = await this.rpc!.request({ type: "get_state" });
       const actual = object(this.nativeState.model);
       if (selected.provider !== provider || selected.id !== modelId || actual.provider !== provider || actual.id !== modelId) throw new OmpError("OMP selected a different model", 409);
@@ -380,7 +371,6 @@ export class OmpRun {
     if (this.idle) clearTimeout(this.idle);
     if (this.stopTimer) clearTimeout(this.stopTimer);
     this.idle = this.stopTimer = null;
-    this.bridge?.close();
     this.rpc?.close();
   }
 }

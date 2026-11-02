@@ -2,36 +2,31 @@
 
 已接入基础聊天。原生基线：`omp/18.3.0`，上游固定提交 [`62bc57be`](https://github.com/can1357/oh-my-pi/tree/62bc57be1b03ef0802a33cf7f5f530e534527531)。18.x 同方言都接受（`ompVersionSupported`，18.3+）；其他主版本明确拒绝启动，不假定协议 v2 等于应用语义兼容。
 
-## 一、模型和配置与 Pi 共用
+## 一、模型和配置就是终端那一套
 
-**Pi 能提供给聊天界面的模型，OMP 使用同一来源；不维护另一份 OMP 模型列表或配置副本。**
-
-- 设置 → Models → omp 复用 Pi 的编辑器，修改影响 Pi 和 OMP。
-- 输入框直接读取同一个 `/api/models?cwd=…`；`lib/project-models.ts` 共用项目 trust、provider 扩展、deferred models 和 `enabledModels` 解析。
-- `models.json`、`settings.json`、认证/OAuth、自定义 provider/API、网关、动态 key/headers、采样与兼容参数都由 **Pi `ModelRuntime`** 加载和执行，不翻译成 OMP `models.yml`，不限定 OpenAI-compatible API。
-- 修改后下一次发送重读 Pi 模型配置和认证；已在执行的模型请求不改变。重选同一模型可刷新原生侧的模型元数据。
-- 思考能力来自 Pi 模型元数据；新建使用 Pi 的 scoped pin / per-model / 默认档位。切模应用 Pi 的模型默认设置，精确恢复保留会话中已选的档位。
-- 原有会话的模型不再可用、被 scope 排除或配置损坏时明确报错，不静默切到另一模型。
-- **Pi 会话型 provider 扩展有边界**：若只在 `session_start` 注册，目录可能有 deferred 元数据，但独立模型服务尚未挂载。OMP 会在创建/发送前明确拒绝；扩展须在初始化阶段提供 provider，不伪建 Pi agent 激活。普通 `models.json` 配置与初始化注册的 provider 不受此限制。
-
-这不是用 Pi agent 冒充 OMP：
+**网页不做模型适配层：跑本机 `omp`，读它自己的配置，只把传输换成 RPC。** 终端能用的模型、凭据、provider、扩展在这里一样能用。
 
 ```text
 网页控件 / 会话索引
         |
         v
-原生 OMP：agent 循环、系统提示、上下文、工具、审批、MCP、skills、扩展、日志
+原生 OMP（同一个二进制）：provider、认证、models.yml、config.yml、模型目录、agent、工具、MCP、skills
         |
-        | OMP 原生 provider 扩展，继承的私有 fd 3/4
+        | --mode rpc-ui
         v
-Pi ModelRuntime.streamSimple()：模型配置、认证、provider、模型传输
+服务器只做进程、锁、队列和事件转换
 ```
 
-OMP 不创建 Pi `AgentSession`，不进入 `lib/rpc-manager.ts`，不写 Pi 会话日志。这里只共享模型服务，不共享 agent、工具或 MCP 生命周期。
+- 模型列表来自 `omp models --json`；默认模型来自 `config.yml` 的 `modelRoles.default`。都不读 Pi 的 `models.json`。
+- provider、凭据、`models.yml` 自定义 provider、`$ENV` / `!cmd` 取值、`disabledProviders`、`defaultThinkingLevel` 全部由 OMP 自己解析。
+- 设置 → Models → omp 只展示原生目录和配置目录，不提供 Pi 的编辑器；要改去终端改 `~/.omp/agent`。
+- 输入框读取 `/api/harnesses/omp/models`，与终端目录同源。
+- 新建会话不传模型就用原生默认角色；用户在输入框选过模型才传 `--model`/`set_model`。切模不动思考档位，OMP 自己适配。
+- 会话里的模型来自原生 `get_state`，只有原生确认后才写 catalog；不再假装“Pi 确认”。
 
-私有管道只发送模型显示/能力元数据与推理事件，不复制 endpoint、headers、凭据或认证文件，不监听额外 HTTP 端口。assistant 保留原始 API 标记供 Pi 的签名/replay 检查；浏览器事件移除签名。远端错误正文可能回显凭据，因此只展示脱敏后的模型标识、可识别的 HTTP 状态及排查提示。
+**没有任何 Pi 模型传输参与**：`model-bridge.ts`、`model-extension.mjs`、Pi `ModelRuntime.streamSimple()` 都已删除。OMP 不创建 Pi `AgentSession`，不进入 `lib/rpc-manager.ts`，不写 Pi 会话日志。
 
-工具定义只转发 `name` / `description` / `parameters`。OMP 每个工具还附带 `session`、`tool`、`runner` 等原生运行态块，单次请求可达 4 MB；Pi 按 JSON 字节估算工具 token，超过上下文窗口就把 `max_tokens` clamp 到 1，表现为每条回复只吐一个词就 `stopReason: length`。
+浏览器只拿到原生事件。远端错误正文可能回显凭据，`safeOmpError()` 只保留 HTTP 状态和排查提示，不透传正文（OMP 自己仍把原文写进原生日志，与终端一致）。
 
 ## 二、原生协议与生命周期
 
@@ -62,7 +57,7 @@ omp --mode rpc-ui --no-pty --no-title --approval-mode yolo …
 
 | 项目 | 约定 |
 | --- | --- |
-| harness | `omp`，菜单与模型设置独立入口 |
+| harness | `omp`，菜单与模型设置独立入口（原生配置） |
 | web id | `omp-…`，支持 LAN HTTP 下的 `crypto.getRandomValues` |
 | native id | 从原生 session header 恢复，不与 web id 混用 |
 | CLI | PATH 的 `omp`；可用 `PI_WEB_OMP_BIN` 指定可执行文件 |
@@ -75,17 +70,17 @@ omp --mode rpc-ui --no-pty --no-title --approval-mode yolo …
 
 Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harness 身份**。前端相信 catalog；旧标签只在文件确实位于 Pi 的 realpath 根内且 header id/cwd 匹配时修复，符号链接越界不作证据。
 
-子进程使用独立 env 副本，清理 Pi 的目录/模型/profile 选路，显式选择 `.omp` 配置和 OMP 根，不修改服务端全局环境。Pi 与 OMP 配置目录不能相同，包括符号链接指向同一个根的情形。
+子进程使用独立 env 副本，只清理 Pi 的目录/profile 选路，显式选择 `.omp` 配置和 OMP 根，不修改服务端全局环境。否则 OMP 和 Pi 会按同一份环境变量选到同一个配置根，这里显式拒绝。
 
 默认 `yolo` 全权限，不启用网页项目 trust 确认，也不弹工具审批。若 OMP 原生配置显式写了 `tools.approval.<tool>: prompt|deny`，该原生策略仍优先（`yolo` 只自动放行没有显式策略的调用）；需要完全无提示时不要在 OMP 配置里添加 `prompt` 规则。原生 `ask` 是向用户提问，不是权限审批，仍会按原生 request id 回传、显示选项说明。日志、blob 与 cwd 均做 realpath/归属检查，新 API 沿用现有站点认证。
 
-**全权限不等于沙箱，也不是“安全已解决”。** 原生 hooks、扩展、MCP、配置命令和工具都可直接执行本地代码；`yolo` 还会忽略 critical-pattern 的提示。网页侧的项目访问检查只限制能开哪个目录，不限制该目录里的命令。Pi 的模型 provider 扩展仍遵循 Pi 的项目 trust。
+**全权限不等于沙箱，也不是“安全已解决”。** 原生 hooks、扩展、MCP、配置命令和工具都可直接执行本地代码；`yolo` 还会忽略 critical-pattern 的提示。网页侧的项目访问检查只限制能开哪个目录，不限制该目录里的命令。模型凭据现在是 OMP 自己的（`auth.json`、环境变量、`models.yml` 的 `$ENV`/`!cmd`），Web 进程能读到的就等于终端能读到的。
 
 ## 四、能力与边界
 
 | 能力 | 当前状态 |
 | --- | --- |
-| 菜单、模型设置、Pi 模型列表 | 已接；同一份模型配置，不另存 YAML |
+| 菜单、模型设置、模型列表 | 已接原生 `omp models` 与 `config.yml`，不读 Pi 配置 |
 | 文本、多轮、正文/思考增量、工具卡 | 已接原生 RPC 事件 |
 | 工具执行与 ask | 默认 `yolo` 全权限，无工具审批；原生 `ask` 提问仍通过网页 UI 回答 |
 | 空闲切模、思考档位 | 原生确认后更新；运行/待输入时锁控件 |
@@ -99,21 +94,19 @@ Pi 与 OMP 都可能使用 `<时间戳>_<UUID>.jsonl`，**文件名不是 harnes
 
 历史读取有 **64 MiB** 上限，暂不分页；超限明确报错，不截断覆盖日志。只索引网页创建的 OMP 会话，不批量导入终端历史。网页/终端不能同时写同一日志；目前仅单服务 owner，不支持多服务实例共同管理原生进程，也不承诺重启后接回后台任务。
 
-模型配置同源不等于每个模型都适合 OMP 的 agent/tool 提示，也不代表所有 provider、视觉、签名类型、原生插件组合都已实测。
+终端能跑的模型不等于每个都适合 OMP 的 agent/tool 提示，也不代表所有 provider、视觉、签名类型、原生插件组合都已实测。
 
 ## 五、代码入口
 
-- `index.ts`、`models.ts`：登记、配置身份、Pi 模型能力。
-- `model-extension.mjs`、`model-bridge.ts`：原生 provider 与 Pi 模型传输的私有管道。
+- `index.ts`、`models.ts`：登记、配置身份、原生模型目录与默认角色。
 - `rpc.ts`、`runtime.ts`：RPC v2、进程、锁、恢复与生命周期。
 - `events.ts`、`transcript.ts`：事件/UI 转换、原生历史读取。
 - `api.ts`、`catalog.ts`：请求校验、SSE、索引保护；`app/api/omp/` 只转发。
-- `client/`：专属浏览器 API、发送/恢复/切模 workflow、复用 Pi 模型设置。
-- `../../lib/project-models.ts`：Pi/OMP 共用模型服务加载，不创建 agent。
+- `client/`：专属浏览器 API、发送/恢复/切模 workflow、原生模型列表。
 
 ## 六、验证证据与发布
 
-2026-10-30，本机 `omp/18.3.0`；2026-11-06，本机 `omp/18.7.0` 同一套用例重跑通过：
+2026-10-30，本机 `omp/18.3.0`；2026-11-02，本机 `omp/18.7.0` 同一套用例重跑通过。原生模型路径另在本机实测：`kimi-code/k3` 经网页适配层返回 `pong`，`stopReason: stop`，思考档位由 `config.yml` 决定：
 
 ```sh
 node_modules/.bin/tsc --noEmit
@@ -124,15 +117,14 @@ node harness/omp/client/browser-check.mjs
 
 已通过类型检查、lint 和全量回归（3229 tests，3223 pass、6 skip、0 fail）。测试数量会随并行开发变化，以本次运行记录为准。
 
-- `omp.test.mjs`：分块/UTF-8/坏帧、元数据不泄密、原始 API/签名保留、启动期取消、原生有效分支。
-- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd/Pi/OMP 根，**本地假网关和假 key**；两轮上下文、动态认证/header、采样/输出限制、切模/思考默认、yolo 下 bash 直接执行且无审批、原生 ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。本机版本不满足 `ompVersionSupported` 时此项显式 skip。
+- `omp.test.mjs`：分块/UTF-8/坏帧、原生目录解析与默认角色、错误正文脱敏、启动期取消、原生有效分支。
+- `omp.integration.test.mjs`：真实 OMP CLI，临时 HOME/cwd 与 **原生 `models.yml` + `config.yml`**，指向本地假网关和假 key；两轮上下文、provider header、切模、yolo 下 bash 直接执行且无审批、原生 ask、错误脱敏、停止、启动锁、精确恢复、catalog 保护与输入帧限制。本机版本不满足 `ompVersionSupported` 时此项显式 skip。
 - `queue.test.mjs`：steer 优先、requestId 去重、终态边界、准备期间停止不复活队列、附件召回与断流收口。
 - `omp.integration.test.mjs` 另覆盖真实 CLI 的 steer→followUp 顺序、整个队列只结算一次及两种侧栏状态入口。
 - `client/use-session.test.mjs`：队列发送/召回、无 trust 重试的 ensure→SSE→prompt、离页后仍发送已捕获的问题、失败草稿与不确定发送不重试、准备阶段/ACK 竞态取消、迟到历史不覆盖新事件、原生确认后才改模型。
-- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；同 Pi 模型列表、OMP 菜单、控件锁、ask 回答、刷新、两轮、steer/排队/召回/停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
+- `client/browser-check.mjs`：真实 React 输入框和会话 hook 的独立 Chromium 夹具；原生模型列表、OMP 菜单、控件锁、ask 回答、刷新、两轮、steer/排队/召回/停止，确认没有 Pi agent 请求。不启动 Next、不写用户数据库。
 - 公共回归覆盖 catalog 身份、旧 Pi 标签修复、模型加载、原有 harness 运行路径。
-- `npm pack --dry-run` 确认扩展包含在发布包；打包探针把扩展复制到无仓库 `node_modules` 祖先的临时目录，真实 CLI 仍能加载 OMP 自带模型 SDK；未进行推理。
 
-**未用用户真实凭据调用远端模型；未重启用户服务；未跑 `next build`。** 独立浏览器夹具不等于现有部署已重启验收。发布由用户按原流程重启，再用真实 provider 检查两轮/工具执行/停止与跨服务重启恢复；新增 OMP 版本须重新跑上述原生测试。
+**未重启用户服务；未跑 `next build`。真实凭据只在一次本机冒烟里用过（`kimi-code/k3`，一句话）。** 独立浏览器夹具不等于现有部署已重启验收。发布由用户按原流程重启，再用真实 provider 检查两轮/工具执行/停止与跨服务重启恢复；新增 OMP 版本须重新跑上述原生测试。
 
-原先的设计讨论保存在 Git 历史中；本文件描述当前实现，不再把旧“OMP 独立模型配置”方案当作运行事实。
+原先的设计讨论保存在 Git 历史中；本文件描述当前实现。曾经“网页把 Pi 模型桥接给 OMP”的方案已删除：OMP 用它自己的 provider、认证和模型目录，网页只保留 RPC。

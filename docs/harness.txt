@@ -96,16 +96,17 @@ pi：开放、可组合的通用 coding harness
   可复用：原生模型目录、显式选模、会话级设置、已有聊天界面。
   不照搬：把 Pi SDK 或 SessionManager 当成所有 coding harness 的通用核心。
 
-omp：原生 OMP agent，模型配置与 Pi 完全共用
+omp：原生 OMP agent，模型和配置就是终端那一套
 
   原生基线 omp/18.3.0，18.x 同方言均接受（本机 18.7.0 已跑通原生集成测试），其他主版本拒绝启动。
   使用 --mode rpc-ui，RPC v2 支持分块；每条活跃会话一个 CLI，
   多轮复用，空闲回收后按精确日志恢复。rpc-ui 才把 ask 的原生工具 UI 接到 RPC。
   agent、工具、审批、MCP、skills、扩展和会话由 OMP 管；不创建 Pi AgentSession。
 
-  模型菜单直接复用 /api/models，设置复用 Pi 编辑器；配置、enabledModels、OAuth、
-  provider 扩展、动态 key/headers、sampling/compat 参数由同一个 Pi ModelRuntime 执行。
-  原生 provider 扩展通过私有 fd 管道调用该模型服务，不另存 OMP models.yml 或密钥副本。
+  模型列表来自本机 omp models --json，默认模型来自 config.yml 的 modelRoles.default；
+  provider、认证、models.yml 自定义 provider、$ENV/!cmd 取值全由 OMP 自己解析。
+  没有 Pi 模型传输参与：网页只做进程、锁、队列和事件转换，不读 Pi 的 models.json。
+  终端能用的模型凭据在这里一样能用；要改配置就去改 ~/.omp/agent。
   不是绕过 OMP 直接在网页里实现另一个 agent，也不把 OMP 塞入 lib/rpc-manager.ts。
 
   已接文本、多轮、思考/工具事件、ask、空闲切模、停止、快照重连和精确恢复。

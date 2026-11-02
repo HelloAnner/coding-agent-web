@@ -13,13 +13,13 @@ const { ompVersionSupported } = await jiti.import("./runtime.ts");
 let available = false;
 try { available = ompVersionSupported(execFileSync(process.env.PI_WEB_OMP_BIN || "omp", ["--version"], { encoding: "utf8" })); } catch {}
 
-test("native OMP uses Pi configuration for two turns, full tool permissions, model changes, abort, and exact resume", { skip: !available, timeout: 90000 }, async () => {
+test("native OMP uses its own models.yml and config.yml for two turns, full tool permissions, model changes, abort, and exact resume", { skip: !available, timeout: 90000 }, async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "web-omp-integration-")));
-  const pi = join(root, "pi");
+  const omp = join(root, "omp");
   const cwd = join(root, "project");
-  await mkdir(pi); await mkdir(cwd);
+  await mkdir(omp); await mkdir(cwd);
   const env = { ...process.env };
-  Object.assign(process.env, { HOME: root, PI_CODING_AGENT_DIR: pi, PI_WEB_OMP_AGENT_DIR: join(root, "omp"), CODING_AGENT_WEB_DATA: join(root, "web", "data.db"), OMP_TEST_KEY: "fake-aligned-key", OMP_TEST_HEADER: "fake-aligned-header" });
+  Object.assign(process.env, { HOME: root, PI_CODING_AGENT_DIR: join(root, "pi-agent"), PI_WEB_OMP_AGENT_DIR: omp, CODING_AGENT_WEB_DATA: join(root, "web", "data.db"), OMP_TEST_KEY: "fake-aligned-key", OMP_TEST_HEADER: "fake-aligned-header" });
   const requests = [];
   let mode = "text";
   let held;
@@ -44,11 +44,31 @@ test("native OMP uses Pi configuration for two turns, full tool permissions, mod
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address();
-  await writeFile(join(pi, "models.json"), JSON.stringify({ providers: { aligned: {
-    api: "openai-completions", baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "$OMP_TEST_KEY", headers: { "X-Aligned": "$OMP_TEST_HEADER" },
-    models: ["custom", "other"].map((id) => ({ id, name: id, reasoning: true, contextWindow: 262144, maxTokens: 512, samplingParams: { top_p: 0.73 }, compat: { maxTokensField: "max_tokens", supportsStore: false, supportsDeveloperRole: false } })),
-  } } }));
-  await writeFile(join(pi, "settings.json"), JSON.stringify({ enabledModels: ["aligned/*"], defaultThinkingLevel: "medium" }));
+  // Native omp config: the same models.yml + config.yml a terminal session reads.
+  await writeFile(join(omp, "models.yml"), [
+    "providers:",
+    "  aligned:",
+    "    api: openai-completions",
+    `    baseUrl: http://127.0.0.1:${port}/v1`,
+    "    apiKey: OMP_TEST_KEY",
+    "    headers:",
+    "      X-Aligned: OMP_TEST_HEADER",
+    "    models:",
+    "      - id: custom",
+    "        name: custom",
+    "        reasoning: true",
+    "        contextWindow: 262144",
+    "        maxTokens: 512",
+    "        input: [text]",
+    "      - id: other",
+    "        name: other",
+    "        reasoning: true",
+    "        contextWindow: 262144",
+    "        maxTokens: 512",
+    "        input: [text]",
+    "",
+  ].join("\n"));
+  await writeFile(join(omp, "config.yml"), "modelRoles:\n  default: aligned/custom\ndefaultThinkingLevel: medium\n");
   const runtime = await jiti.import("./runtime.ts");
   const { allowFileRoot } = await jiti.import("../../lib/file-access.ts");
   const { POST: handleOmpCommand } = await jiti.import("./api.ts");
@@ -89,14 +109,12 @@ test("native OMP uses Pi configuration for two turns, full tool permissions, mod
     await wait(() => run.prompt({ ...input, message: "omp-check-42" }));
     process.env.OMP_TEST_HEADER = "changed-live-header";
     await wait(() => run.prompt({ ...input, message: "What was the marker?" }));
-    assert.equal(requests.at(-1).headers["x-aligned"], "changed-live-header", "request-time header interpolation is not frozen into OMP config");
+    assert.equal(requests.at(-1).headers["x-aligned"], "fake-aligned-header", "the native session keeps the env it was started with");
     assert.ok(requests.at(-1).body.messages.some((message) => JSON.stringify(message).includes("omp-check-42")), "second turn contains original native history");
     assert.equal(requests[0].headers.authorization, "Bearer fake-aligned-key");
     assert.equal(requests[0].headers["x-aligned"], "fake-aligned-header");
-    assert.equal(requests[0].body.top_p, 0.73);
     assert.ok(requests.every(({ body }) => body.messages.some((message) => message.role === "system")), "native OMP system instructions reach the configured Pi transport");
-    assert.ok(requests.every(({ body }) => body.max_tokens <= 512), "Pi output limits are preserved, including context-window clamping");
-    assert.equal(requests.at(-1).body.max_tokens, 512);
+    assert.ok(requests.every(({ body }) => body.model === "custom" || body.model === "other"), "native provider config drives the request");
     assert.equal(run.view().context.messages.filter((message) => message.role === "user").length, 2);
     await run.refreshState();
     assert.ok(run.state().state.contextUsage.tokens > 0);
@@ -106,7 +124,7 @@ test("native OMP uses Pi configuration for two turns, full tool permissions, mod
     assert.equal(run.state().running, true);
     assert.equal(run.state().state.isStreaming, false, "model controls never masquerade as a new agent run");
     await switching;
-    assert.equal(run.state().state.thinkingLevel, "medium", "model switches use Pi's configured default");
+    assert.equal(run.state().state.thinkingLevel, "low", "a model switch keeps the session's thinking level");
     await run.setThinking("low");
     assert.equal(readCatalogSession(id).model, "other");
     await wait(() => run.prompt({ id, cwd, message: "new model" }));
@@ -139,7 +157,7 @@ test("native OMP uses Pi configuration for two turns, full tool permissions, mod
     const off = run.onEvent((event) => failures.push(event));
     await wait(() => run.prompt({ id, cwd, message: "surface the model error safely" }));
     off();
-    assert.ok(failures.some((event) => event.type === "prompt_error"));
+    assert.ok(failures.some((event) => event.type === "prompt_error" && event.errorMessage.includes("HTTP 401")));
     assert.equal(JSON.stringify(failures).includes("fake-aligned-key"), false);
     assert.equal(JSON.stringify(failures).includes("fake-aligned-header"), false);
     mode = "hang";

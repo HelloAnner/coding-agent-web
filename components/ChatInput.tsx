@@ -1788,7 +1788,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const modelProvider = model?.provider ?? "";
   const modelKey = model?.modelId ?? "";
   useEffect(() => {
-    if (compact || harnessId === "pi" || harnessId === "omp") {
+    if (compact || harnessId === "pi") {
       setForeignModels([]);
       return;
     }
@@ -1814,12 +1814,14 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         const fallback = options.find((item) => item.isDefault) ?? options[0];
         // A saved pair the runtime no longer mounts stays on the chip: the send
         // then names the model it could not find instead of switching quietly.
+        // omp reads its own native catalog, so a model from another harness never applies.
+        const keepPropModel = propModel && (harnessId !== "omp" || Boolean(fromProp)) ? propModel : null;
         const next = fromCurrent
           ? { provider: fromCurrent.provider, modelId: fromCurrent.modelId }
           : fromProp
             ? { provider: fromProp.provider, modelId: fromProp.modelId }
-            : propModel
-              ? { provider: propModel.provider, modelId: propModel.modelId }
+            : keepPropModel
+              ? { provider: keepPropModel.provider, modelId: keepPropModel.modelId }
               : fallback
                 ? { provider: fallback.provider, modelId: fallback.modelId }
                 : null;
@@ -1844,7 +1846,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       name,
     }));
   })();
-  const usingForeignModels = !compact && harnessId !== "pi" && harnessId !== "omp";
+  const usingForeignModels = !compact && harnessId !== "pi";
   const shownModelOptions = usingForeignModels ? foreignModels : modelOptions;
   const shownModel = usingForeignModels ? foreignModel : model;
   const shownHarnesses = harnessChoices.length > 0

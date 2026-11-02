@@ -4,8 +4,7 @@ import { PassThrough } from "node:stream";
 import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { OmpFrameDecoder, readJsonLines } = await jiti.import("./rpc.ts");
-const { piModelContext, OMP_MODEL_API } = await jiti.import("./model-bridge.ts");
-const { ompModelMetadata, selectedOmpModel } = await jiti.import("./models.ts");
+const { ompDefaultSelector, parseOmpCatalog, selectedOmpModel } = await jiti.import("./models.ts");
 const { parseOmpTranscript } = await jiti.import("./transcript.ts");
 
 const chunk = (bytes, index, count, total) => ({ type: "rpc_chunk", chunkId: "a", index, count, byteLength: total, data: bytes.toString("base64") });
@@ -41,28 +40,19 @@ test("OMP JSONL handles byte splits, joined lines, limits, and an incomplete EOF
     assert.equal(failures.length, 1);
   }
 });
-test("Pi metadata is shared without restricting APIs or leaking configuration/credentials", () => {
-  const model = { provider: "gateway", id: "a/b", name: "Custom", api: "extension-private-api", baseUrl: "https://private.example", headers: { Authorization: "secret" }, reasoning: true,
-    thinkingLevelMap: { high: "custom-high", xhigh: null }, input: ["text", "image"], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 9000,
-    samplingParams: { top_k: 12 } };
-  const metadata = ompModelMetadata({ scope: { visible: [model], scopedModels: [] } });
-  assert.equal(metadata[0].id, "a/b");
-  assert.equal(metadata[0].maxTokens, 9000);
-  assert.ok(metadata[0].thinking.efforts.includes("high"));
-  assert.ok(!metadata[0].thinking.efforts.includes("xhigh"));
-  assert.doesNotMatch(JSON.stringify(metadata), /secret|private\.example|samplingParams|Authorization/);
-  assert.throws(() => selectedOmpModel({}, "gateway"), /together/);
-  assert.throws(() => selectedOmpModel({ scope: { visible: [model] }, runtime: { getError: () => undefined, getModel: () => undefined } }, model.provider, model.id), /listed but not registered/);
-  const context = piModelContext({ systemPrompt: ["native OMP instructions", "project context"], tools: [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} }, session: { cwd: "/private", settings: {} }, runner: { extensions: ["/private/ext"] } }], messages: [{ role: "assistant", api: OMP_MODEL_API, piWebApi: "extension-private-api", provider: "gateway", model: "a/b", content: [{ type: "thinking", thinking: "reason", thinkingSignature: "signed" }] }] });
-  assert.equal(context.systemPrompt, "native OMP instructions\n\nproject context");
-  assert.equal(context.messages[0].api, "extension-private-api");
-  assert.equal(context.messages[0].content[0].thinkingSignature, "signed");
-  assert.ok(!("piWebApi" in context.messages[0]));
-  // OMP tools carry ~330 KB of per-tool runtime blobs; Pi estimates tools by JSON
-  // size, so forwarding them clamps max_tokens to 1 and every reply truncates.
-  assert.deepEqual(context.tools, [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} } }]);
-  assert.ok(JSON.stringify(context.tools).length < 500);
-  assert.throws(() => piModelContext({ messages: [{ role: "assistant", api: OMP_MODEL_API }] }), /original provider API/);
+test("OMP reads its own catalog and terminal default instead of a Pi copy", async () => {
+  const catalog = parseOmpCatalog(JSON.stringify({ models: [
+    { provider: "gateway", kind: "chat", id: "a/b", selector: "gateway/a/b", name: "Custom", contextWindow: 100000, maxTokens: 9000, reasoning: true, thinking: ["low", "high"], input: ["text", "image"], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, apiKey: "secret" },
+    { provider: "gateway", kind: "image", id: "pixels", name: "Pixels" },
+    { provider: "broken" },
+  ] }));
+  assert.deepEqual(catalog, [{ provider: "gateway", id: "a/b", name: "Custom", input: ["text", "image"], reasoning: true, contextWindow: 100000, maxTokens: 9000, thinking: ["low", "high"] }]);
+  assert.doesNotMatch(JSON.stringify(catalog), /secret/);
+  assert.throws(() => parseOmpCatalog("not json"), /did not return JSON/);
+  await assert.rejects(selectedOmpModel("gateway"), /together/);
+  assert.equal(ompDefaultSelector("modelRoles:\n  default: openai-codex/gpt-6.1-sol:medium\n  smol: other/model"), "openai-codex/gpt-6.1-sol");
+  assert.equal(ompDefaultSelector("defaultThinkingLevel: max\n"), null);
+  assert.equal(ompDefaultSelector(null), null);
 });
 test("stopping during startup retains the lock and emits one aborted terminal without sending", async () => {
   const { getOmpRun } = await jiti.import("./runtime.ts");
@@ -123,4 +113,10 @@ test("OMP notices surface the native message instead of a guessed warning", asyn
   assert.equal(events[0].method, "notify");
   assert.equal(events[0].message, "Previous response hit the 1-token output limit");
   assert.equal(events[0].notifyType, "error");
+});
+test("OMP keeps the provider status and drops the remote error body", async () => {
+  const { safeOmpError } = await jiti.import("./transcript.ts");
+  assert.equal(safeOmpError("401 rejected fake-aligned-key fake-aligned-header"), "OMP model request failed (HTTP 401). Check the provider, model and credentials in models.yml.");
+  assert.doesNotMatch(safeOmpError("429 {\"apiKey\":\"sk-live-secret\"}"), /sk-live-secret/);
+  assert.match(safeOmpError("connection refused"), /^OMP model request failed\. /);
 });

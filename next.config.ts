@@ -22,7 +22,6 @@ const distDir = process.env.PI_WEB_DIST_DIR;
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
-  outputFileTracingIncludes: { "/api/omp/**": ["./harness/omp/model-extension.mjs"] },
   ...(distDir ? { distDir } : {}),
   experimental: {
     // proxy.ts matches /api/:path*, and Next buffers the request body whenever
