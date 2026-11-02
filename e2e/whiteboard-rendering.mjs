@@ -349,6 +349,27 @@ try {
   await narrowStyle.click();
   await narrow.waitForSelector(".App-mobile-menu");
   await narrow.close();
+
+  // A plain-http origin (the LAN address) has no async clipboard, so Excalidraw
+  // hides its own copy-as-PNG. The board's entry stays and hands back the PNG
+  // as a download with the reason instead of vanishing.
+  const insecure = await browser.newPage({ viewport: { width: 1000, height: 720 } });
+  insecure.on("pageerror", (error) => errors.push(error.message));
+  await insecure.addInitScript(() => { delete Navigator.prototype.clipboard; });
+  await insecure.goto(`http://127.0.0.1:${server.address().port}`);
+  await insecure.waitForSelector("canvas.static");
+  await insecure.keyboard.press("r");
+  await insecure.mouse.move(200, 200);
+  await insecure.mouse.down();
+  await insecure.mouse.move(400, 350, { steps: 5 });
+  await insecure.mouse.up();
+  await insecure.waitForFunction(() => window.saved.elements.length === 1);
+  await insecure.mouse.click(700, 600, { button: "right" });
+  await insecure.waitForSelector('[data-testid="board-copy-image"]');
+  const fallback = insecure.waitForEvent("download");
+  await insecure.locator('[data-testid="board-copy-image"] button').click();
+  assert.ok((await fallback).suggestedFilename().endsWith(".png"), "No clipboard API still yields the PNG");
+  await insecure.close();
   assert.deepEqual(errors, []);
   console.log("Whiteboard: transparent defaults, global styles/fonts, fresh opens, mobile modes, DPR, refresh, hit testing and undo pass.");
 } finally {

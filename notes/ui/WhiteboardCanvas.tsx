@@ -159,24 +159,23 @@ function WhiteboardCanvas({
     onViewChange({ scrollX: appState.scrollX, scrollY: appState.scrollY, zoom: appState.zoom.value });
     onChange(serializeAsJSON(elements, appState, files, "local"));
   }, [onChange, onViewChange, onBoardChange]);
-  // Right-click -> 导出图片: the whole scene as a PNG named after the board.
-  // The export dialog does the same, but a board is usually exported to paste
-  // somewhere, and that is one click and a dialog too many.
-  const downloadImage = useCallback(async () => {
+  // A board as a PNG: the export item and the clipboard copy hand back the
+  // same image, so they cannot disagree on background, dark mode or padding.
+  const boardPng = useCallback(async () => {
     const scene = api.current;
-    if (!scene) return;
+    if (!scene) return null;
     const appState = scene.getAppState();
-    const elements = scene.getSceneElements();
-    const files = scene.getFiles();
     // The menu is Excalidraw's, and it closes on an outside pointerdown: send
-    // one so the download does not leave the menu hanging under the cursor.
+    // one so the action does not leave the menu hanging under the cursor.
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    const blob = await exportToBlob({
-      elements,
+    return exportToBlob({
+      elements: scene.getSceneElements(),
       appState: { ...appState, exportBackground: true, exportWithDarkMode: appState.theme === "dark" },
-      files,
+      files: scene.getFiles(),
       exportPadding: 16,
     });
+  }, []);
+  const downloadPng = useCallback((blob: Blob) => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -187,31 +186,65 @@ function WhiteboardCanvas({
     // Revoking right away kills the download in Safari/Firefox.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [name]);
+  const toast = useCallback((message: string) => {
+    api.current?.updateScene({ appState: { toast: { message } }, captureUpdate: CaptureUpdateAction.EVENTUALLY });
+  }, []);
+  // Right-click -> 导出图片: the whole scene as a PNG named after the board.
+  // The export dialog does the same, but a board is usually exported to paste
+  // somewhere, and that is one click and a dialog too many.
+  const downloadImage = useCallback(async () => {
+    const blob = await boardPng();
+    if (blob) downloadPng(blob);
+  }, [boardPng, downloadPng]);
+  // 复制为 PNG 到剪贴板: Excalidraw drops its own item when the browser has no
+  // async clipboard — any plain-http origin, e.g. the LAN address. This one is
+  // always there and always answers: the PNG on the clipboard when the browser
+  // allows it, otherwise the same PNG as a download plus the reason.
+  const copyImage = useCallback(async () => {
+    const blob = await boardPng();
+    if (!blob) return;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("已将画布作为 PNG 复制到剪贴板");
+    } catch {
+      downloadPng(blob);
+      toast("浏览器只允许 https 或 localhost 写剪贴板，已改为下载 PNG");
+    }
+  }, [boardPng, downloadPng, toast]);
   // Excalidraw builds its context menu from a fixed action list and has no prop
-  // for extra entries, so the item is appended to the rendered menu.
+  // for extra entries, so the items are appended to the rendered menu.
   useEffect(() => {
     const root = boardRef.current;
     if (!root) return;
-    const addExportItem = () => {
-      const menu = root.querySelector<HTMLElement>(".context-menu");
-      if (!menu || menu.querySelector('[data-testid="board-export-image"]')) return;
+    const clipboardImages = "clipboard" in navigator && "write" in navigator.clipboard && "ClipboardItem" in window;
+    const addItem = (menu: HTMLElement, testid: string, text: string, onClick: () => void) => {
+      if (menu.querySelector(`[data-testid="${testid}"]`)) return;
       const item = document.createElement("li");
-      item.dataset.testid = "board-export-image";
+      item.dataset.testid = testid;
       const button = document.createElement("button");
       button.type = "button";
       button.className = "context-menu-item";
       const label = document.createElement("div");
       label.className = "context-menu-item__label";
-      label.textContent = "导出图片";
+      label.textContent = text;
       button.append(label);
-      button.addEventListener("click", () => void downloadImage());
+      button.addEventListener("click", onClick);
       item.append(button);
       menu.append(item);
     };
-    const observer = new MutationObserver(addExportItem);
+    const addBoardItems = () => {
+      const menu = root.querySelector<HTMLElement>(".context-menu");
+      if (!menu) return;
+      // Only when Excalidraw's own copy-as-PNG is hidden (no async clipboard).
+      if (!clipboardImages) {
+        addItem(menu, "board-copy-image", "复制为 PNG 到剪贴板", () => void copyImage());
+      }
+      addItem(menu, "board-export-image", "导出图片", () => void downloadImage());
+    };
+    const observer = new MutationObserver(addBoardItems);
     observer.observe(root, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [downloadImage]);
+  }, [copyImage, downloadImage]);
   return (
     <div ref={boardRef} className={`notes-board${shapesOpen ? " is-shapes-open" : ""}`}>
       {/* Excalidraw hides renderTopRightUI in mobile view mode. Keep the way
