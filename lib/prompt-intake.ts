@@ -191,46 +191,69 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** User message texts in a session file, newest last. */
-export function readUserTexts(filePath: string): string[] {
+/**
+ * pi appends this to a user message's text when it shrank an attached image
+ * (formatDimensionNote in the harness). The journal stores the text the page
+ * sent, so the note has to come off before the two can be compared — leaving it
+ * on made every prompt with an image look undelivered and replay on every boot.
+ */
+const IMAGE_NOTE = /\s*\[Image: original \d+x\d+, displayed at \d+x\d+\.[^\]]*\]/g;
+
+export interface UserMessage {
+  text: string;
+  hasImages: boolean;
+  at: number;
+}
+
+/** User messages in a session file, oldest first. */
+export function readUserMessages(filePath: string): UserMessage[] {
   if (!existsSync(filePath)) return [];
-  const texts: string[] = [];
+  const messages: UserMessage[] = [];
   for (const entry of getSessionEntries(filePath)) {
     if (entry.type !== "message") continue;
     const message = (entry as { message?: { role?: string; content?: unknown } }).message;
     if (!message || message.role !== "user") continue;
     const content = message.content;
+    // A missing or odd timestamp must not block a settlement: assume "late enough".
+    const parsed = Date.parse(String((entry as { timestamp?: string }).timestamp ?? ""));
+    const at = Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
     if (typeof content === "string") {
-      texts.push(content);
+      messages.push({ text: content, hasImages: false, at });
       continue;
     }
     if (!Array.isArray(content)) continue;
-    const parts = content
-      .filter((part): part is { type: string; text?: string } => Boolean(part) && typeof part === "object")
+    const parts = content.filter((part): part is { type: string; text?: string } => Boolean(part) && typeof part === "object");
+    const text = parts
       .filter((part) => part.type === "text" && typeof part.text === "string")
-      .map((part) => part.text as string);
-    if (parts.length > 0) texts.push(parts.join("\n"));
+      .map((part) => part.text as string)
+      .join("\n");
+    messages.push({ text, hasImages: parts.some((part) => part.type === "image"), at });
   }
-  return texts;
+  return messages;
+}
+
+/** What a history message and a journal row have to agree on: same text, same kind of attachments. */
+function intakeKey(text: string, hasImages: boolean): string {
+  return `${hasImages ? "img" : ""}:${normalize(text.replace(IMAGE_NOTE, ""))}`;
 }
 
 /**
- * Close every open row whose text is already in the session file. Called when a
- * page asks for state and at boot: a row that reached history needs no recovery.
- * Each history text settles at most one row, so sending the same message twice
- * keeps the second one open until its own delivery lands.
+ * Close every open row that reached the session file. Called when a page asks
+ * for state and at boot: a row that is in history needs no recovery. Each
+ * history message settles at most one row, so the same message sent twice keeps
+ * the second row open until its own delivery lands. A message written before
+ * the row was recorded cannot be that row's delivery either.
  */
-export function settleIntake(sessionId: string, userTexts: string[]): number {
+export function settleIntake(sessionId: string, messages: UserMessage[]): number {
   const rows = openIntake(sessionId);
   if (rows.length === 0) return 0;
-  const remaining = userTexts.map(normalize).filter((text) => text.length > 0);
+  const delivered = messages.map((message) => ({ key: intakeKey(message.text, message.hasImages), at: message.at }));
   let closed = 0;
   for (const row of rows) {
-    const wanted = normalize(row.text);
-    if (!wanted) continue;
-    const index = remaining.indexOf(wanted);
+    const wanted = intakeKey(row.text, row.files.length > 0);
+    const index = delivered.findIndex((message) => message.key === wanted && message.at >= row.createdAt - 2000);
     if (index === -1) continue;
-    remaining.splice(index, 1);
+    delivered.splice(index, 1);
     closeIntake(row.id);
     closed += 1;
   }
@@ -242,7 +265,7 @@ export async function settleSessionIntake(sessionId: string): Promise<number> {
   if (openIntake(sessionId).length === 0) return 0;
   const filePath = await resolveSessionPath(sessionId);
   if (!filePath) return 0;
-  return settleIntake(sessionId, readUserTexts(filePath));
+  return settleIntake(sessionId, readUserMessages(filePath));
 }
 
 function imageCommand(file: IntakeFile) {
@@ -278,6 +301,7 @@ export function intakeCommand(row: IntakeRow): IntakeCommand {
 export async function resumeOpenIntake(
   log: Pick<Console, "error" | "warn"> = console,
 ): Promise<void> {
+  const histories = new Map<string, UserMessage[]>();
   for (const row of openIntake()) {
     try {
       const filePath = await resolveSessionPath(row.sessionId);
@@ -285,7 +309,12 @@ export async function resumeOpenIntake(
         closeIntake(row.id);
         continue;
       }
-      settleIntake(row.sessionId, readUserTexts(filePath));
+      let history = histories.get(row.sessionId);
+      if (!history) {
+        history = readUserMessages(filePath);
+        histories.set(row.sessionId, history);
+      }
+      settleIntake(row.sessionId, history);
       if (!openIntake(row.sessionId).some((still) => still.id === row.id)) continue;
       if (row.attempts >= MAX_RESUME_ATTEMPTS) {
         log.warn(`[pi-web] giving up on an undelivered prompt for session ${row.sessionId}`);
