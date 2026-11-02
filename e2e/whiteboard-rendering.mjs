@@ -324,6 +324,31 @@ try {
   assert.equal(text.fontSize, 24);
   assert.equal(text.strokeColor, "#1971c2");
   await fresh.close();
+
+  // A board narrower than Excalidraw's 730px breakpoint (the Coding app's right
+  // panel mounts at that width) still gets the 样式 entry: there it opens that
+  // layout's bottom-bar panel instead of the desktop island.
+  const narrow = await browser.newPage({ viewport: { width: 700, height: 720 } });
+  narrow.on("pageerror", (error) => errors.push(error.message));
+  await narrow.goto(`http://127.0.0.1:${server.address().port}`);
+  await narrow.waitForSelector(".App-bottom-bar");
+  await narrow.waitForSelector("canvas.static");
+  await narrow.keyboard.press("r");
+  await narrow.mouse.move(150, 200);
+  await narrow.mouse.down();
+  await narrow.mouse.move(350, 350, { steps: 5 });
+  await narrow.mouse.up();
+  await narrow.waitForFunction(() => window.saved.elements.length === 1);
+  const narrowStyle = narrow.getByRole("button", { name: "样式", exact: true });
+  assert.equal(await narrowStyle.count(), 1, "Narrow boards keep the 样式 entry");
+  await narrowStyle.click();
+  await narrow.waitForSelector(".App-mobile-menu");
+  // The panel covers the top bar, so it closes from its own bottom-bar toggle.
+  await narrow.getByRole("button", { name: "编辑", exact: true }).click();
+  await narrow.waitForFunction(() => !document.querySelector(".App-mobile-menu"));
+  await narrowStyle.click();
+  await narrow.waitForSelector(".App-mobile-menu");
+  await narrow.close();
   assert.deepEqual(errors, []);
   console.log("Whiteboard: transparent defaults, global styles/fonts, fresh opens, mobile modes, DPR, refresh, hit testing and undo pass.");
 } finally {

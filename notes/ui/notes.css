@@ -278,6 +278,28 @@ button.notes-tree-toggle:hover {
   display: none;
 }
 
+/* The 样式 entry: the same button in Excalidraw's desktop top-right island and
+   in its narrow-layout top bar, so a board in the Coding right panel keeps it. */
+.notes-shapes-trigger {
+  flex: none;
+  height: var(--default-button-size, 2rem);
+  padding: 0 10px;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: var(--border-radius-md, 4px);
+  background: var(--bg-panel, #ffffff);
+  color: var(--text, #1e1e1e);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.notes-shapes-trigger:hover,
+.notes-shapes-trigger.active {
+  background: var(--bg-hover, #f1f3f5);
+  color: var(--color-primary);
+}
+
 .notes-error {
   display: flex;
   flex: 1 1 auto;

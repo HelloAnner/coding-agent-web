@@ -102,18 +102,35 @@ function WhiteboardCanvas({
   // Excalidraw parks its element properties panel over the canvas as soon as
   // something is selected. The board keeps it collapsed until the styles
   // button in the top bar asks for it.
+  const boardRef = useRef<HTMLDivElement>(null);
   const [shapesOpen, setShapesOpen] = useState(false);
-  const toggleShapes = useCallback(() => setShapesOpen((open) => !open), []);
-  const renderShapesTrigger = useCallback((canvasMobile: boolean) => (canvasMobile ? null : (
+  const toggleShapes = useCallback(() => {
+    // Under 730px wide Excalidraw drops the desktop island and moves the panel
+    // into its bottom-bar menu — which the Coding app's right panel always is.
+    // There the button drives that menu instead of the CSS class.
+    if (!boardRef.current?.querySelector(".layer-ui__wrapper")) {
+      const open = api.current?.getAppState().openMenu !== "shape";
+      api.current?.updateScene({
+        appState: { openMenu: open ? "shape" : null },
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+      setShapesOpen(open);
+      return;
+    }
+    setShapesOpen((open) => !open);
+  }, []);
+  // Keyed off the device, not Excalidraw's container width: a narrow desktop
+  // panel still needs the button, only a phone gets the bottom-bar menu.
+  const renderShapesTrigger = useCallback(() => (isMobile ? null : (
     <button
       type="button"
-      className={`sidebar-trigger notes-shapes-trigger${shapesOpen ? " active" : ""}`}
+      className={`notes-shapes-trigger${shapesOpen ? " active" : ""}`}
       onClick={toggleShapes}
       aria-pressed={shapesOpen}
     >
       样式
     </button>
-  )), [shapesOpen, toggleShapes]);
+  )), [isMobile, shapesOpen, toggleShapes]);
   // Excalidraw re-runs its onChange effect when the callback's identity
   // changes. A fresh arrow on every render (this component renders whenever
   // the save status changes) would save forever; keep it stable.
@@ -172,7 +189,6 @@ function WhiteboardCanvas({
   }, [name]);
   // Excalidraw builds its context menu from a fixed action list and has no prop
   // for extra entries, so the item is appended to the rendered menu.
-  const boardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = boardRef.current;
     if (!root) return;
