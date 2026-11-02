@@ -1331,6 +1331,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.preview": "预览",
     "i18n.diff": "Diff",
     "i18n.downloadFile": "下载文件",
+    "i18n.copyContent": "复制文件内容",
     "i18n.liveSync": "实时同步已启用",
     "i18n.notWatching": "未监视",
     "i18n.fileViewMode": "文件视图模式",
