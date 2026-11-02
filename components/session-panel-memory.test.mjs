@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createJiti } from "jiti";
 
 // The module reads window.localStorage; a Map-backed stand-in is all it uses.
 const store = new Map();
@@ -11,13 +12,15 @@ globalThis.window = {
   },
 };
 
+// jiti resolves the module's extensionless imports; plain --experimental-strip-types does not.
+const jiti = createJiti(import.meta.url, { interopDefault: true, moduleCache: false });
 const {
   forgetSessionPanel,
   readNotesTreePosition,
   readSessionPanel,
   saveNotesTreePosition,
   saveSessionPanel,
-} = await import("./session-panel-memory.ts");
+} = await jiti.import("./session-panel-memory.ts");
 
 const panel = {
   open: true,
@@ -25,6 +28,7 @@ const panel = {
   treeCollapsed: true,
   fileTabs: [{ id: "file:/repo/a.ts", label: "a.ts", filePath: "/repo/a.ts" }],
   noteTabs: [{ path: "a/plan.md", name: "plan", kind: "note" }],
+  terminalTabs: [{ id: "0123456789abcdef0123456789abcdef", cwd: "/repo", restored: true }],
   activeTabId: "note:a/plan.md",
 };
 
@@ -64,6 +68,17 @@ test("foreign or corrupt storage reads as no memory", () => {
   assert.equal(rescued.open, true);
   assert.deepEqual(rescued.fileTabs, [], "a tab without a path is dropped");
   assert.deepEqual(rescued.noteTabs, []);
+});
+
+test("a conversation's terminals come back as reattaching tabs", () => {
+  store.clear();
+  saveSessionPanel("s1", { ...panel, terminalTabs: [{ id: "0123456789abcdef0123456789abcdef", cwd: "/repo" }] });
+  assert.deepEqual(readSessionPanel("s1").terminalTabs, [
+    { id: "0123456789abcdef0123456789abcdef", cwd: "/repo", restored: true },
+  ], "a restored terminal reattaches instead of spawning a shell");
+
+  store.set("pi-web:session-panel", JSON.stringify({ s1: { terminalTabs: [{ id: "../../bad", cwd: "/repo" }, { id: "0123456789abcdef0123456789abcdef" }] } }));
+  assert.deepEqual(readSessionPanel("s1").terminalTabs, [], "a terminal needs a valid id and a cwd");
 });
 
 test("the oldest conversations are the ones forgotten", () => {

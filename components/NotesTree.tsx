@@ -52,10 +52,6 @@ function parentOf(relative: string): string {
   return relative.split("/").slice(0, -1).join("/");
 }
 
-function directoryPaths(nodes: readonly NotesNode[]): string[] {
-  return nodes.flatMap((node) => node.type === "dir" ? [node.path, ...directoryPaths(node.children ?? [])] : []);
-}
-
 /** The folders above a note: `a/b/c.md` → `["a", "a/b"]`. */
 function ancestorsOf(relative: string): string[] {
   const parts = relative.split("/").slice(0, -1);
@@ -93,29 +89,24 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   const [createError, setCreateError] = useState<string | null>(null);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  // Folders start open once; after that the user's choices stay.
-  const openedOnce = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
   const scrollRestoredRef = useRef(false);
   const revealedRef = useRef<string | null>(null);
-  const treeRef = useRef<NotesNode[] | null>(null);
-  treeRef.current = tree;
 
   // The tree keeps its own place per conversation: the folders it had open and
   // where it was scrolled to. It is written on the way out (a switch, a folded
-  // column) and read on the way in; a conversation with no memory starts as a
-  // freshly opened tree does.
+  // column) and read on the way in; a conversation with no memory starts
+  // folded, and the note it opens unfolds its own folders.
   useEffect(() => {
     if (!stateKey) return;
     if (!preservePosition) {
       const saved = readNotesTreePosition(stateKey);
-      openedOnce.current = saved !== null;
       scrollRestoredRef.current = saved !== null;
       scrollTopRef.current = saved?.scrollTop ?? 0;
-      setExpanded(new Set(saved ? saved.expanded : directoryPaths(treeRef.current ?? [])));
+      setExpanded(new Set(saved?.expanded ?? []));
     }
     return () => saveNotesTreePosition(stateKey, {
       expanded: [...expandedRef.current],
@@ -150,10 +141,6 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
       if (!response.ok || !body.tree) throw new Error(body.error || t("sidebar.notesLoadFailed"));
       setTree(body.tree);
       setError(null);
-      if (!openedOnce.current) {
-        openedOnce.current = true;
-        setExpanded(new Set(directoryPaths(body.tree)));
-      }
       // The remembered offset lands once the rows it points at exist.
       if (!scrollRestoredRef.current) {
         scrollRestoredRef.current = true;

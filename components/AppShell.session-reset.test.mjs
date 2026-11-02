@@ -111,10 +111,17 @@ test("reset and first-send promotion keep live viewers; a regular switch restore
     panelStateRef: { current: { open: true } },
     sessionCwdRef: { current: null },
     fileWorkspaceGenerationRef: { current: 7 },
-    terminalTabIdsRef: { current: [] },
     preservePanel: true,
     saveSessionPanel: (id) => saved.push(id),
-    readSessionPanel: () => ({ open: false, treeSource: "project", treeCollapsed: false, fileTabs: [], noteTabs: [], activeTabId: null }),
+    readSessionPanel: () => ({
+      open: false,
+      treeSource: "project",
+      treeCollapsed: false,
+      fileTabs: [],
+      noteTabs: [],
+      terminalTabs: [{ id: "0123456789abcdef0123456789abcdef", cwd: "/project", restored: true }],
+      activeTabId: "0123456789abcdef0123456789abcdef",
+    }),
   });
   setters(context, code, calls);
   run(code, context);
@@ -130,6 +137,9 @@ test("reset and first-send promotion keep live viewers; a regular switch restore
   assert.equal(context.fileWorkspaceGenerationRef.current, 8);
   assert.equal(context.rightPanelOpen, false);
   assert.deepEqual(saved, ["original", "fresh"]);
+  assert.deepEqual(context.terminalTabs, [{ id: "0123456789abcdef0123456789abcdef", cwd: "/project", restored: true }],
+    "a switch brings back that conversation's own terminals");
+  assert.equal(context.activeFileTabId, "0123456789abcdef0123456789abcdef");
 });
 
 test("the notes tree keeps its folders and scroll offset under the new session's memory key", async () => {

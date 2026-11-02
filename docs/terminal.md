@@ -3,19 +3,23 @@
 The Explorer terminal action opens or focuses a terminal for its selected cwd
 in the right panel's existing tab bar. Each terminal tab keeps the cwd it was
 created with. Files still mount only their active viewer; terminal panels stay
-mounted behind inactive tabs, hidden panels, and session or project switches.
+mounted behind inactive tabs and hidden panels. A conversation remembers its
+own terminals in the right panel's memory, so a shell opened here does not show
+up in another conversation and comes back when you return to it.
 
 ## Lifecycle
 
 - Each new tab generates a random terminal ID before creation. Creation with
   the same ID and cwd is idempotent, including React Strict Mode's repeated
   effects. An existing ID cannot be reused for another cwd.
-- `sessionStorage` retains terminal IDs, cwds, and the active terminal layout
-  across refresh. Restored tabs first check the existing server instance and
-  never silently start replacement processes after expiry or server restart.
-- A new PTY gets a 120-second connection lease. Subscribing cancels expiry;
-  the last subscriber leaving starts a new 120-second grace period. This also
-  collects creations that never establish their initial connection.
+- The right panel's per-conversation memory (`pi-web:session-panel`) retains
+  terminal IDs, cwds, and the active tab across refresh and conversation
+  switches. Restored tabs first check the existing server instance; one whose
+  shell is gone is dropped instead of silently starting a replacement.
+- A new PTY gets a 30-minute connection lease. Subscribing cancels expiry;
+  the last subscriber leaving starts a new 30-minute grace period, which is
+  what a reload or a switch to another conversation and back rides on. This
+  also collects creations that never establish their initial connection.
 - Hiding a panel, switching tabs, and unmounting a component only disconnect
   clients. Explicitly terminating a tab waits for creation and in-flight input
   before deleting the PTY. Restart waits for termination before creating a new

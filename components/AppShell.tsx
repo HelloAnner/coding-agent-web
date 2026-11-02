@@ -34,7 +34,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
-import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
+import { newTerminalTab, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { useI18n } from "@/hooks/useI18n";
@@ -587,9 +587,8 @@ export function AppShell() {
     setRightPanelOpen((open) => !open);
   }, [isMobile, rightPanelOpen]);
 
-  // All apps are mounted in this shell. A switch shows the other one at once
-  // and lets the shared layout's route change catch the URL up; the window
-  // never reloads and the shell never remounts.
+  // Coding, Dashboard and Notes stay mounted in this shell. Plan has its own
+  // standalone route and design, so switching to it leaves this shell.
   const switchApp = useCallback((app: WebApp) => {
     if (app.id === activeAppId) return;
     const nextUrl = appUrlRefs.current[app.id] ?? app.href;
@@ -622,6 +621,7 @@ export function AppShell() {
     nextRouter.prefetch("/");
     nextRouter.prefetch("/dashboard");
     nextRouter.prefetch("/notes");
+    nextRouter.prefetch("/plan");
   }, [nextRouter]);
 
   useEffect(() => {
@@ -686,7 +686,6 @@ export function AppShell() {
   const [fileWorkspaceGeneration, setFileWorkspaceGeneration] = useState(0);
   const fileWorkspaceGenerationRef = useRef(0);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
-  const [terminalsRestored, setTerminalsRestored] = useState(false);
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the conversation changes (they belong to it).
   const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
@@ -734,6 +733,7 @@ export function AppShell() {
     treeCollapsed: false,
     fileTabs: [],
     noteTabs: [],
+    terminalTabs: [],
     activeTabId: null,
   });
   panelStateRef.current = {
@@ -742,13 +742,14 @@ export function AppShell() {
     treeCollapsed: fileTreeCollapsed,
     fileTabs,
     noteTabs,
+    terminalTabs,
     activeTabId: activeFileTabId,
   };
-  const terminalTabIdsRef = useRef<string[]>([]);
-  terminalTabIdsRef.current = terminalTabs.map((tab) => tab.id);
   // Every conversation keeps its own right panel: switching restores its open
-  // state, its tree, its tabs and the tab it had focused. The fresh composer is
-  // its own key too, so a New in another project starts with an empty panel.
+  // state, its tree, its tabs and the tab it had focused — its terminals too,
+  // so a shell opened here does not show up in another conversation. The fresh
+  // composer is its own key too, so a New in another project starts with an
+  // empty panel.
   const panelKey = selectedSession ? `session:${selectedSession.id}` : `new:${newSessionCwd ?? ""}`;
   const panelKeyRef = useRef<string | null>(null);
   // The conversation just left: its viewer reports its last scroll offset as it
@@ -777,10 +778,8 @@ export function AppShell() {
     setFileWorkspaceGeneration(fileWorkspaceGenerationRef.current);
     setFileTabs(memory?.fileTabs ?? []);
     setNoteTabs(memory?.noteTabs ?? []);
-    // Terminals outlive conversations and keep the panel while they are active.
-    setActiveFileTabId((current) => current && terminalTabIdsRef.current.includes(current)
-      ? current
-      : memory?.activeTabId ?? null);
+    setTerminalTabs(memory?.terminalTabs ?? []);
+    setActiveFileTabId(memory?.activeTabId ?? null);
     setRightPanelOpen(memory?.open ?? false);
     setFileTreeCollapsed(memory?.treeCollapsed ?? false);
     setTreeSource(memory?.treeSource ?? loadFileTreeSource());
@@ -797,30 +796,7 @@ export function AppShell() {
       if (!forgottenSessionsRef.current.has(sessionId)) saveSessionPanel(sessionId, panelStateRef.current);
     }, 300);
     return () => clearTimeout(timer);
-  }, [panelKey, rightPanelOpen, treeSource, fileTreeCollapsed, fileTabs, noteTabs, activeFileTabId]);
-
-  useEffect(() => {
-    try {
-      const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
-      setTerminalTabs(saved.tabs);
-      if (saved.activeId) {
-        setActiveFileTabId(saved.activeId);
-        setRightPanelOpen(saved.open);
-      }
-    } catch { /* storage is optional */ }
-    setTerminalsRestored(true);
-  }, []);
-
-  useEffect(() => {
-    if (!terminalsRestored) return;
-    try {
-      window.sessionStorage.setItem(TERMINAL_TABS_KEY, JSON.stringify({
-        tabs: terminalTabs.map(({ id, cwd }) => ({ id, cwd })),
-        activeId: activeFileTabId,
-        open: rightPanelOpen,
-      }));
-    } catch { /* storage is optional */ }
-  }, [terminalTabs, activeFileTabId, rightPanelOpen, terminalsRestored]);
+  }, [panelKey, rightPanelOpen, treeSource, fileTreeCollapsed, fileTabs, noteTabs, terminalTabs, activeFileTabId]);
 
   const handleFileViewerStateChange = useCallback((
     generation: number,

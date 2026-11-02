@@ -202,8 +202,14 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
         });
       }
       connect();
-    })().catch((reason: Error) => {
+    })().catch((reason: Error & { status?: number }) => {
       if (disposed) return;
+      // A remembered tab whose shell expired has nothing to attach to: it goes
+      // away instead of leaving an error panel in a conversation revisited later.
+      if (restored && reconnectKey === 0 && reason.status === 404) {
+        callbacksRef.current.onClosed();
+        return;
+      }
       setError(reason.message);
       setStatus("error");
     });

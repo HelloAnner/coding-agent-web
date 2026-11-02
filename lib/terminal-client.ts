@@ -4,7 +4,12 @@ export async function terminalRequest(path: string, options?: RequestInit): Prom
     throw new Error(`Terminal request failed (HTTP ${response.status}): server returned an empty or invalid JSON response. Check the pi-web server log.`);
   });
   if (!data || typeof data !== "object") throw new Error(`Terminal request failed (HTTP ${response.status}): invalid JSON response. Check the pi-web server log.`);
-  if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+  if (!response.ok) {
+    // The status lets a caller tell an expired terminal (404) from a failure worth showing.
+    const error: Error & { status?: number } = new Error(data.error ?? `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 

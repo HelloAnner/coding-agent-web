@@ -27,7 +27,9 @@ declare global {
 
 // ponytail: bounded replay; use terminal serialization if full-screen snapshots become necessary.
 const MAX_BACKLOG = 128 * 1024;
-export const TERMINAL_RECONNECT_MS = 120_000;
+// No client is listening: a reload or a conversation switch comes back to the
+// same shell. Long enough to chat in another conversation and return.
+export const TERMINAL_RECONNECT_MS = 30 * 60_000;
 
 function registry(): Map<string, TerminalRecord> {
   if (!globalThis.__piWebTerminals) {

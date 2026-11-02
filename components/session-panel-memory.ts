@@ -1,9 +1,9 @@
 /**
  * The right panel's own state, remembered per conversation: whether the panel
  * is open, which tree it shows (files or notes), whether that column is folded,
- * which tabs are open and which one is active. The notes tree's open folders
- * and scroll position ride along. Switching to another session restores what
- * that session had; a fresh session starts empty.
+ * which tabs are open (files, notes and its terminals) and which one is active.
+ * The notes tree's open folders and scroll position ride along. Switching to
+ * another session restores what that session had; a fresh session starts empty.
  *
  * Everything here is plain JSON, so one localStorage map holds it all.
  * Best-effort: unavailable or foreign storage reads as no memory.
@@ -12,6 +12,7 @@
 import type { FileTreeSource } from "@/lib/sidebar-prefs";
 import type { NotesFileKind } from "@/notes/types";
 import type { Tab } from "./TabBar";
+import { restoreTerminalTabs, type TerminalTab } from "./terminal-tab-state";
 
 export interface NoteTab {
   path: string;
@@ -26,6 +27,8 @@ export interface SessionPanelState {
   treeCollapsed: boolean;
   fileTabs: Tab[];
   noteTabs: NoteTab[];
+  /** This conversation's shells; restored tabs reattach, they never spawn one. */
+  terminalTabs: TerminalTab[];
   /** The active tab, restoring even a terminal or subagent tab while it lives. */
   activeTabId: string | null;
 }
@@ -108,6 +111,11 @@ function storedNoteTabs(value: unknown): NoteTab[] {
     && (tab.kind === "note" || tab.kind === "board"));
 }
 
+/** Restored terminals carry `restored`, so they reattach to their shell instead of starting one. */
+function storedTerminalTabs(value: unknown): TerminalTab[] {
+  return restoreTerminalTabs(JSON.stringify({ tabs: value, activeId: null })).tabs;
+}
+
 export function readSessionPanel(sessionId: string): SessionPanelState | null {
   const entry = readAll()[sessionId];
   if (!isRecord(entry)) return null;
@@ -117,6 +125,7 @@ export function readSessionPanel(sessionId: string): SessionPanelState | null {
     treeCollapsed: entry.treeCollapsed === true,
     fileTabs: storedFileTabs(entry.fileTabs),
     noteTabs: storedNoteTabs(entry.noteTabs),
+    terminalTabs: storedTerminalTabs(entry.terminalTabs),
     activeTabId: typeof entry.activeTabId === "string" ? entry.activeTabId : null,
   };
 }

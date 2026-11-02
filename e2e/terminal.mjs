@@ -93,7 +93,19 @@ try {
     // column; the session rows are the sidebar's.
     const showTab = (name) => (name === "Files" ? showSidebarFiles(page) : showSidebarSessions(page));
     const filesPanel = page.locator("#file-browser");
-    const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
+    const showPanel = async () => {
+      const button = page.getByRole("button", { name: "Show file panel", exact: true });
+      if (await button.count()) await button.click();
+    };
+    // Terminals are remembered per conversation, in the right panel's memory.
+    const rememberedTerminals = (sessionId) => page.evaluate((sessionId) => {
+      const all = JSON.parse(localStorage.getItem("pi-web:session-panel") ?? "{}");
+      return all[sessionId]?.terminalTabs ?? [];
+    }, sessionId);
+    const waitForTerminalCount = (sessionId, count) => page.waitForFunction(({ sessionId, count }) => {
+      const all = JSON.parse(localStorage.getItem("pi-web:session-panel") ?? "{}");
+      return (all[sessionId]?.terminalTabs ?? []).length === count;
+    }, { sessionId, count });
     // The panel's own hide button is gone: the chat top bar's toggle closes it,
     // and on a phone that toggle can sit hidden behind the toolbar overflow.
     const hidePanel = async () => {
@@ -156,7 +168,14 @@ try {
       await showSidebar();
       await showTab("Sessions");
       await page.getByText("Terminal session two", { exact: true }).click();
+      // Terminals belong to their conversation: the other one's panel has none,
+      // and coming back reattaches to the same shell.
+      await page.locator(".terminal-panel").waitFor({ state: "detached" });
+      await showSidebar();
+      await showTab("Sessions");
+      await page.getByText("Terminal session one", { exact: true }).click();
       await showPanel();
+      await ready();
       await run("printf '\\nSESSION:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`SESSION:alive:${pid}`);
 
@@ -226,15 +245,16 @@ try {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 
       await page.getByRole("button", { name: "Restart terminal", exact: true }).click();
-      await page.waitForFunction((oldId) => {
-        const saved = JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs"));
-        return saved.tabs.length === 1 && saved.tabs[0].id !== oldId;
-      }, id);
+      await page.waitForFunction(({ sessionId, oldId }) => {
+        const all = JSON.parse(localStorage.getItem("pi-web:session-panel") ?? "{}");
+        const tabs = all[sessionId]?.terminalTabs ?? [];
+        return tabs.length === 1 && tabs[0].id !== oldId;
+      }, { sessionId: "terminal-a1", oldId: id });
       await ready();
       assert.equal((await fetch(`${base}/api/terminal/${id}`)).status, 404);
       await run("exit 7");
       await page.getByText("Process exited with code 7", { exact: true }).waitFor();
-      const currentId = await page.evaluate(() => JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs")).tabs[0].id);
+      const [{ id: currentId }] = await rememberedTerminals("terminal-a1");
       await page.getByRole("button", { name: "Terminate terminal workspace-a", exact: true }).click();
       await page.locator(".terminal-panel").waitFor({ state: "detached" });
       assert.equal((await fetch(`${base}/api/terminal/${currentId}`)).status, 404);
@@ -271,7 +291,8 @@ try {
       await page.waitForFunction((root) => document.querySelector("#session-sidebar-panel-files .project-picker-button.is-project")?.title === root, otherWorkspace);
       await filesPanel.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
-      const workspaceTabs = await page.evaluate(() => JSON.parse(sessionStorage.getItem("pi-web:terminal-tabs")).tabs);
+      await waitForTerminalCount("terminal-a1", 2);
+      const workspaceTabs = await rememberedTerminals("terminal-a1");
       assert.deepEqual(workspaceTabs.map((tab) => tab.cwd).sort(), [workspace, otherWorkspace].sort());
       const otherId = workspaceTabs.find((tab) => tab.cwd === otherWorkspace).id;
       assert.equal((await (await fetch(`${base}/api/terminal/${otherId}`)).json()).cwd, otherWorkspace);
