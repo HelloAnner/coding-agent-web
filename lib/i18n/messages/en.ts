@@ -414,6 +414,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.notesNewBoard": "New board",
     "sidebar.notesNewBoardIn": "New board in {name}",
     "sidebar.notesBoardTitle": "Board name",
+    "sidebar.notesCopyPath": "Copy path",
+    "sidebar.notesCopyPathFailed": "Could not copy the path",
     "sidebar.notesCreate": "Create",
     "sidebar.notesCancel": "Cancel",
     "sidebar.notesCreateBoardFailed": "Could not create the board",

@@ -1,7 +1,8 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "./SidebarIcons";
+import { CheckIcon, ChevronIcon, FolderIcon, PlusIcon, TrashIcon } from "./SidebarIcons";
+import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { subscribeNotesWatch } from "@/lib/notes-watch";
 import { readNotesTreePosition, saveNotesTreePosition } from "./session-panel-memory";
@@ -31,6 +32,14 @@ function NoteIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
     </svg>
   );
 }
@@ -81,6 +90,9 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
 }, ref) {
   const { t } = useI18n();
   const [tree, setTree] = useState<NotesNode[] | null>(null);
+  // The vault's absolute path: a note's row copies root + its relative path.
+  const [vaultRoot, setVaultRoot] = useState("");
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -137,9 +149,10 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/notes", { cache: "no-store" });
-      const body = await response.json() as { tree?: NotesNode[]; error?: string };
+      const body = await response.json() as { root?: string; tree?: NotesNode[]; error?: string };
       if (!response.ok || !body.tree) throw new Error(body.error || t("sidebar.notesLoadFailed"));
       setTree(body.tree);
+      setVaultRoot(body.root || "");
       setError(null);
       // The remembered offset lands once the rows it points at exist.
       if (!scrollRestoredRef.current) {
@@ -248,6 +261,17 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
     }
   };
 
+  const copyNodePath = async (node: NotesNode) => {
+    setActionError(null);
+    try {
+      await copyText(vaultRoot ? `${vaultRoot}/${node.path}` : node.path);
+      setCopiedPath(node.path);
+      setTimeout(() => setCopiedPath((current) => (current === node.path ? null : current)), 1200);
+    } catch {
+      setActionError(t("sidebar.notesCopyPathFailed"));
+    }
+  };
+
   const renderNode = (node: NotesNode, depth: number): ReactNode => {
     const isDir = node.type === "dir";
     const open = expanded.has(node.path);
@@ -325,6 +349,18 @@ export const NotesTree = forwardRef<NotesTreeHandle, Props>(function NotesTree({
               <PlusIcon size={12} />
             </button>
           )}
+          <button
+            type="button"
+            className="notes-row-plus"
+            title={t("sidebar.notesCopyPath")}
+            aria-label={t("sidebar.notesCopyPath")}
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyNodePath(node);
+            }}
+          >
+            {copiedPath === node.path ? <CheckIcon size={12} /> : <CopyIcon />}
+          </button>
           <button
             type="button"
             className="notes-row-delete"

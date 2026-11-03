@@ -414,6 +414,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.notesNewBoard": "新建白板",
     "sidebar.notesNewBoardIn": "在 {name} 下新建白板",
     "sidebar.notesBoardTitle": "白板名称",
+    "sidebar.notesCopyPath": "复制路径",
+    "sidebar.notesCopyPathFailed": "复制路径失败",
     "sidebar.notesCreate": "创建",
     "sidebar.notesCancel": "取消",
     "sidebar.notesCreateBoardFailed": "创建白板失败",
