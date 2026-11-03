@@ -11,6 +11,7 @@ import {
 import type { ExcalidrawImperativeAPI, ExcalidrawInitialDataState, NormalizedZoomValue } from "@excalidraw/excalidraw/types";
 import type { NotesBoardSettings, NotesBoardView } from "@/notes/types";
 import { boardAppState, boardSettingsFromAppState } from "@/notes/board-style";
+import { copyImage as copyImageToClipboard } from "@/lib/clipboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import "@excalidraw/excalidraw/index.css";
 type NormalizedTheme = "light" | "dark";
@@ -199,16 +200,17 @@ function WhiteboardCanvas({
   // 复制为 PNG 到剪贴板: Excalidraw drops its own item when the browser has no
   // async clipboard — any plain-http origin, e.g. the LAN address. This one is
   // always there and always answers: the PNG on the clipboard when the browser
-  // allows it, otherwise the same PNG as a download plus the reason.
+  // allows it, otherwise on the clipboard of the machine running this app, and
+  // a download only when both refuse.
   const copyImage = useCallback(async () => {
     const blob = await boardPng();
     if (!blob) return;
     try {
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      await copyImageToClipboard(blob);
       toast("已将画布作为 PNG 复制到剪贴板");
     } catch {
       downloadPng(blob);
-      toast("浏览器只允许 https 或 localhost 写剪贴板，已改为下载 PNG");
+      toast("复制到剪贴板失败，已改为下载 PNG");
     }
   }, [boardPng, downloadPng, toast]);
   // Excalidraw builds its context menu from a fixed action list and has no prop

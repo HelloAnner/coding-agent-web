@@ -22,12 +22,14 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { readNotesSettings, updateNotesSettings, writeNotesSettings } = await jiti.import("../notes/agent/settings.ts");
 writeNotesSettings({ board: { fontFamily: 2, fontSize: 20 } });
 let settingsWrites = 0;
+const hostClipboard = [];
 let server;
 let browser;
 try {
   for (const [name, file] of Object.entries({
     canvas: "notes/ui/WhiteboardCanvas.tsx", mobile: "hooks/useIsMobile.ts",
     style: "notes/board-style.ts", preferences: "notes/ui/useBoardPreferences.ts",
+    clipboard: "lib/clipboard.ts",
   })) {
     await writeFile(path.join(temp, `${name}.js`), ts.transpileModule(await readFile(path.join(repo, file), "utf8"), {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -67,7 +69,10 @@ try {
       mode: "development", devtool: false, entry: path.join(temp, "entry.js"),
       output: { path: output, filename: "bundle.js", publicPath: "/" },
       resolve: {
-        alias: { "@/hooks/useIsMobile": path.join(temp, "mobile.js"), "@/notes/board-style": path.join(temp, "style.js") },
+        alias: {
+          "@/hooks/useIsMobile": path.join(temp, "mobile.js"), "@/notes/board-style": path.join(temp, "style.js"),
+          "@/lib/clipboard": path.join(temp, "clipboard.js"),
+        },
         modules: ["node_modules", path.join(repo, "node_modules")],
         conditionNames: ["browser", "import", "production", "default"],
       },
@@ -95,6 +100,16 @@ try {
         }
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify({ settings }));
+        return;
+      }
+      // The host clipboard stand-in for a plain-http origin: record the bytes
+      // the browser could not write itself.
+      if (request.url === "/api/clipboard" && request.method === "POST") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const body = Buffer.concat(chunks);
+        hostClipboard.push({ type: request.headers["content-type"], body });
+        response.writeHead(204).end();
         return;
       }
       if (request.url === "/") {
@@ -351,8 +366,8 @@ try {
   await narrow.close();
 
   // A plain-http origin (the LAN address) has no async clipboard, so Excalidraw
-  // hides its own copy-as-PNG. The board's entry stays and hands back the PNG
-  // as a download with the reason instead of vanishing.
+  // hides its own copy-as-PNG. The board's entry stays and sends the PNG to the
+  // host, whose clipboard the browser cannot touch over http.
   const insecure = await browser.newPage({ viewport: { width: 1000, height: 720 } });
   insecure.on("pageerror", (error) => errors.push(error.message));
   await insecure.addInitScript(() => { delete Navigator.prototype.clipboard; });
@@ -366,9 +381,11 @@ try {
   await insecure.waitForFunction(() => window.saved.elements.length === 1);
   await insecure.mouse.click(700, 600, { button: "right" });
   await insecure.waitForSelector('[data-testid="board-copy-image"]');
-  const fallback = insecure.waitForEvent("download");
   await insecure.locator('[data-testid="board-copy-image"] button').click();
-  assert.ok((await fallback).suggestedFilename().endsWith(".png"), "No clipboard API still yields the PNG");
+  for (let i = 0; i < 50 && !hostClipboard.length; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(hostClipboard.length, 1, "No async clipboard still reaches a clipboard");
+  assert.equal(hostClipboard[0].type, "image/png");
+  assert.deepEqual([...hostClipboard[0].body.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], "The host gets a real PNG");
   await insecure.close();
   assert.deepEqual(errors, []);
   console.log("Whiteboard: transparent defaults, global styles/fonts, fresh opens, mobile modes, DPR, refresh, hit testing and undo pass.");
