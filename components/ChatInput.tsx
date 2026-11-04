@@ -45,15 +45,21 @@ export interface AttachedImage {
   previewUrl: string; // object URL for display
 }
 
-/** A Notes file picked from the @ menu; shown as a chip, sent as an absolute path. */
+/** An absolute-path attachment chip: a Notes file from the @ menu, or a pasted file. */
 interface NoteMention {
   name: string;
   path: string;
   absPath: string;
-  kind: "note" | "board";
+  kind: "note" | "board" | "file";
 }
 
-function appendNoteMentions(message: string, mentions: readonly NoteMention[]): string {
+/** A pasted file as a chip: the file name only, the absolute path on send. */
+export function pastedFileMention(absPath: string): NoteMention {
+  const name = absPath.split(/[\\/]/).pop() ?? absPath;
+  return { name, path: absPath, absPath, kind: "file" };
+}
+
+export function appendNoteMentions(message: string, mentions: readonly NoteMention[]): string {
   if (!mentions.length) return message;
   const tokens = buildAbsoluteAtMentionsText(mentions.map((mention) => mention.absPath));
   return message ? `${message}\n${tokens}` : tokens;
@@ -136,6 +142,8 @@ export interface ChatInputHandle {
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
+  /** Appends pasted files as chips; they are sent as absolute paths. */
+  addFileMentions: (absPaths: string[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
   focus: () => void;
@@ -568,6 +576,111 @@ function hideAbsoluteAtMentions(text: string): string {
   );
 }
 
+/** A file-style chip: icon and file name, no path. Built for pasted files. */
+function PastedFileChip({ mention, removeLabel, onRemove }: {
+  mention: NoteMention;
+  removeLabel: string;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      title={mention.absPath}
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        maxWidth: 200,
+        height: 34,
+        padding: "0 10px 0 8px",
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        background: "var(--bg-panel)",
+        color: "var(--text)",
+        fontSize: 12,
+      }}
+    >
+      <span style={{ display: "flex", flexShrink: 0, color: "var(--accent)" }}>
+        {getFileIcon(mention.name, 14)}
+      </span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {mention.name}
+      </span>
+      <button
+        type="button"
+        aria-label={`${removeLabel} ${mention.name}`}
+        onClick={onRemove}
+        style={{
+          position: "absolute", top: -5, right: -5,
+          width: 16, height: 16, borderRadius: "50%", padding: 0,
+          background: "var(--bg-panel)", border: "1px solid var(--border)",
+          color: "var(--text-muted)", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/** Mention chips in the composer: a pasted file is a file card, a Notes entry its path. */
+function MentionChip(props: { mention: NoteMention; removeLabel: string; onRemove: () => void }) {
+  const { mention, removeLabel, onRemove } = props;
+  if (mention.kind === "file") return <PastedFileChip {...props} />;
+  return (
+    <div
+      title={mention.path}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        maxWidth: 320,
+        height: 26,
+        padding: "0 3px 0 7px",
+        border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border))",
+        borderRadius: 7,
+        background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
+        color: "var(--text)",
+        fontSize: 11.5,
+        fontFamily: "var(--font-mono)",
+      }}
+    >
+      <span style={{ display: "flex", flexShrink: 0, color: "var(--accent)" }}>
+        {getFileIcon(mention.name, 12)}
+      </span>
+      <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {mention.path}
+      </span>
+      <button
+        type="button"
+        aria-label={`${removeLabel} ${mention.path}`}
+        onClick={onRemove}
+        style={{
+          flexShrink: 0,
+          width: 16,
+          height: 16,
+          padding: 0,
+          border: "none",
+          borderRadius: "50%",
+          background: "none",
+          color: "var(--text-dim)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
   const displayText = hideAbsoluteAtMentions(text);
   return (
@@ -956,6 +1069,12 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     },
     addImages(files: File[]) {
       processImageFiles(files);
+    },
+    addFileMentions(absPaths: string[]) {
+      setNoteMentions((previous) => {
+        const known = new Set(previous.map((item) => item.absPath));
+        return [...previous, ...absPaths.filter((p) => !known.has(p)).map(pastedFileMention)];
+      });
     },
   }));
 
@@ -2100,58 +2219,16 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             {onDismissCompactError && <DismissButton onClick={onDismissCompactError} title={t("chat.dismissCompactError")} />}
           </div>
         )}
-        {/* Notes picked from @: chips in the composer, absolute paths on send. */}
+        {/* Files picked from @ or pasted: chips in the composer, absolute paths on send. */}
         {noteMentions.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
             {noteMentions.map((note) => (
-              <div
+              <MentionChip
                 key={note.absPath}
-                title={note.path}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  maxWidth: 320,
-                  height: 26,
-                  padding: "0 3px 0 7px",
-                  border: "1px solid color-mix(in srgb, var(--accent) 22%, var(--border))",
-                  borderRadius: 7,
-                  background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
-                  color: "var(--text)",
-                  fontSize: 11.5,
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                <span style={{ display: "flex", flexShrink: 0, color: "var(--accent)" }}>
-                  {getFileIcon(note.name, 12)}
-                </span>
-                <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {note.path}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`${t("i18n.remove")} ${note.path}`}
-                  onClick={() => setNoteMentions((previous) => previous.filter((item) => item.absPath !== note.absPath))}
-                  style={{
-                    flexShrink: 0,
-                    width: 16,
-                    height: 16,
-                    padding: 0,
-                    border: "none",
-                    borderRadius: "50%",
-                    background: "none",
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
-                  </svg>
-                </button>
-              </div>
+                mention={note}
+                removeLabel={t("i18n.remove")}
+                onRemove={() => setNoteMentions((previous) => previous.filter((item) => item.absPath !== note.absPath))}
+              />
             ))}
           </div>
         )}

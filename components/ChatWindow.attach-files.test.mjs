@@ -7,7 +7,6 @@ import ts from "typescript";
 
 const jiti = createJiti(import.meta.url);
 const { dropMentionText, splitDroppedItems } = await jiti.import("../lib/file-upload-client.ts");
-const { buildAbsoluteAtMentionsText } = await jiti.import("../lib/file-fuzzy.ts");
 
 const sourceText = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const source = ts.createSourceFile("ChatWindow.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -85,17 +84,16 @@ test("without a working directory, picked files behave like a drop there (#1101)
   assert.deepEqual(calls.notices, [["warning", "chat.dropNeedsCwd"]]);
 });
 
-test("a pasted file is mentioned by absolute path, never copied into the working directory", async () => {
+test("a pasted file becomes a chip with its absolute path, never a working-directory copy", async () => {
   const calls = { texts: [], notices: [] };
   const scope = {
-    chatInputRef: { current: { insertText: (text) => calls.texts.push(text) } },
+    chatInputRef: { current: { addFileMentions: (paths) => calls.texts.push(paths) } },
     addNotice: (notice) => calls.notices.push([notice.type, notice.message]),
     t: (key, vars) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
-    buildAbsoluteAtMentionsText,
     resolvePastedFiles: async (files) => files.map((file) => `/Users/me/Downloads/${file.name}`),
   };
   await chatWindowCallback("onPasteFiles", scope)([report]);
-  assert.deepEqual(calls.texts, ['@"/Users/me/Downloads/report.pdf"']);
+  assert.deepEqual(calls.texts, [["/Users/me/Downloads/report.pdf"]]);
   assert.deepEqual(calls.notices, []);
 
   scope.resolvePastedFiles = async () => { throw new Error("boom"); };

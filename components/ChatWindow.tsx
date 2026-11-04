@@ -14,7 +14,6 @@ import { getFinalAnswerViews, keepWrittenFiles, type FinalAnswerViews } from "@/
 import { formatTurnDuration, getTurnDurationMs } from "@/lib/turn-duration";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { dropMentionText, resolvePastedFiles, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
-import { buildAbsoluteAtMentionsText } from "@/lib/file-fuzzy";
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -814,12 +813,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     onDrop(files.map((file) => ({ kind: "file", file })));
   }, [onDrop]);
 
-  // A pasted file is mentioned by absolute path: the model reads it where it
-  // already is, and nothing is copied into the working directory.
+  // A pasted file becomes a chip and is sent as its absolute path: the model
+  // reads it where it already is, and nothing is copied into the working directory.
   const onPasteFiles = useCallback(async (files: File[]) => {
     try {
       const paths = await resolvePastedFiles(files);
-      if (paths.length) chatInputRef?.current?.insertText(buildAbsoluteAtMentionsText(paths));
+      if (paths.length) chatInputRef?.current?.addFileMentions(paths);
     } catch (pasteError) {
       addNotice({ type: "error", message: t("chat.dropFailed", { message: pasteError instanceof Error ? pasteError.message : String(pasteError) }) });
     }

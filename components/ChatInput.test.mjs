@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, pastedFileMention, appendNoteMentions, RUN_END_CLICK_GUARD_MS, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, cycleListIndex, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, isRunEndStrayClick, modelSupportsImageInput, offersBuiltinSlashCommandWhileStreaming, replaceLinksWithMarkdown, replaceTextareaRange, shouldCompressImageFile, stacksComposerLayout, submitsSlashCommandOnEnter } = await jiti.import("./ChatInput.tsx");
 const { isBareMcpCommand } = await jiti.import("@/lib/mcp-command");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 // As ChatInput.tsx imports it: on Windows jiti loads "@/lib/draft-store.ts"
@@ -1104,4 +1104,18 @@ test("selector rows keep the default star and the floating save button in one gu
   const active = row({ active: true });
   assert.match(active, /aria-selected="true"/);
   assert.doesNotMatch(active, /border-left/);
+});
+
+test("a pasted file shows its name and is sent as a quoted absolute path", () => {
+  const mention = pastedFileMention("/Users/me/Downloads/架构 对比.pdf");
+  assert.equal(mention.name, "架构 对比.pdf");
+  assert.equal(mention.kind, "file");
+  assert.equal(
+    appendNoteMentions("看一下", [mention]),
+    '看一下\n@"/Users/me/Downloads/架构 对比.pdf"',
+  );
+  assert.equal(
+    appendNoteMentions("", [mention]),
+    '@"/Users/me/Downloads/架构 对比.pdf"',
+  );
 });
