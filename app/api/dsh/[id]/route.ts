@@ -1,7 +1,7 @@
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { dshSessionsRoot } from "@/harness/dsh";
 import { abortDshPrompt, clearDshQueue, dshState, isDshRunning, sendDshPrompt, readDshWebTranscript, dshInteractions, answerDshInteraction, type DshStreamingBehavior } from "@/harness/dsh/web-session";
+import { readCatalogSession } from "@/lib/catalog-db";
 import { isApiRequestAllowed, hasJsonContentType } from "@/lib/request-security";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
@@ -111,17 +111,10 @@ export async function POST(
   }
 }
 
-/** Only the kernel's own session directories may be read. */
-function insideSessionsRoot(candidate: string): boolean {
-  const root = path.resolve(dshSessionsRoot());
-  const resolved = path.resolve(candidate);
-  const relative = path.relative(root, resolved);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
 /**
- * GET /api/dsh/[id]?path=<session dir> - the transcript, in the shape the chat
- * loads for a pi session. dsh has no branches, so the tree is a single path.
+ * GET /api/dsh/[id] - the transcript, in the shape the chat loads for a pi
+ * session. The native identity comes from the harness index, so no client path
+ * is accepted. dsh has no branches, so the tree is a single path.
  */
 export async function GET(
   req: Request,
@@ -132,10 +125,6 @@ export async function GET(
   const search = new URL(req.url).searchParams;
   if (search.get("interactions") === "1") return NextResponse.json({ interactions: dshInteractions(id) }, { headers: { "Cache-Control": "no-store" } });
   if (search.get("state") === "1") return NextResponse.json({ running: isDshRunning(id), state: dshState(id) }, { headers: { "Cache-Control": "no-store" } });
-  const sessionPath = search.get("path") ?? "";
-  if (!sessionPath || !path.isAbsolute(sessionPath) || !insideSessionsRoot(sessionPath)) {
-    return NextResponse.json({ error: "path must be a dsh session directory" }, { status: 400 });
-  }
 
   let transcript: Awaited<ReturnType<typeof readDshWebTranscript>>;
   try { transcript = await readDshWebTranscript(id); }
@@ -143,7 +132,7 @@ export async function GET(
 
   return NextResponse.json({
     sessionId: id,
-    filePath: sessionPath,
+    filePath: readCatalogSession(id)?.sessionPath ?? "",
     totalActiveMs: 0,
     tree: [],
     leafId: null,

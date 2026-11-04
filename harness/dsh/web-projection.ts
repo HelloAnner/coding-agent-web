@@ -22,6 +22,18 @@ function argumentsOf(value: unknown): Record<string, unknown> {
   try { return record(JSON.parse(value)); } catch { return { arguments: value }; }
 }
 
+/** A failed attempt records its provider failure instead of an assistant message. */
+export function attemptFailure(data: unknown): string | null {
+  for (const entry of records(record(data).stream)) {
+    const chunk = record(entry.chunk);
+    const reason = record(chunk.reason);
+    if (chunk.type !== "finish" || reason.kind !== "error") continue;
+    const message = record(reason.failure).message ?? record(reason.error).message;
+    return typeof message === "string" ? message : "dsh provider error";
+  }
+  return null;
+}
+
 /** Wire references are read through the native Attachment service, never through arbitrary local paths. */
 export async function nativeContent(value: unknown, image: (id: string) => Promise<ImageContent | null>): Promise<(TextContent | ImageContent)[]> {
   if (typeof value === "string") return [{ type: "text", text: value }];
@@ -53,11 +65,12 @@ export async function nativeMessage(event: NativeEvent, image: (id: string) => P
       else if (part.type === "tool-call" && typeof part.id === "string" && typeof part.name === "string") content.push({ type: "toolCall", toolCallId: part.id, toolName: part.name, input: argumentsOf(part.arguments) });
       else content.push(...await nativeContent([part], image));
     }
-    if (!content.length) return null;
+    const failure = event.type === "assistant/attempt" ? attemptFailure(data) : null;
+    if (!content.length && !failure) return null;
     const usage = record(data.usage);
     return { role: "assistant", content, model: typeof source.model === "string" ? source.model : "dsh", provider: typeof source.provider === "string" ? source.provider : "dsh", timestamp: event.time,
       ...(typeof usage.inputTokens === "number" && typeof usage.outputTokens === "number" ? { usage: { input: usage.inputTokens, output: usage.outputTokens } } : {}),
-      ...(event.type === "assistant/attempt" ? { stopReason: "error" } : {}),
+      ...(event.type === "assistant/attempt" ? { stopReason: "error", ...(failure ? { errorMessage: failure } : {}) } : {}),
     } as AssistantMessage;
   }
   if (event.type === "tool/result" && typeof message.toolCallId === "string") {
@@ -80,6 +93,8 @@ export function nativeSurface(events: NativeEvent[]): NativeEvent[] {
       }
     }
     if (event.type === "user/message" || event.type === "assistant/message" || event.type === "tool/result") surface.push(event);
+    // A failed attempt is the only record of that step; without it history loses the provider error.
+    else if (event.type === "assistant/attempt" && attemptFailure(event.data) !== null) surface.push(event);
   }
   return surface;
 }

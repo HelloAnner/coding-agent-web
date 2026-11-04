@@ -90,11 +90,22 @@ test("native queue, explicit approvals, lease handoff and Stop preserve authorit
   assert.deepEqual(run.queuedMessages(), { steering: [], followUp: [] });
   assert.equal(calls.at(-1).method, "session/cancel");
   sessions.get(id).running = false;
-  push(id, "turn/end", { reason: "cancelled" });
+  push(id, "turn/end", { reason: { kind: "aborted", reason: { kind: "user" } } });
   await wait(() => !runtime.isDshRunning(id));
   assert.equal(events.filter((event) => event.type === "agent_settled").length, 1);
   assert.equal(events.find((event) => event.type === "agent_settled").aborted, true);
   assert.deepEqual((await runtime.listDshWebModels()).models.map((model) => model.name), ["Native test"]);
+});
+
+test("a failed native turn surfaces its provider error instead of ending silently", async () => {
+  const id = "web-failure", run = runtime.getDshSession(id), events = [];
+  run.onEvent((event) => events.push(event));
+  await runtime.sendDshPrompt({ sessionId: id, cwd: root, text: "fail" });
+  sessions.get(id).running = false;
+  push(id, "turn/end", { reason: { kind: "error", error: { message: "Insufficient Balance", code: "QUOTA", status: 402 } } });
+  await wait(() => !runtime.isDshRunning(id));
+  assert.equal(events.find((event) => event.type === "prompt_error").errorMessage, "Insufficient Balance");
+  assert.equal(events.find((event) => event.type === "agent_settled").aborted, false);
 });
 
 test("Stop while selecting a model prevents prompt submission, and ids cannot escape their harness", async () => {

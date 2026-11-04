@@ -264,7 +264,13 @@ class DshWebSession {
       if (message.role === "assistant") this.streamingMessage = null;
     }
     if (event.type.startsWith("inbox/")) await this.refreshQueue();
-    if (event.type === "turn/end") { this.aborted = data.reason === "cancelled"; await this.status(false); }
+    if (event.type === "turn/end") {
+      const reason = record(data.reason);
+      const failure = record(reason.error).message ?? record(reason.failure).message;
+      if (reason.kind === "error") this.publish({ type: "prompt_error", errorMessage: String(failure ?? "dsh turn failed") });
+      this.aborted = reason.kind === "aborted";
+      await this.status(false);
+    }
   }
 
   async send(prompt: DshWebPrompt, behavior?: DshStreamingBehavior) {
