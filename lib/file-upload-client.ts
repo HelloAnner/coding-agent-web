@@ -84,6 +84,22 @@ export function splitDroppedItems(items: DroppedItem[]): { images: File[]; files
 }
 
 /**
+ * The files a paste carries when it is a file copied from the desktop rather
+ * than text the user meant to type. A Finder copy pastes the file names as
+ * plain text, and a file with no content is only a reference the browser will
+ * not read back, so it is left out.
+ * @param files The clipboard files
+ * @param plainText The paste's text/plain, empty when the paste has no text
+ * @returns The non-image files to attach, in clipboard order
+ */
+export function pastedFiles(files: readonly File[], plainText: string): File[] {
+  const candidates = files.filter((file) => !file.type.startsWith("image/") && file.size > 0);
+  const names = new Set(candidates.map((file) => file.name));
+  const words = plainText.trim().split(/\s+/).filter(Boolean);
+  return words.every((word) => names.has(word)) ? candidates : [];
+}
+
+/**
  * The `@` mentions for files now in the working directory, in drop order.
  * @param files The dropped files
  * @param present Names the upload reports as written or already there

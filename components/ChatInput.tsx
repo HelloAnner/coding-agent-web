@@ -23,6 +23,7 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+import { pastedFiles } from "@/lib/file-upload-client";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
@@ -1645,6 +1646,21 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
+
+    // A file copied in Finder pastes as a file, not as text (#file-paste). Send
+    // it down the attach path, so it lands in the working directory and comes
+    // back as an @mention the model can read.
+    const fileItems = items.filter((item) => item.kind === "file" && !item.type.startsWith("image/"));
+    const files = pastedFiles(
+      fileItems.map((item) => item.getAsFile()).filter((file): file is File => file !== null),
+      text,
+    );
+    if (!compact && onAttachFiles && files.length) {
+      e.preventDefault();
+      onAttachFiles(files);
+      return;
+    }
+
     if (!html || !text) return;
     const document = new DOMParser().parseFromString(html, "text/html");
     const links = Array.from(document.querySelectorAll("a[href]"), (link) => {
@@ -1673,7 +1689,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ta.focus();
       ta.setSelectionRange(start + markdown.length, start + markdown.length);
     });
-  }, [compact, processImageFiles, updateAtQuery]);
+  }, [compact, onAttachFiles, processImageFiles, updateAtQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
