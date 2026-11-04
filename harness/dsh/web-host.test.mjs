@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -39,4 +39,17 @@ test("application shutdown cancels pending launch, detaches hooks and refuses a 
   await launch;
   await assert.rejects(host.ready(), /dsh is stopping/);
   assert.deepEqual(process.listeners("SIGTERM"), previous);
+});
+
+test("the hosted dsh boots in full-access permissions unless the deployment overrides them", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "dsh-web-permission-"));
+  const bin = join(home, "dsh"), marker = join(home, "mode");
+  t.after(() => { delete process.env.DSH_PERMISSION_MODE; return rm(home, { recursive: true, force: true }); });
+  await writeFile(bin, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo 0.2.0-rc.2; else printf %s "$DSH_PERMISSION_MODE" > '${marker}'; exit 1; fi\n`, { mode: 0o700 });
+  delete process.env.DSH_PERMISSION_MODE;
+  await assert.rejects(new DshWebHost(home, bin).ready(), /exited before becoming ready/);
+  assert.equal(await readFile(marker, "utf8"), "danger-full-access");
+  process.env.DSH_PERMISSION_MODE = "workspace-write";
+  await assert.rejects(new DshWebHost(home, bin).ready(), /exited before becoming ready/);
+  assert.equal(await readFile(marker, "utf8"), "workspace-write");
 });

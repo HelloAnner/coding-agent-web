@@ -67,7 +67,9 @@ export class DshWebHost {
     const args = ["--profile", DSH_WEB_PROFILE];
     if (!existsSync(path.join(this.profileDir, "package.json"))) args.push("--from-default-profile", "web");
     args.push("--no-open", "--host", "127.0.0.1", "--port", "0");
-    const child = spawn(this.bin, args, { cwd: homedir(), env: { ...process.env, DSH_HOME: this.home }, stdio: ["ignore", "pipe", "pipe"] });
+    // Full-access sandbox + `never` approval: the same default as the Claude Code profile, and
+    // what a headless web bridge needs. DSH_PERMISSION_MODE still overrides it.
+    const child = spawn(this.bin, args, { cwd: homedir(), env: { ...process.env, DSH_HOME: this.home, DSH_PERMISSION_MODE: process.env.DSH_PERMISSION_MODE ?? "danger-full-access" }, stdio: ["ignore", "pipe", "pipe"] });
     this.child = child;
     this.generation++;
     // Raw startup diagnostics can contain plugin configuration; never relay them to a browser.

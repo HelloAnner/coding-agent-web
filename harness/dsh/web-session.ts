@@ -201,6 +201,11 @@ class DshWebSession {
       throw new Error("dsh native history does not match this indexed session and directory");
     }
     this.inbox = record(snapshot.projections.values.inbox);
+    // dsh titles its own sessions (first prompt, or a rename in its native UI). Seed the index
+    // from the snapshot so a chat opened after that point still shows the native title.
+    const indexed = readCatalogSession(this.id);
+    const title = record(snapshot.projections.values).title;
+    if (indexed && typeof title === "string" && indexed.title !== title) updateCatalogSession(this.id, { title });
     let cursor = snapshot.cursor;
     void (async () => {
       try {
