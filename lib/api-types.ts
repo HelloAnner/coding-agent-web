@@ -901,3 +901,20 @@ export interface PluginToggleResult {
 export interface PluginsBulkResponse extends PluginsResponse {
   results: PluginToggleResult[];
 }
+
+/** Settings › Harness: one local harness, its installed version and the one it could move to. */
+export interface HarnessVersionInfo {
+  id: string;
+  label: string;
+  /** The executable probed for a version. Null for pi, which runs from this app's own SDK. */
+  command: string | null;
+  version: string | null;
+  latest: string | null;
+  /** The command a one-click upgrade runs, shown as-is. Null when there is nothing to run here. */
+  upgrade: string | null;
+  note: "built-in" | "pinned" | null;
+}
+
+export interface HarnessUpgradeResponse {
+  version: string | null;
+}
