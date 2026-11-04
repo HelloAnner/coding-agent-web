@@ -9,7 +9,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const source = await readFile(new URL("../ui/TaskBoard.tsx", import.meta.url), "utf8");
 // CSS is tested by the app bundler, not Node's module loader.
-const { TaskBoard, safeTaskUrl, taskDaysInHand, visibleTasks } = jiti.evalModule(
+const { TaskBoard, filterValues, safeTaskUrl, taskDaysInHand, visibleTasks } = jiti.evalModule(
   source.replace('import "./task-board.css";', ""),
   { filename: fileURLToPath(new URL("../ui/TaskBoard.tsx", import.meta.url)) },
 );
@@ -41,18 +41,39 @@ test("days in hand uses epoch milliseconds and does not invent an assignment dat
 
 test("search combines with status and category filters without mutating cached tasks", () => {
   const tasks = [makeTask(), makeTask({ id: "2", status: "已完成" }), makeTask({ id: "3", category: "缺陷" })];
-  assert.deepEqual(visibleTasks(tasks, " 编辑器 ", "进行中", "需求", sort("title"), now).map((task) => task.id), ["1"]);
-  assert.equal(visibleTasks(tasks, "张三", "", "", sort("title"), now).length, 3);
-  assert.equal(visibleTasks(tasks, "not present", "", "", sort("title"), now).length, 0);
+  const status = [{ field: "status", value: "进行中" }];
+  const both = [...status, { field: "category", value: "需求" }];
+  assert.deepEqual(visibleTasks(tasks, " 编辑器 ", both, sort("title"), now).map((task) => task.id), ["1"]);
+  assert.equal(visibleTasks(tasks, "张三", [], sort("title"), now).length, 3);
+  assert.equal(visibleTasks(tasks, "not present", [], sort("title"), now).length, 0);
   assert.deepEqual(tasks.map((task) => task.id), ["1", "2", "3"]);
+});
+
+test("multiple fields filter together: recent creation time plus priority", () => {
+  const urgentRecent = makeTask({ id: "urgent-recent", priority: "紧急", priorityRank: 1, createdAt: now - day });
+  const urgentOld = makeTask({ id: "urgent-old", priority: "紧急", priorityRank: 1, createdAt: now - 10 * day });
+  const normalRecent = makeTask({ id: "normal-recent", priority: "一般紧急", priorityRank: 2, createdAt: now - day });
+  const tasks = [urgentRecent, urgentOld, normalRecent];
+  assert.deepEqual(visibleTasks(tasks, "", [{ field: "priority", value: "紧急" }, { field: "createdWithin", value: "3" }], sort("title"), now).map((task) => task.id), ["urgent-recent"]);
+  // Same field twice is OR, different fields are AND.
+  assert.deepEqual(visibleTasks(tasks, "", [{ field: "priority", value: "紧急" }, { field: "priority", value: "一般紧急" }], sort("title"), now).map((task) => task.id), ["normal-recent", "urgent-old", "urgent-recent"]);
+  // Rows without a chosen value do not filter anything.
+  assert.equal(visibleTasks(tasks, "", [{ field: "status", value: "" }], sort("title"), now).length, 3);
+});
+
+test("filter values come from the tasks, and creation time offers recent ranges", () => {
+  const tasks = [makeTask(), makeTask({ id: "2", testers: ["李四", "张三"], priority: "紧急" })];
+  assert.deepEqual(filterValues(tasks, "priority").map((option) => option.value).sort(), ["紧急", "高"].sort());
+  assert.deepEqual(filterValues(tasks, "tester").map((option) => option.value).sort(), ["张三", "李四"].sort());
+  assert.deepEqual(filterValues(tasks, "createdWithin").map((option) => option.value), ["1", "3", "7", "30"]);
 });
 
 test("all columns support ascending and descending sorts", () => {
   const first = makeTask({ id: "a", title: "a", createdAt: 1, testers: ["a"], version: "v2", priorityRank: 1, assignedAt: now - day, status: "a", category: "a" });
   const second = makeTask({ id: "b", title: "b", createdAt: 2, testers: ["b"], version: "v10", priorityRank: 2, assignedAt: now - 2 * day, status: "b", category: "b" });
   for (const key of ["title", "createdAt", "testers", "version", "priority", "daysInHand", "status", "category"]) {
-    assert.deepEqual(visibleTasks([second, first], "", "", "", sort(key), now).map((task) => task.id), ["a", "b"], key);
-    assert.deepEqual(visibleTasks([first, second], "", "", "", sort(key, "descending"), now).map((task) => task.id), ["b", "a"], key);
+    assert.deepEqual(visibleTasks([second, first], "", [], sort(key), now).map((task) => task.id), ["a", "b"], key);
+    assert.deepEqual(visibleTasks([first, second], "", [], sort(key, "descending"), now).map((task) => task.id), ["b", "a"], key);
   }
 });
 
@@ -61,7 +82,7 @@ test("unknown timestamps, testers, version and priority stay last in either dire
   const unknown = makeTask({ id: "unknown", createdAt: null, assignedAt: null, testers: [], version: "", priority: "" });
   for (const key of ["createdAt", "daysInHand", "testers", "version", "priority"]) {
     for (const direction of ["ascending", "descending"]) {
-      assert.deepEqual(visibleTasks([unknown, known], "", "", "", sort(key, direction), now).map((task) => task.id), ["known", "unknown"]);
+      assert.deepEqual(visibleTasks([unknown, known], "", [], sort(key, direction), now).map((task) => task.id), ["known", "unknown"]);
     }
   }
 });
@@ -73,7 +94,10 @@ test("initial view has accessible sortable headers, named filters and no fabrica
   assert.match(html, /colSpan="9"/i);
   assert.match(source, /<td>\{task.category \|\| "—"\}<\/td>\s*<td className="task-board-actions">\s*<button[^>]*className="task-board-copy"/);
   assert.match(html, /aria-sort="descending"/);
-  for (const label of ["搜索任务", "按状态筛选", "按分类筛选", "可横向滚动"]) assert.ok(html.includes(label));
+  for (const label of ["搜索任务", "添加筛选", "可横向滚动"]) assert.ok(html.includes(label));
+  // Filter rows only appear after 添加筛选, so their accessible names live in source.
+  assert.match(source, /按字段筛选/);
+  assert.match(source, /aria-label={`移除\$\{label\}筛选`}/);
   assert.match(html, /<dialog[^>]*aria-labelledby=/);
   assert.ok(!html.includes("测试任务"));
   assert.match(renderToStaticMarkup(React.createElement(TaskBoard, { active: false })), /hidden=""/);

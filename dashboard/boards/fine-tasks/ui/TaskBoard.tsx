@@ -22,6 +22,22 @@ const columns = [
 ] as const;
 type SortKey = typeof columns[number]["key"];
 type Sort = { key: SortKey; direction: "ascending" | "descending" };
+const filterFields = [
+  { key: "priority", label: "优先级" },
+  { key: "status", label: "状态" },
+  { key: "category", label: "分类" },
+  { key: "version", label: "版本" },
+  { key: "tester", label: "测试人员" },
+  { key: "createdWithin", label: "创建时间" },
+] as const;
+type FilterField = typeof filterFields[number]["key"];
+export type TaskFilter = { field: FilterField; value: string };
+const recentDays = [
+  { value: "1", label: "1 天内" },
+  { value: "3", label: "3 天内" },
+  { value: "7", label: "7 天内" },
+  { value: "30", label: "30 天内" },
+];
 
 export function safeTaskUrl(value: string): string | null {
   try {
@@ -46,10 +62,27 @@ function sortValue(task: FineTask, key: SortKey, now: number): string | number |
   }
 }
 
-export function visibleTasks(tasks: FineTask[], search: string, status: string, category: string, sort: Sort, now: number): FineTask[] {
+export function filterValues(tasks: FineTask[], field: FilterField): { value: string; label: string }[] {
+  if (field === "createdWithin") return recentDays;
+  const values = field === "tester" ? tasks.flatMap((task) => task.testers) : tasks.map((task) => task[field]);
+  return [...new Set(values.filter(Boolean))].sort(collator.compare).map((value) => ({ value, label: value }));
+}
+
+export function matchesFilter(task: FineTask, { field, value }: TaskFilter, now: number): boolean {
+  if (!value) return true;
+  if (field === "createdWithin") {
+    return task.createdAt !== null && Number.isFinite(task.createdAt) && task.createdAt >= now - Number(value) * DAY_MS;
+  }
+  return field === "tester" ? task.testers.includes(value) : task[field] === value;
+}
+
+export function visibleTasks(tasks: FineTask[], search: string, filters: TaskFilter[], sort: Sort, now: number): FineTask[] {
   const query = search.trim().toLocaleLowerCase("zh-CN");
+  // Repeats of one field are OR (紧急 或 一般紧急); different fields are AND.
+  const groups = new Map<FilterField, string[]>();
+  for (const { field, value } of filters) if (value) groups.set(field, [...(groups.get(field) ?? []), value]);
   return tasks.filter((task) =>
-    (!status || task.status === status) && (!category || task.category === category) &&
+    [...groups].every(([field, values]) => values.some((value) => matchesFilter(task, { field, value }, now))) &&
     (!query || [task.title, task.id, task.version, task.priority, task.status, task.category,
       ...task.testers, task.description, ...task.fields.flatMap((field) => [field.name, field.value])]
       .some((value) => value.toLocaleLowerCase("zh-CN").includes(query))),
@@ -68,17 +101,12 @@ function formatDate(value: number | null): string {
   return value !== null && Number.isFinite(value) ? dateFormat.format(value) : "—";
 }
 
-function filterOptions(tasks: FineTask[], key: "status" | "category"): string[] {
-  return [...new Set(tasks.map((task) => task[key]).filter(Boolean))].sort(collator.compare);
-}
-
 export function TaskBoard({ active }: { active: boolean }) {
   const [snapshot, setSnapshot] = useState<FineTaskSnapshot | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [category, setCategory] = useState("");
+  const [filters, setFilters] = useState<TaskFilter[]>([]);
   const [sort, setSort] = useState<Sort>({ key: "createdAt", direction: "descending" });
   const [now, setNow] = useState(() => Date.now());
   const [selected, setSelected] = useState<FineTask | null>(null);
@@ -171,9 +199,7 @@ export function TaskBoard({ active }: { active: boolean }) {
   }, [copyFeedback]);
 
   const tasks = snapshot?.tasks;
-  const rows = useMemo(() => visibleTasks(tasks ?? [], search, status, category, sort, now), [tasks, search, status, category, sort, now]);
-  const statuses = useMemo(() => filterOptions(tasks ?? [], "status"), [tasks]);
-  const categories = useMemo(() => filterOptions(tasks ?? [], "category"), [tasks]);
+  const rows = useMemo(() => visibleTasks(tasks ?? [], search, filters, sort, now), [tasks, search, filters, sort, now]);
   const currentTask = selected ? tasks?.find((task) => task.id === selected.id) ?? selected : null;
   const originalUrl = currentTask ? safeTaskUrl(currentTask.url) : null;
   const syncing = snapshot?.syncing === true;
@@ -190,6 +216,10 @@ export function TaskBoard({ active }: { active: boolean }) {
     }
   }
 
+  function updateFilter(index: number, patch: Partial<TaskFilter>) {
+    setFilters((current) => current.map((filter, at) => at === index ? { ...filter, ...patch } : filter));
+  }
+
   function toggleSort(key: SortKey) {
     setSort((current) => ({ key, direction: current.key === key && current.direction === "ascending" ? "descending" : "ascending" }));
   }
@@ -201,20 +231,30 @@ export function TaskBoard({ active }: { active: boolean }) {
           <span className="task-board-sr-only">搜索任务</span>
           <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索任务" />
         </label>
-        <label>
-          <span className="task-board-sr-only">按状态筛选</span>
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">全部状态</option>
-            {[...new Set([...statuses, ...(status ? [status] : [])])].map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
-        <label>
-          <span className="task-board-sr-only">按分类筛选</span>
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="">全部分类</option>
-            {[...new Set([...categories, ...(category ? [category] : [])])].map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
-        </label>
+        {filters.map((filter, index) => {
+          const label = filterFields.find((item) => item.key === filter.field)?.label ?? "";
+          const options = filterValues(tasks ?? [], filter.field);
+          return (
+            <span className="task-board-filter" key={index}>
+              <label>
+                <span className="task-board-sr-only">按字段筛选</span>
+                <select value={filter.field} onChange={(event) => updateFilter(index, { field: event.target.value as FilterField, value: "" })}>
+                  {filterFields.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="task-board-sr-only">按{label}筛选</span>
+                <select value={filter.value} onChange={(event) => updateFilter(index, { value: event.target.value })}>
+                  <option value="">全部{label}</option>
+                  {[...new Set([...options.map((option) => option.value), ...(filter.value ? [filter.value] : [])])].map((value) =>
+                    <option key={value} value={value}>{options.find((option) => option.value === value)?.label ?? value}</option>)}
+                </select>
+              </label>
+              <button type="button" className="task-board-button task-board-filter-remove" onClick={() => setFilters((current) => current.filter((_, at) => at !== index))} aria-label={`移除${label}筛选`}>×</button>
+            </span>
+          );
+        })}
+        <button type="button" className="task-board-button" onClick={() => setFilters((current) => [...current, { field: "priority", value: "" }])}>添加筛选</button>
         <button type="button" className="task-board-button" onClick={() => void load()} disabled={pending} aria-busy={pending}>
           {pending ? "读取中…" : "刷新"}
         </button>
