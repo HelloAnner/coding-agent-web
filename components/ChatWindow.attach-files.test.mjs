@@ -7,6 +7,7 @@ import ts from "typescript";
 
 const jiti = createJiti(import.meta.url);
 const { dropMentionText, splitDroppedItems } = await jiti.import("../lib/file-upload-client.ts");
+const { buildAbsoluteAtMentionsText } = await jiti.import("../lib/file-fuzzy.ts");
 
 const sourceText = readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const source = ts.createSourceFile("ChatWindow.tsx", sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -82,4 +83,25 @@ test("without a working directory, picked files behave like a drop there (#1101)
   assert.deepEqual(calls.images, [photo]);
   assert.deepEqual(calls.uploads, []);
   assert.deepEqual(calls.notices, [["warning", "chat.dropNeedsCwd"]]);
+});
+
+test("a pasted file is mentioned by absolute path, never copied into the working directory", async () => {
+  const calls = { texts: [], notices: [] };
+  const scope = {
+    chatInputRef: { current: { insertText: (text) => calls.texts.push(text) } },
+    addNotice: (notice) => calls.notices.push([notice.type, notice.message]),
+    t: (key, vars) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
+    buildAbsoluteAtMentionsText,
+    resolvePastedFiles: async (files) => files.map((file) => `/Users/me/Downloads/${file.name}`),
+  };
+  await chatWindowCallback("onPasteFiles", scope)([report]);
+  assert.deepEqual(calls.texts, ['@"/Users/me/Downloads/report.pdf"']);
+  assert.deepEqual(calls.notices, []);
+
+  scope.resolvePastedFiles = async () => { throw new Error("boom"); };
+  await chatWindowCallback("onPasteFiles", scope)([report]);
+  // The vm harness loses the Error realm, so only the failure text is asserted.
+  assert.equal(calls.notices.length, 1);
+  assert.equal(calls.notices[0][0], "error");
+  assert.match(calls.notices[0][1], /chat\.dropFailed .*boom/);
 });

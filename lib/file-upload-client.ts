@@ -84,6 +84,24 @@ export function splitDroppedItems(items: DroppedItem[]): { images: File[]; files
 }
 
 /**
+ * Absolute paths for pasted files: the file itself when it is still on the
+ * desktop clipboard, else a copy in the temp directory. Never the working
+ * directory, which a paste must leave alone.
+ * @param files The pasted files, in paste order
+ * @returns One absolute path per file, in the same order
+ */
+export async function resolvePastedFiles(files: File[]): Promise<string[]> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file, file.name));
+  const response = await fetch("/api/paste-files", { method: "POST", body: formData });
+  const data = await response.json().catch(() => ({})) as { paths?: string[]; error?: string };
+  if (!response.ok || !Array.isArray(data.paths)) {
+    throw new Error(data.error ?? `HTTP ${response.status}`);
+  }
+  return data.paths;
+}
+
+/**
  * The files a paste carries when it is a file copied from the desktop rather
  * than text the user meant to type. A Finder copy pastes the file names as
  * plain text, and a file with no content is only a reference the browser will

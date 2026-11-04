@@ -116,6 +116,8 @@ interface Props {
   cwd?: string | null;
   /** Files picked with the attach button, handled like files dropped onto the chat. Without it the button takes images only. */
   onAttachFiles?: (files: File[]) => void;
+  /** Files pasted from the desktop. They are mentioned by absolute path, never copied into the working directory. */
+  onPasteFiles?: (files: File[]) => void;
   /** Harness whose model list this composer shows. Defaults to pi. */
   harness?: string;
   /** An open session already belongs to one harness. Hide the harness selector when locked. */
@@ -697,6 +699,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   draftKey,
   cwd,
   onAttachFiles,
+  onPasteFiles,
   compact = false,
   harness,
   harnessLocked = false,
@@ -1647,17 +1650,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     const html = e.clipboardData.getData("text/html");
     const text = e.clipboardData.getData("text/plain");
 
-    // A file copied in Finder pastes as a file, not as text (#file-paste). Send
-    // it down the attach path, so it lands in the working directory and comes
-    // back as an @mention the model can read.
+    // A file copied in Finder pastes as a file, not as text. It is mentioned by
+    // absolute path, so the model reads it where it already is and the working
+    // directory stays untouched.
     const fileItems = items.filter((item) => item.kind === "file" && !item.type.startsWith("image/"));
     const files = pastedFiles(
       fileItems.map((item) => item.getAsFile()).filter((file): file is File => file !== null),
       text,
     );
-    if (!compact && onAttachFiles && files.length) {
+    const attachFiles = onPasteFiles ?? onAttachFiles;
+    if (!compact && attachFiles && files.length) {
       e.preventDefault();
-      onAttachFiles(files);
+      attachFiles(files);
       return;
     }
 
@@ -1689,7 +1693,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       ta.focus();
       ta.setSelectionRange(start + markdown.length, start + markdown.length);
     });
-  }, [compact, onAttachFiles, processImageFiles, updateAtQuery]);
+  }, [compact, onAttachFiles, onPasteFiles, processImageFiles, updateAtQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
