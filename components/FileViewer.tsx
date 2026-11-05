@@ -137,6 +137,15 @@ function MentionIcon() {
   );
 }
 
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
 function closestSourceLine(node: Node): HTMLElement | null {
   const element = node.nodeType === Node.ELEMENT_NODE
     ? node as Element
@@ -240,7 +249,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
 
 function getFileApiUrl(
   filePath: string,
-  type: "read" | "download" | "meta" | "preview" | "watch",
+  type: "read" | "download" | "meta" | "preview" | "watch" | "write",
   sourceSessionId?: string | null,
   params: Record<string, string | number | undefined> = {},
 ): string {
@@ -1252,6 +1261,15 @@ function TextFileViewer({
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
   // Whole file for an HTML preview whose source view is still chunked.
   const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
+  // Inline editing of the source view: the draft is what the editor shows and
+  // what is written back; `null` means the read view is on screen.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
+  const savedTextRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRequestRef = useRef(0);
 
   onStateChangeRef.current = onStateChange;
 
@@ -1355,6 +1373,12 @@ function TextFileViewer({
     setGitDiffResolved(false);
     setWatching(false);
     shownVersionRef.current = null;
+    // The draft belonged to the previous file; the flush effect saved it.
+    draftRef.current = null;
+    savedTextRef.current = null;
+    setDraft(null);
+    setSaveError(null);
+    setSaveState("idle");
 
     fetchContent(filePath).finally(() => {
       if (active) setLoading(false);
@@ -1425,6 +1449,79 @@ function TextFileViewer({
   useEffect(() => {
     void fetchGitDiff(filePath);
   }, [fetchGitDiff, filePath, gitRefreshKey]);
+
+  // A partly loaded file cannot be written back whole, so it is not editable.
+  const canEdit = Boolean(data) && !data!.binary && !data!.truncated;
+  const editing = canEdit && draft !== null;
+
+  const flushSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const text = draftRef.current;
+    if (text === null || text === savedTextRef.current) return;
+    const requestId = ++saveRequestRef.current;
+    savedTextRef.current = text;
+    setSaveState("saving");
+    // Show the edit right away: leaving the editor must not reveal stale text
+    // while the write is in flight.
+    setData((current) => current ? { ...current, content: text } : current);
+    void fetch(getFileApiUrl(filePath, "write", sourceSessionId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text }),
+    })
+      .then(async (response) => {
+        const result = await response.json().catch(() => null) as
+          { size?: number; mtime?: string; error?: string } | null;
+        if (requestId !== saveRequestRef.current) return;
+        if (!response.ok) throw new Error(result?.error ?? `HTTP ${response.status}`);
+        // The watcher compares this version with the disk; this write is the
+        // change it is about to report, so it must not refetch the file.
+        shownVersionRef.current = fileVersion(result);
+        // A read that started before the write must not put the old text back.
+        contentRequestRef.current++;
+        setData((current) => current ? { ...current, size: result?.size ?? current.size } : current);
+        setSaveState("saved");
+        setSaveError(null);
+        void fetchGitDiff(filePath);
+      })
+      .catch((e) => {
+        if (requestId !== saveRequestRef.current) return;
+        // Let the next flush retry the same text.
+        savedTextRef.current = null;
+        setSaveState("error");
+        setSaveError(e instanceof Error ? e.message : String(e));
+      });
+  }, [fetchGitDiff, filePath, sourceSessionId]);
+
+  const editDraft = useCallback((text: string) => {
+    draftRef.current = text;
+    setDraft(text);
+    setSaveState("idle");
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(flushSave, 700);
+  }, [flushSave]);
+
+  const startEditing = useCallback(() => {
+    if (!data || data.binary || data.truncated) return;
+    draftRef.current = data.content;
+    savedTextRef.current = data.content;
+    setSaveError(null);
+    setSaveState("idle");
+    setDraft(data.content);
+  }, [data]);
+
+  const stopEditing = useCallback(() => {
+    flushSave();
+    draftRef.current = null;
+    setDraft(null);
+  }, [flushSave]);
+
+  // A pending draft belongs to the file it was typed in: save it before this
+  // viewer points somewhere else. The cleanup closure keeps the old path.
+  useEffect(() => () => flushSave(), [flushSave]);
 
   const isBinary = data?.binary === true;
   const isDelimitedTable = !isBinary && isDelimitedTablePath(filePath);
@@ -1711,6 +1808,15 @@ function TextFileViewer({
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
+        {editing && saveState !== "idle" && (
+          <span
+            className="file-viewer-save-state"
+            title={saveError ?? undefined}
+            style={{ color: saveState === "error" ? "#f87171" : "var(--text-dim)" }}
+          >
+            {t(saveState === "saving" ? "files.saving" : saveState === "error" ? "files.saveFailed" : "files.saved")}
+          </span>
+        )}
         {!isDeletedDiff && (
           <span
             title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
@@ -1732,7 +1838,11 @@ function TextFileViewer({
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => updateDisplayMode(mode)}
+                    onClick={() => {
+                      // Save a pending edit before the source stops being shown.
+                      if (mode !== "source") flushSave();
+                      updateDisplayMode(mode);
+                    }}
                     title={mode === "diff" ? t("i18n.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
@@ -1777,6 +1887,22 @@ function TextFileViewer({
             )}
             {effectiveDisplayMode === "source" && !isBinary && (
               <>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => (editing ? stopEditing() : startEditing())}
+                    title={t(editing ? "files.stopEditing" : "files.edit")}
+                    aria-label={t(editing ? "files.stopEditing" : "files.edit")}
+                    aria-pressed={editing}
+                    className="file-viewer-icon-button"
+                    style={{
+                      background: editing ? "var(--bg-selected)" : "transparent",
+                      color: editing ? "var(--text)" : "var(--text-muted)",
+                    }}
+                  >
+                    <PencilIcon />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={toggleWrapLines}
@@ -1799,7 +1925,7 @@ function TextFileViewer({
               </>
             )}
             {!isDeletedDiff && !isBinary && effectiveDisplayMode !== "diff" && (
-              <CopyFileButton text={content} />
+              <CopyFileButton text={draft ?? content} />
             )}
           </div>
 
@@ -1949,6 +2075,41 @@ function TextFileViewer({
               {t("files.download")}
             </a>
           </div>
+        ) : editing && draft !== null ? (
+          <textarea
+            className="file-source-editor"
+            value={draft}
+            autoFocus
+            spellCheck={false}
+            wrap={wrapLines ? "soft" : "off"}
+            aria-label={t("files.edit")}
+            onChange={(event) => editDraft(event.target.value)}
+            onBlur={flushSave}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+                event.preventDefault();
+                flushSave();
+              }
+            }}
+            style={{
+              display: "block",
+              boxSizing: "border-box",
+              width: "100%",
+              height: "100%",
+              minHeight: "100%",
+              margin: 0,
+              padding: "8px 12px",
+              border: 0,
+              outline: "none",
+              resize: "none",
+              background: "var(--bg)",
+              color: "var(--text)",
+              tabSize: 2,
+              whiteSpace: wrapLines ? "pre-wrap" : "pre",
+              overflowWrap: wrapLines ? "anywhere" : "normal",
+              ...FILE_CODE_STYLE,
+            }}
+          />
         ) : useLightweightSource ? (
           <div
             className="file-source-view is-lightweight"

@@ -11,6 +11,7 @@ import { checkLinkedDirectoryApproval, withOutsideLinkTargets } from "@/lib/link
 import {
   DOCX_PREVIEW_MAX_BYTES,
   IMAGE_PREVIEW_MAX_BYTES,
+  TEXT_PREVIEW_MAX_BYTES,
   documentPreviewKind,
   getAudioMime,
   getDocumentMime,
@@ -149,6 +150,71 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+// The source view's editor: only a file the read view shows whole (no chunking)
+// is written back, so the two limits are the same one.
+async function writeTextFile(
+  request: NextRequest,
+  segments: string[],
+): Promise<NextResponse> {
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  }
+  const filePath = filePathFromApiSegments(segments);
+  if (hasParentDirectorySegment(filePath)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
+
+  const allowedRoots = await getAllowedFileRoots();
+  if (!isFilePathAllowed(filePath, allowedRoots)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // Existing paths are checked after resolving symbolic links too, so a link
+  // inside a root cannot be a write elsewhere.
+  if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
+  if (!stat.isFile()) {
+    return NextResponse.json({ error: "Not a file" }, { status: 400 });
+  }
+  if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
+    return NextResponse.json({ error: "File too large to edit" }, { status: 413 });
+  }
+
+  const body = await request.json().catch(() => null) as { content?: unknown } | null;
+  if (typeof body?.content !== "string") {
+    return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+  }
+  if (Buffer.byteLength(body.content) > TEXT_PREVIEW_MAX_BYTES) {
+    return NextResponse.json({ error: "File too large to edit" }, { status: 413 });
+  }
+
+  try {
+    // Temp file + rename: the viewer's watcher and any agent reading the file
+    // never see a half-written document.
+    const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.saving`);
+    fs.writeFileSync(tempPath, body.content, "utf8");
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+
+  const written = fs.statSync(filePath);
+  return NextResponse.json({
+    size: written.size,
+    mtime: written.mtime.toISOString(),
+    language: getLanguage(filePath),
+  });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -161,6 +227,7 @@ export async function POST(
     const { path: segments } = await params;
     const type = request.nextUrl.searchParams.get("type") ?? "upload";
     if (type === "allow-link") return allowLinkedDirectory(request, segments);
+    if (type === "write") return writeTextFile(request, segments);
 
     const uploadDirectory = await getUploadDirectory(segments);
     if ("response" in uploadDirectory) return uploadDirectory.response;
