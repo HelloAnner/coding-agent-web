@@ -10,6 +10,7 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { NewSessionContextBar } = await jiti.import("./NewSessionContextBar.tsx");
 const source = await readFile(new URL("./NewSessionContextBar.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const chatSource = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 const contextSource = await readFile(new URL("../lib/new-session-context.ts", import.meta.url), "utf8");
 
 const h = React.createElement;
@@ -95,13 +96,8 @@ test("client code stays parseable by Safari 16.2 and its CSS flat", () => {
   const rules = css.slice(css.indexOf(".new-session-hero-inner {"), css.indexOf(".file-viewer-icon-button {"));
   assert.ok(header.length > 0 && rules.length > header.length);
   assert.doesNotMatch(rules.replace(/@media[^{]*\{/g, ""), /\{[^}]*\{|&/, "no nested rules");
-  // The link's box: padding offset by equal negative margins, so hover and
-  // focus never move the line.
-  const update = header.match(/\.new-session-update \{[^}]*\smargin: -(\d+)px -(\d+)px;\s*padding: (\d+)px (\d+)px;/);
-  assert.ok(update);
-  assert.deepEqual([update[1], update[2]], [update[3], update[4]]);
   // The bar is pulled left by the project button's own padding, so its
-  // folder icon stands on the logo's and the composer card's edge.
+  // folder icon stands on the composer card's edge.
   const row = header.match(/\.new-session-context \{[^}]*\smargin: 0 0 \d+px -(\d+)px;/);
   assert.ok(row);
   const button = rules.match(/\.project-picker\.is-inline \.project-picker-button \{[^}]*\spadding: 0 (\d+)px;/);
@@ -110,4 +106,20 @@ test("client code stays parseable by Safari 16.2 and its CSS flat", () => {
   // The inline boxes never take a share of the row (60% of a lone project
   // button, in a repo subdirectory, once left it 0px wide).
   assert.doesNotMatch(rules.slice(0, rules.indexOf(".project-picker.is-stacked {")), /max-width: [1-9]\d?%/);
+});
+
+test("the empty composer has a decorative CSS-animated bot instead of branding, without changing its controls", () => {
+  const bot = chatSource.match(/\{isEmptyNew && \(\s*(<div className="new-session-bot"[\s\S]*?)\s*\)\}/)?.[1];
+  assert.ok(bot);
+  assert.match(bot, /aria-hidden="true"/);
+  assert.equal((bot.match(/className="new-session-bot-eye"/g) ?? []).length, 2);
+  assert.doesNotMatch(chatSource, /new-session-brand|new-session-meta|NewSessionUpdateLink|\/api\/app-update/);
+  assert.match(chatSource, /className="new-session-hero-inner"[^\n]*>\s*\{newSessionContextBar\}/);
+  assert.match(css, /\.new-session-hero-inner \{[^}]*padding-top: 62\.7px;/);
+  assert.match(css, /@media \(max-width: 640px\) \{\s*\.new-session-hero-inner \{\s*padding-top: 56\.4px;/);
+  for (const name of ["float", "shadow", "look", "blink"]) {
+    assert.match(css, new RegExp(`animation: new-session-bot-${name} [^;]*infinite;`));
+    assert.ok(css.includes(`@keyframes new-session-bot-${name} {`));
+  }
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.new-session-bot \*,\s*\.new-session-bot-avatar::after \{\s*animation: none;/);
 });
