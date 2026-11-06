@@ -37,10 +37,14 @@ export function ompContent(raw: unknown, blobs?: string): AssistantContentBlock[
     return [];
   });
 }
-/** A provider error body can echo credentials. Keep the status, drop the body. */
+/** A provider error body can echo credentials: keep the first line (that is where the cause is), redact key-shaped text, drop the rest. */
+const OMP_SECRET = /\b(?:sk|pk|rk|ak|key|token|secret)[-_][A-Za-z0-9_-]{6,}|\bBearer\s+\S+|\b[A-Za-z0-9_-]{32,}\b/gi;
 export function safeOmpError(errorMessage: string): string {
   const status = /\b(?:4\d\d|5\d\d)\b/.exec(errorMessage)?.[0];
-  return `OMP model request failed${status ? ` (HTTP ${status})` : ""}. Check the provider, model and credentials in models.yml.`;
+  const head = `OMP model request failed${status ? ` (HTTP ${status})` : ""}`;
+  const detail = (errorMessage.split("\n").find((line) => line.trim()) ?? "")
+    .replace(/^\s*(?:HTTP\s*)?[45]\d\d[:\s]*/i, "").replace(OMP_SECRET, "[redacted]").trim().slice(0, 300);
+  return detail ? `${head}: ${detail}` : `${head}. Check the provider, model and credentials in models.yml.`;
 }
 export function ompMessage(raw: unknown, id: string, blobs?: string): OmpMessage | null {
   const message = object(raw);

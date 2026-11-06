@@ -114,9 +114,11 @@ test("OMP notices surface the native message instead of a guessed warning", asyn
   assert.equal(events[0].message, "Previous response hit the 1-token output limit");
   assert.equal(events[0].notifyType, "error");
 });
-test("OMP keeps the provider status and drops the remote error body", async () => {
+test("OMP keeps the provider cause and redacts credentials", async () => {
   const { safeOmpError } = await jiti.import("./transcript.ts");
-  assert.equal(safeOmpError("401 rejected fake-aligned-key fake-aligned-header"), "OMP model request failed (HTTP 401). Check the provider, model and credentials in models.yml.");
-  assert.doesNotMatch(safeOmpError("429 {\"apiKey\":\"sk-live-secret\"}"), /sk-live-secret/);
-  assert.match(safeOmpError("connection refused"), /^OMP model request failed\. /);
+  assert.equal(safeOmpError("403 An active OpenCode Go subscription is required to use Go models.\nAn active OpenCode Go subscription (type=permission_error)"),
+    "OMP model request failed (HTTP 403): An active OpenCode Go subscription is required to use Go models.");
+  assert.doesNotMatch(safeOmpError(`429 {"apiKey":"sk-live-${"x".repeat(20)}"}`), /sk-live-/);
+  assert.doesNotMatch(safeOmpError("401 invalid key-abcdef123456"), /key-abcdef123456/);
+  assert.equal(safeOmpError("connection refused"), "OMP model request failed: connection refused");
 });
