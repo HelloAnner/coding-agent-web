@@ -74,6 +74,7 @@ import { useSessionUiState } from "@/hooks/useSessionUiState";
 import { archiveViewState, useSidebarMotion } from "@/hooks/useSidebarMotion";
 import { AppSwitcher } from "./AppSwitcher";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { CreateDirectoryDialog } from "./CreateDirectoryDialog";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
@@ -216,6 +217,7 @@ type SessionRow = Extract<SidebarRow, { kind: "session" }>;
  * sessions", an archive header's "Delete all", the archive bar's two).
  */
 type SidebarMenuState =
+  | { kind: "new"; anchor: SidebarMenuAnchor; opener: HTMLElement }
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
@@ -429,6 +431,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  const [createDirectoryOpen, setCreateDirectoryOpen] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
@@ -922,9 +925,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     : undefined;
   const currentWorktreePath = currentWorktree?.path ?? null;
 
-  // `purpose`: who asked, the folder picker's opener by default ("Use default directory" names its own).
-  const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen } = {}) => {
+  // Every new session adopts the server's project identity before moving cwd.
+  const startNewSessionIn = useCallback(({ cwd, projectKey, projectRoot, carryComposer }: NewSessionTarget) => {
+    if (projectKey && projectRoot) setValidatedProject({ cwd, root: projectRoot, key: projectKey });
+    setSelectedCwd(cwd);
+    onNewSession?.(createTempSessionId(), cwd, projectKey, carryComposer ? { carryComposer: true } : undefined);
+  }, [onNewSession]);
+
+  // `purpose`: who asked, the folder picker's opener by default.
+  const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen }: {
+    remember?: boolean;
+    purpose?: false | "files" | "new-session" | "new-project";
+  } = {}) => {
     const path = (candidate ?? customPathValue).trim();
+    if (purpose === "new-project" && customPathValidating) throw new Error(t("sidebar.checking"));
     if (!path || customPathValidating) return;
 
     setCustomPathValidating(true);
@@ -942,7 +956,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         error?: string;
       };
       if (!res.ok || data.error || !data.cwd || !data.projectRoot || !data.projectKey) {
-        setCustomPathError(data.error ?? `HTTP ${res.status}`);
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      if (purpose === "new-project") {
+        // Keep the empty project listed across switches and reloads, without a fake session.
+        const saved = await applyUiStateRequest({ action: "pin-project", projectKey: data.projectKey, root: data.projectRoot, pinned: true });
+        if (!saved) throw new Error(t("sidebar.projectSaveFailed"));
+        setCreateDirectoryOpen(false);
+        setArchiveView(false);
+        setSessionSearchOpen(false);
+        startNewSessionIn({ cwd: data.cwd, projectKey: data.projectKey, projectRoot: data.projectRoot });
+        treeRevealIdRef.current += 1;
+        setTreeReveal({ id: treeRevealIdRef.current, at: Date.now(), rowKey: `group:${data.projectKey}` });
         return;
       }
       if (remember) {
@@ -969,11 +994,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       });
       setSelectedCwd(data.cwd);
     } catch (e) {
+      if (purpose === "new-project") throw e;
       setCustomPathError(e instanceof Error ? e.message : String(e));
     } finally {
       setCustomPathValidating(false);
     }
-  }, [customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
+  }, [applyUiStateRequest, customPathOpen, customPathValue, customPathValidating, focusAfterCommit, setArchiveView, startNewSessionIn, t]);
 
   const handleDefaultCwd = useCallback(async (purpose: "files" | "new-session" = "files") => {
     try {
@@ -1026,16 +1052,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onSelectSession(s, false, entryId, blockIndex, options);
   }, [onSelectSession]);
 
-  // Every "new session" goes through here. The cwd moves first, on the click
-  // path like a session pick, and the shell gets the target's project so it
-  // adopts it up front: a session in another project closes the previous
-  // project's file tabs instead of being mistaken for identity hydration.
-  const startNewSessionIn = useCallback(({ cwd, projectKey, projectRoot, carryComposer }: NewSessionTarget) => {
-    // A worktree without sessions has no other source of identity yet.
-    if (projectKey && projectRoot) setValidatedProject({ cwd, root: projectRoot, key: projectKey });
-    setSelectedCwd(cwd);
-    onNewSession?.(createTempSessionId(), cwd, projectKey, carryComposer ? { carryComposer: true } : undefined);
-  }, [onNewSession]);
   // The handle below is made once: it calls the newest closure.
   const startNewSessionInRef = useRef(startNewSessionIn);
   startNewSessionInRef.current = startNewSessionIn;
@@ -1072,7 +1088,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     archiveSession: (sessionId) => shortcutsRef.current.archiveSession(sessionId),
   }), [createWorktree, refreshWorktrees]);
 
-  // Header "+": a new session in the sidebar's current cwd (worktree).
+  // Header menu's "New conversation": keep using the current cwd (worktree).
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
     startNewSessionIn({ cwd: selectedCwd });
@@ -2214,7 +2230,27 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   let menuWidth: number | undefined;
   let menuItems: SidebarMenuItem[] | undefined;
   let menuBody: ReactNode = null;
-  if (menu?.kind === "row" && menuRow) {
+  if (menu?.kind === "new") {
+    menuTitle = menuLabel = t("sidebar.new");
+    menuItems = [
+      {
+        type: "item",
+        id: "new-session",
+        label: t("sidebar.newConversation"),
+        icon: <PlusIcon />,
+        disabled: !selectedCwd,
+        title: selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject"),
+        onSelect: handleNewSession,
+      },
+      {
+        type: "item",
+        id: "new-directory",
+        label: t("directoryPicker.newDirectory"),
+        icon: <FolderIcon />,
+        onSelect: () => setCreateDirectoryOpen(true),
+      },
+    ];
+  } else if (menu?.kind === "row" && menuRow) {
     menuTitle = sessionRowTitle(menuRow.family.root);
     menuLabel = t("sidebar.sessionActions");
     menuItems = sessionMenuItems(menuRow);
@@ -2437,6 +2473,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onSelect={(path) => void commitCustomPath(path)}
         />
       )}
+      {createDirectoryOpen && (
+        <CreateDirectoryDialog
+          parentPath="~"
+          description={t("sidebar.newFolderHint")}
+          onCancel={() => setCreateDirectoryOpen(false)}
+          onCreated={(path) => commitCustomPath(path, { purpose: "new-project" })}
+        />
+      )}
       {/* One toolbar row, in the cells of the chat's top bar beside it (its
           line continues that bar's): the brand (the panel's anchor, the
           versions on a click), then New and the sessions' search. The
@@ -2451,9 +2495,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <button
           type="button"
           className="sidebar-new-button"
-          onClick={handleNewSession}
-          disabled={!selectedCwd}
-          title={selectedCwd ? t("sidebar.newSessionTitle", { path: selectedCwd }) : t("sidebar.selectProject")}
+          onClick={(event) => setMenu({ kind: "new", anchor: buttonAnchor(event.currentTarget, "end"), opener: event.currentTarget })}
+          title={t("sidebar.new")}
+          aria-label={t("sidebar.new")}
+          aria-haspopup="menu"
+          aria-expanded={menu?.kind === "new"}
         >
           <PlusIcon size={12} />
           <span className="sidebar-new-label">{t("sidebar.new")}</span>

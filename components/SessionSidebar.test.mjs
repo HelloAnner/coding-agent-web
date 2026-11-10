@@ -170,6 +170,67 @@ test("the sidebar lists sessions only: the files live in the right panel", () =>
   assert.doesNotMatch(html, / inert[ =>]|sidebar-archive-view|is-entering|is-leaving/);
 });
 
+test("New stays available without a selected project and exposes a menu", () => {
+  const button = render().match(/<button[^>]*class="sidebar-new-button"[^>]*>/)?.[0];
+  assert.ok(button);
+  assert.match(button, /aria-haspopup="menu"/);
+  assert.match(button, /aria-expanded="false"/);
+  assert.doesNotMatch(button, /disabled/);
+  assert.match(source, /parentPath="~"[\s\S]*?purpose: "new-project"/);
+});
+
+test("a new folder is validated and saved before opening, and remains listed without sessions", async () => {
+  const { applySessionUiStateRequest, emptySessionUiState } = await jiti.import("@/lib/session-ui-state-shared.ts");
+  const code = ts.transpileModule(callbackBody("commitCustomPath"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const project = { cwd: "/home/test/new folder", projectRoot: "/home/test/new folder", projectKey: "/home/test/new folder" };
+  for (const failure of [null, "validate", "save"]) {
+    let state = emptySessionUiState();
+    const events = [];
+    const scope = {
+      useCallback: (callback) => callback,
+      customPathOpen: false, customPathValue: "", customPathValidating: false,
+      setCustomPathValidating: (busy) => events.push(["busy", busy]),
+      setCustomPathError: noop,
+      focusAfterCommit: noop,
+      setArchiveView: noop,
+      setSessionSearchOpen: noop,
+      setCreateDirectoryOpen: (open) => events.push(["dialog", open]),
+      startNewSessionIn: (target) => events.push(["start", { ...target }]),
+      treeRevealIdRef: { current: 0 },
+      setTreeReveal: noop,
+      t: (key) => key,
+      fetch: async (url, options) => {
+        assert.equal(url, "/api/cwd/validate");
+        assert.deepEqual(JSON.parse(options.body), { cwd: project.cwd });
+        return { ok: failure !== "validate", status: 400, json: async () => failure === "validate" ? { error: "missing folder" } : project };
+      },
+      applyUiStateRequest: async (request) => {
+        events.push(["save", { ...request }]);
+        if (failure === "save") return false;
+        state = applySessionUiStateRequest(state, request, BASE).state;
+        return true;
+      },
+    };
+    const commit = vm.runInNewContext(`${code}\ncommitCustomPath`, scope);
+    const result = commit(project.cwd, { purpose: "new-project" });
+    if (failure) {
+      await assert.rejects(result, failure === "validate" ? /missing folder/ : /sidebar.projectSaveFailed/);
+      assert.ok(!events.some(([kind]) => kind === "start" || kind === "dialog"), "a failure keeps the form and current conversation");
+    } else {
+      await result;
+      assert.deepEqual(events.filter(([kind]) => kind === "save" || kind === "start"), [
+        ["save", { action: "pin-project", projectKey: project.projectKey, root: project.projectRoot, pinned: true }],
+        ["start", project],
+      ]);
+      const reloaded = buildSessionTree(treeInput({ uiState: JSON.parse(JSON.stringify(state)) }));
+      assert.ok(reloaded.projects.some((item) => item.key === project.projectKey), "switching away or reloading retains the empty project");
+    }
+    assert.deepEqual(events.at(-1), ["busy", false]);
+  }
+});
+
 test("the archive view's motion in the CSS lasts as long as the hook's phase", async () => {
   const { SIDEBAR_MOTION_MS } = await jiti.import("@/hooks/useSidebarMotion.ts");
   // A phase ends on its element's own end event, else a little after

@@ -1833,6 +1833,112 @@ pre, code {
   outline-offset: -2px;
 }
 
+.create-directory-dialog {
+  width: min(400px, calc(100vw - 24px));
+  max-height: calc(var(--app-viewport-height, 100dvh) - 24px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.create-directory-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.create-directory-dialog h2 {
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.create-directory-body {
+  padding: 14px 18px;
+  font-size: 12px;
+}
+
+.create-directory-body p {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.create-directory-body label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.create-directory-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.create-directory-path {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.create-directory-body .create-directory-error {
+  margin: 10px 0 0;
+  color: #dc2626;
+  overflow-wrap: anywhere;
+}
+
+.create-directory-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.create-directory-actions button {
+  min-height: 36px;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.create-directory-actions .is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.create-directory-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.create-directory-actions button:not(:disabled):hover {
+  filter: brightness(0.95);
+}
+
+.create-directory-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .directory-picker-path:focus-visible {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
